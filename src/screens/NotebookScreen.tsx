@@ -4,6 +4,7 @@ import { View, TextInput, Button, Text, ScrollView } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../App';
 import { useLibrary } from '../context/LibraryContext';
+import { MESSAGES } from '../constants/messages';
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 
@@ -19,7 +20,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [content, setContent] = useState(book?.content ?? '');
   const [editing, setEditing] = useState(false);
 
-  if (!book) return <Text>本が見つかりません</Text>;
+  if (!book) return <Text>{MESSAGES.NOT_FOUND_BOOK}</Text>;
 
   return (
     <View style={{ flex: 1, padding: 20 }}>
@@ -59,7 +60,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             onChangeText={setContent}
           />
         ) : (
-          <Text style={{ fontSize: 16, lineHeight: 24 }}>{book.content}</Text>
+          <Text style={{ fontSize: 16, lineHeight: 24 }}>{book.content || MESSAGES.NEW_BOOK_CONTENT}</Text>
         )}
       </ScrollView>
     </View>

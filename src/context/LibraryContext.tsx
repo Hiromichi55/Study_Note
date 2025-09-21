@@ -1,13 +1,14 @@
 // src/context/LibraryContext.tsx
 import React, { createContext, useReducer, useContext } from 'react';
-import { Book } from '../types';
+import { Book } from '../types/types';
 
 type State = {
   books: Book[];
 };
 
 type Action =
-  | { type: 'UPDATE_CONTENT'; bookId: string; content: string };
+  | { type: 'UPDATE_CONTENT'; bookId: string; content: string }
+  | { type: 'ADD_BOOK'; id: string; title: string };
 
 const initialState: State = {
   books: [
@@ -24,6 +25,14 @@ function libraryReducer(state: State, action: Action): State {
         books: state.books.map((b) =>
           b.id === action.bookId ? { ...b, content: action.content } : b
         ),
+      };
+    case 'ADD_BOOK':
+      return {
+        ...state,
+        books: [
+          ...state.books,
+          { id: action.id, title: action.title, content: 'ここにテキストを入力してください' },
+        ],
       };
     default:
       return state;
