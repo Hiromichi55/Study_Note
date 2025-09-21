@@ -1,36 +1,63 @@
 // src/screens/NotebookScreen.tsx
-import React from 'react';
-import { View, Text, Button } from 'react-native';
+import React, { useState } from 'react';
+import { View, TextInput, Button, Text, ScrollView } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RootStackParamList } from '../types/navigation';
+import { RootStackParamList } from '../../App';
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
-type NotebookScreenNavProp = StackNavigationProp<RootStackParamList, 'Notebook'>;
 
 interface Props {
   route: NotebookScreenRouteProp;
-  navigation: NotebookScreenNavProp;
 }
 
-const NotebookScreen: React.FC<Props> = ({ route, navigation }) => {
+const NotebookScreen: React.FC<Props> = ({ route }) => {
   const { bookId } = route.params;
 
-  const notes = [
-    { id: 'n1', title: '1ページ目' },
-    { id: 'n2', title: '2ページ目' },
-  ];
+  // 仮データ（本ごとの大きなノート）
+  const initialContent =
+    bookId === '1'
+      ? 'これは基本情報技術者ノートの内容です。\nここに長いメモを書けます。'
+      : 'これは応用情報技術者ノートの内容です。\nこちらも長い文章を書けます。';
+
+  const [content, setContent] = useState(initialContent);
+  const [editing, setEditing] = useState(false);
 
   return (
     <View style={{ flex: 1, padding: 20 }}>
-      <Text style={{ fontSize: 24, marginBottom: 20 }}>ノート一覧（BookID: {bookId}）</Text>
-      {notes.map((note) => (
+      <Text style={{ fontSize: 20, marginBottom: 10 }}>BookID: {bookId}</Text>
+
+      <Button
+        title={editing ? '編集終了' : '編集する'}
+        onPress={() => setEditing(!editing)}
+      />
+
+      <ScrollView style={{ marginTop: 20 }}>
+        {editing ? (
+          <TextInput
+            style={{
+              borderWidth: 1,
+              padding: 10,
+              minHeight: 400,
+              textAlignVertical: 'top',
+            }}
+            multiline
+            value={content}
+            onChangeText={setContent}
+          />
+        ) : (
+          <Text style={{ fontSize: 16, lineHeight: 24 }}>{content}</Text>
+        )}
+      </ScrollView>
+
+      {editing && (
         <Button
-          key={note.id}
-          title={note.title}
-          onPress={() => navigation.navigate('NoteDetail', { bookId, noteId: note.id })}
+          title="保存"
+          onPress={() => {
+            console.log('保存した内容:', content);
+            setEditing(false);
+          }}
         />
-      ))}
+      )}
     </View>
   );
 };
