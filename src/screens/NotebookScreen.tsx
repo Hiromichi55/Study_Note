@@ -2,7 +2,8 @@
 import React, { useState } from 'react';
 import { View, TextInput, Button, Text, ScrollView } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
-import { RootStackParamList } from '../../App';
+import { RootStackParamList } from '../App';
+import { useLibrary } from '../context/LibraryContext';
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 
@@ -12,24 +13,37 @@ interface Props {
 
 const NotebookScreen: React.FC<Props> = ({ route }) => {
   const { bookId } = route.params;
+  const { state, dispatch } = useLibrary();
 
-  // 仮データ（本ごとの大きなノート）
-  const initialContent =
-    bookId === '1'
-      ? 'これは基本情報技術者ノートの内容です。\nここに長いメモを書けます。'
-      : 'これは応用情報技術者ノートの内容です。\nこちらも長い文章を書けます。';
-
-  const [content, setContent] = useState(initialContent);
+  const book = state.books.find((b) => b.id === bookId);
+  const [content, setContent] = useState(book?.content ?? '');
   const [editing, setEditing] = useState(false);
+
+  if (!book) return <Text>本が見つかりません</Text>;
 
   return (
     <View style={{ flex: 1, padding: 20 }}>
-      <Text style={{ fontSize: 20, marginBottom: 10 }}>BookID: {bookId}</Text>
+      <Text style={{ fontSize: 20, marginBottom: 10 }}>{book.title}</Text>
 
-      <Button
-        title={editing ? '編集終了' : '編集する'}
-        onPress={() => setEditing(!editing)}
-      />
+      <View style={{ flexDirection: 'row', marginBottom: 10 }}>
+        <View style={{ marginRight: editing ? 10 : 0 }}>
+          <Button
+            title={editing ? '編集終了' : '編集する'}
+            onPress={() => setEditing(!editing)}
+          />
+        </View>
+        {editing && (
+          <View>
+            <Button
+              title="保存"
+              onPress={() => {
+                dispatch({ type: 'UPDATE_CONTENT', bookId: book.id, content });
+                setEditing(false);
+              }}
+            />
+          </View>
+        )}
+      </View>
 
       <ScrollView style={{ marginTop: 20 }}>
         {editing ? (
@@ -45,19 +59,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             onChangeText={setContent}
           />
         ) : (
-          <Text style={{ fontSize: 16, lineHeight: 24 }}>{content}</Text>
+          <Text style={{ fontSize: 16, lineHeight: 24 }}>{book.content}</Text>
         )}
       </ScrollView>
-
-      {editing && (
-        <Button
-          title="保存"
-          onPress={() => {
-            console.log('保存した内容:', content);
-            setEditing(false);
-          }}
-        />
-      )}
     </View>
   );
 };
