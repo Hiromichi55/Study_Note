@@ -1,39 +1,26 @@
-
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, Button } from 'react-native';
+// App.tsx
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import SecondScreen from './SecondScreen';
+import HomeScreen from './src/screens/HomeScreen';
+import NotebookScreen from './src/screens/NotebookScreen';
 
+export type RootStackParamList = {
+  Home: undefined;
+  Notebook: { bookId: string };
+};
 
-const Stack = createStackNavigator();
+const Stack = createStackNavigator<RootStackParamList>();
 
-function HomeScreen({ navigation }: any) {
-  return (
-    <View style={styles.container}>
-      <Text>ハローワルド</Text>
-      <Button title="次の画面へ" onPress={() => navigation.navigate('Second')} />
-      <StatusBar style="auto" />
-    </View>
-  );
-}
-
-export default function App() {
+const App = () => {
   return (
     <NavigationContainer>
       <Stack.Navigator initialRouteName="Home">
-        <Stack.Screen name="Home" component={HomeScreen} options={{ title: 'ホーム' }} />
-        <Stack.Screen name="Second" component={SecondScreen} options={{ title: '2画面目' }} />
+        <Stack.Screen name="Home" component={HomeScreen} options={{ title: '本棚' }} />
+        <Stack.Screen name="Notebook" component={NotebookScreen} options={{ title: 'ノート' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
-}
+};
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+export default App;
