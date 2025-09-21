@@ -1,38 +1,51 @@
-# Study Notes
-aaaa
-# 仕様
+# 📚 Study Notes – プロジェクト構成
+
+## 🚀 アプリの起動
+```bash
 npx expo start
 
-''' shell
 project-root/
-├─ App.tsx               // アプリのエントリポイント（NavigationContainerをセット）
 ├─ package.json
 └─ src/
-   ├─ screens/           // 画面単位のコンポーネント
+   ├─ App.tsx               // アプリのエントリポイント
+   │
+   ├─ screens/              // 画面単位のコンポーネント
    │   ├─ HomeScreen.tsx
    │   ├─ NotebookScreen.tsx
    │   └─ NoteDetailScreen.tsx
    │
-   ├─ components/        // 小さいUI部品（カード、リストアイテム、エディタなど）
+   ├─ components/           // 小さいUI部品（カード、リストアイテム、エディタなど）
    │   ├─ BookCard.tsx
    │   ├─ NoteItem.tsx
    │   └─ NoteEditor.tsx
    │
-   ├─ context/           // Context APIやReducer（グローバル状態管理）
+   ├─ context/              // Context APIやReducer（グローバル状態管理）
    │   └─ LibraryContext.tsx
    │
-   ├─ hooks/             // カスタムフック（useNoteなど）
+   ├─ hooks/                // カスタムフック（useNoteなど）
    │   └─ useNote.ts
    │
-   ├─ navigation/        // ナビゲーション関連（型、Stack定義など）
+   ├─ navigation/           // ナビゲーション関連（型、Stack定義など）
    │   └─ RootStackParamList.ts
    │
-   ├─ types/             // 共通の型定義（Note, Bookなど）
+   ├─ types/                // 共通の型定義（Note, Bookなど）
    │   └─ index.ts
    │
-   ├─ styles/            // 共通スタイル（Themeなど）
+   ├─ styles/               // 共通スタイル（Themeなど）
    │   └─ theme.ts
    │
-   └─ utils/             // 汎用関数、フォーマッタなど
+   └─ utils/                // 汎用関数、フォーマッタなど
        └─ formatDate.ts
-'''
+```
+## 詳細
+| フォルダ            | 役割                                                                     |
+| --------------- | ---------------------------------------------------------------------- |
+| **App.tsx**     | アプリ全体のエントリポイント。`<NavigationContainer>` や `<LibraryProvider>` をここにまとめる。 |
+| **screens/**    | 画面単位のコンポーネント。React Navigation から呼び出される。                                |
+| **components/** | 複数画面で使い回す小さいUI部品（カード・リスト・エディタなど）。                                      |
+| **context/**    | React Context＋Reducerでアプリ全体の状態管理を行う。                                   |
+| **hooks/**      | よく使う処理をカスタムフックとして切り出し。                                                 |
+| **navigation/** | 画面遷移の型定義やStack設定をまとめる。                                                 |
+| **types/**      | Book, Noteなどのデータモデルを定義する。                                              |
+| **styles/**     | カラーテーマや共通スタイルなど。                                                       |
+| **utils/**      | 日付フォーマットなどの共通処理。                                                       |
