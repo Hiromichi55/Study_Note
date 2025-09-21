@@ -1,4 +1,5 @@
 // App.tsx
+import 'react-native-reanimated';
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -9,6 +10,7 @@ import { Text, StyleSheet } from 'react-native';
 import * as Font from 'expo-font';
 import AppLoading from 'expo-app-loading';
 import { MESSAGES } from './constants/messages';
+import 'react-native-gesture-handler';
 
 
 const Stack = createStackNavigator<RootStackParamList>();
