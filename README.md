@@ -1,9 +1,12 @@
 # 📚 Study Notes – プロジェクト構成
 
 ## 🚀 アプリの起動
-```bash
-npx expo start
 
+    npx expo start
+
+
+## フォルダ構成
+```bash
 project-root/
 ├─ package.json
 └─ src/
