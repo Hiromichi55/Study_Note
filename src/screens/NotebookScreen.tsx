@@ -1,6 +1,6 @@
 // src/screens/NotebookScreen.tsx
 import React, { useState } from 'react';
-import { View, TextInput, Button, Text, ScrollView } from 'react-native';
+import { View, TextInput, Button, Text, ScrollView, ImageBackground } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../App';
 import { useLibrary } from '../context/LibraryContext';
@@ -23,7 +23,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   if (!book) return <Text>{MESSAGES.NOT_FOUND_BOOK}</Text>;
 
   return (
-    <View style={{ flex: 1, padding: 20 }}>
+    <ImageBackground
+      source={require('../../assets/images/note.png')}
+      style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+      imageStyle={{ width: '100%', height: '100%' }}
+      resizeMode="contain"
+    >
+      <View style={{ flex: 1, padding: 20, backgroundColor: 'rgba(255,255,255,0.7)', width: '100%' }}>
       <Text style={{ fontSize: 20, marginBottom: 10 }}>{book.title}</Text>
 
       <View style={{ flexDirection: 'row', marginBottom: 10 }}>
@@ -60,10 +66,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             onChangeText={setContent}
           />
         ) : (
-          <Text style={{ fontSize: 16, lineHeight: 24 }}>{book.content || MESSAGES.NEW_BOOK_CONTENT}</Text>
+          <Text style={{ fontSize: 16, lineHeight: 24, fontFamily: 'MyFont' }}>{book.content || MESSAGES.NEW_BOOK_CONTENT}</Text>
         )}
       </ScrollView>
-    </View>
+      </View>
+    </ImageBackground>
   );
 };
 

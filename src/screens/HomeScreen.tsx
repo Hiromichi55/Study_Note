@@ -19,7 +19,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
   return (
     <View style={{ flex: 1, padding: 20 }}>
-  <Text style={{ fontSize: 24, marginBottom: 20 }}>{MESSAGES.SHELF_TITLE}</Text>
+  <Text style={{ fontSize: 24, marginBottom: 20}}>{MESSAGES.SHELF_TITLE}</Text>
 
       <View style={{ flexDirection: 'row', marginBottom: 20 }}>
         <TextInput

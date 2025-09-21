@@ -2,8 +2,12 @@
 
 ## 🚀 アプリの起動
 
-    npx expo start
+    npx start
 
+- package.jsonの"scripts"で"start"が定義されており、npm expo startが実行される。
+- Expoの開発サーバー(Metro Bundler)が起動される。
+- App.tsxが実行される。
+- QRコードをExpoアプリを入れたiphoneで読み取ると画面が表示される。
 
 ## フォルダ構成
 ```bash
@@ -13,9 +17,9 @@ project-root/
    ├─ App.tsx               // アプリのエントリポイント
    │
    ├─ screens/              // 画面単位のコンポーネント
-   │   ├─ HomeScreen.tsx
-   │   ├─ NotebookScreen.tsx
-   │   └─ NoteDetailScreen.tsx
+   │   ├─ HomeScreen.tsx    // タイトル画面
+   │   ├─ NotebookScreen.tsx // ノートの画面
+   │   └─ NoteDetailScreen.tsx // 編集画面
    │
    ├─ components/           // 小さいUI部品（カード、リストアイテム、エディタなど）
    │   ├─ BookCard.tsx
