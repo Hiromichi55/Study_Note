@@ -1,11 +1,10 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 
-export default function App() {
+export default function SecondScreen() {
   return (
     <View style={styles.container}>
-      <Text>ハローワルド</Text>
-      <StatusBar style="auto" />
+      <Text>これは2画面目です！</Text>
     </View>
   );
 }
