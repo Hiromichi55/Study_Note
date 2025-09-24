@@ -1,5 +1,6 @@
 // App.tsx
 import React from 'react';
+import { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import HomeScreen from './screens/HomeScreen';
@@ -7,11 +8,15 @@ import NotebookScreen from './screens/NotebookScreen';
 import { LibraryProvider } from './context/LibraryContext';
 import { Text, StyleSheet } from 'react-native';
 import * as Font from 'expo-font';
-import AppLoading from 'expo-app-loading';
+// import AppLoading from 'expo-app-loading';
+import * as SplashScreen from 'expo-splash-screen';
 import { MESSAGES } from './constants/messages';
 
 
 const Stack = createStackNavigator<RootStackParamList>();
+
+// アプリの起動時にスプラッシュスクリーンを保持
+SplashScreen.preventAutoHideAsync();
 
 export default function App() {
   const [fontsLoaded] = Font.useFonts({
