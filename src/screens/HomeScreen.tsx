@@ -39,8 +39,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             if (newTitle.trim()) { // 入力が空でなければ本を追加
               dispatch({ 
                 type: 'ADD_BOOK', 
-                id: Date.now().toString(), // 一意なIDとして現在時刻を文字列に
-                title: newTitle.trim() // 入力値（余白削除）
+                book: { 
+                  id: Date.now().toString(), // 一意なID
+                  title: newTitle.trim(),
+                  content: '' // 新規本なので空文字
+                } 
               });
               setNewTitle(''); // 入力欄をクリア
             }
