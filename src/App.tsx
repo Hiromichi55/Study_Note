@@ -8,7 +8,7 @@ import NotebookScreen from './screens/NotebookScreen';
 import { LibraryProvider } from './context/LibraryContext';
 import { Text, StyleSheet } from 'react-native';
 import * as Font from 'expo-font';
-// import AppLoading from 'expo-app-loading';
+import AppLoading from 'expo-app-loading';
 import * as SplashScreen from 'expo-splash-screen';
 import { MESSAGES } from './constants/messages';
 
