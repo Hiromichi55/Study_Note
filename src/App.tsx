@@ -35,7 +35,7 @@ export default function App() {
             headerTitleStyle: { fontFamily: 'MyFont' },
           }}
         >
-          <Stack.Screen name="Home" component={HomeScreen} options={{ title: MESSAGES.SHELF_TITLE }} />
+          <Stack.Screen name="Home" component={HomeScreen} options={{ title: MESSAGES.TITLE }} />
           <Stack.Screen name="Notebook" component={NotebookScreen} options={{ title: MESSAGES.NOTE_TITLE }} />
         </Stack.Navigator>
       </NavigationContainer>

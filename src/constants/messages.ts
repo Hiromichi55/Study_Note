@@ -3,6 +3,7 @@
 export const MESSAGES = {
 // Home
   SHELF_TITLE: '本棚',
+  TITLE: 'タイトル',
 // Note
   NEW_BOOK_CONTENT: 'ここにテキストを入力してください',
   NOT_FOUND_BOOK: '本が見つかりません',
