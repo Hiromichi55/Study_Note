@@ -19,8 +19,16 @@ type Action =
   | { type: 'UPDATE_CONTENT'; bookId: string; content: string }
   | { type: 'SET_LOADING'; isLoading: boolean };
 
+const initialBooks: Book[] = [
+  { id: '1', title: '本A', content: '' },
+  { id: '2', title: '本B', content: '' },
+  { id: '3', title: '本C', content: '' },
+  { id: '4', title: '本D', content: '' },
+  { id: '5', title: '本E', content: '' },
+];
+
 const initialState: State = { 
-  books: [], 
+  books: initialBooks,
   isLoading: true 
 };
 
@@ -65,11 +73,11 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const setupDatabase = async () => {
       try {
         dispatch({ type: 'SET_LOADING', isLoading: true });
-        
+
         // データベース初期化
         const database = await initDB();
         setDb(database);
-        
+
         // テーブル作成
         await database.execAsync(`
           CREATE TABLE IF NOT EXISTS books (
@@ -78,15 +86,26 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
             content TEXT
           );
         `);
-        
+
         // データ読み込み
         const result = await database.getAllAsync('SELECT * FROM books;');
-        const books: Book[] = result.map((row: any) => ({
+        let books: Book[] = result.map((row: any) => ({
           id: String(row.id),
           title: String(row.title),
           content: String(row.content || ''),
         }));
-        
+
+        // ✅ データベースが空なら初期データを挿入
+        if (books.length === 0) {
+          for (const book of initialBooks) {
+            await database.runAsync(
+              'INSERT INTO books (id, title, content) VALUES (?, ?, ?)',
+              [book.id, book.title, book.content]
+            );
+          }
+          books = initialBooks; // 上書き
+        }
+
         dispatch({ type: 'SET_BOOKS', books });
         dispatch({ type: 'SET_LOADING', isLoading: false });
       } catch (error) {

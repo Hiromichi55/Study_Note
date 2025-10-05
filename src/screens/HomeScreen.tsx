@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   TextInput,
   Button,
   Image,
+  ImageSourcePropType,
   TouchableOpacity,
   ImageBackground,
   Dimensions,
@@ -12,6 +13,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  FlatList,
 } from 'react-native';
 
 import { useLibrary } from '../context/LibraryContext';
@@ -27,10 +29,26 @@ interface Props {
 
 const screenWidth = Dimensions.get('window').width;
 const screenHeight = Dimensions.get('window').height;
+// 画像のソースを取得
+const bookImageSource: ImageSourcePropType = require('../../assets/images/blue_book.png');
 
+// 画像の幅と高さを同期的に取得
+const { width: imgWidth, height: imgHeight } = Image.resolveAssetSource(bookImageSource);
+
+// IMAGE_WIDTHは画面幅の1/4
+const IMAGE_WIDTH = screenWidth / 6;
+
+// IMAGE_HEIGHTは縦横比維持で計算
+const IMAGE_HEIGHT = (IMAGE_WIDTH * imgHeight) / imgWidth;
+
+
+console.log('Screen Width:', screenWidth);
+console.log('Screen Height:', screenHeight);
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { state, dispatch } = useLibrary();
   const [newTitle, setNewTitle] = useState('');
+  const [width, setWidth] = useState(0);
+  const [height, setHeight] = useState(0);
 
   return (
     <KeyboardAvoidingView
@@ -38,33 +56,38 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ImageBackground
-        source={require('../../assets/images/background.png')}
+        source={require('../../assets/images/title.png')}
         style={styles.background}
         resizeMode="cover"
       >
         {/* 📚 本リスト */}
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.title}>{MESSAGES.SHELF_TITLE}</Text>
-
-          {state.books.map((book) => (
-            <TouchableOpacity
-              key={book.id}
-              onPress={() => navigation.navigate('Notebook', { bookId: book.id })}
-              style={styles.bookItem}
-            >
-              <View style={styles.bookImageWrapper}>
+        <FlatList
+          data={state.books}
+          keyExtractor={(item) => item.id}
+          numColumns={5}
+          contentContainerStyle={styles.gridContainer}
+          ListHeaderComponent={
+            <Text style={styles.title}>{MESSAGES.SHELF_TITLE}</Text>
+          }
+          renderItem={({ item }) => (
+            <View style={styles.bookItem}>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('Notebook', { bookId: item.id })}
+                style={styles.bookImageWrapper}
+                //style={[styles.bookImageWrapper, { backgroundColor: 'rgba(255,0,0,0.3)' }]} // デバッグ用背景色（透過赤）
+              >
                 <Image
                   source={require('../../assets/images/blue_book.png')}
                   style={styles.bookImage}
                   resizeMode="contain"
                 />
-                <Text style={styles.bookTitle}>
-                  {book.title.split('').join('\n')}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+              </TouchableOpacity>
+              <Text style={styles.bookTitle}>
+                {item.title.split('').join('\n')}
+              </Text>
+            </View>
+          )}
+        />
 
         {/* ⬇️ 画面下部に固定された追加フォーム */}
         <View style={styles.inputRow}>
@@ -106,9 +129,16 @@ const styles = StyleSheet.create({
     flex: 1,
     width: screenWidth,
   },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 100, // 下に余白確保
+  centerWrapper: {
+    flex: 1,
+    justifyContent: 'center',  // 縦中央
+    alignItems: 'center',      // 横中央
+  },
+  gridContainer: {
+    flex: 1,
+    paddingHorizontal: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   title: {
     fontSize: 24,
@@ -116,29 +146,37 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   bookItem: {
-    position: 'relative',
-    width: 120,
-    height: 120,
+    width: IMAGE_WIDTH,
+    height: IMAGE_HEIGHT,  // 画像サイズ + タイトル表示用の余白
     justifyContent: 'center',
     alignItems: 'center',
-    alignSelf: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
+    marginHorizontal: 0,
+  },
+  touchable: {
+    width: IMAGE_WIDTH,
+    height: IMAGE_HEIGHT,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   bookImageWrapper: {
+    width: IMAGE_WIDTH,
+    height: IMAGE_HEIGHT,
     position: 'relative',
-    width: 80,
-    height: 80,
+    padding: 0,
+    margin: 0,
+    borderWidth: 0,
   },
   bookImage: {
     width: '100%',
     height: '100%',
-    position: 'absolute',
   },
   bookTitle: {
     fontSize: 12,
     color: 'black',
     textAlign: 'center',
     lineHeight: 14,
+    marginTop: 5,
   },
   inputRow: {
     flexDirection: 'row',
