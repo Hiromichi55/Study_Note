@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   ImageBackground,
   Dimensions,
-  ScrollView,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
@@ -20,6 +19,7 @@ import { useLibrary } from '../context/LibraryContext';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../App';
 import { MESSAGES } from '../constants/messages';
+import { Book } from '../context/LibraryContext';
 
 type HomeScreenNavProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -29,26 +29,34 @@ interface Props {
 
 const screenWidth = Dimensions.get('window').width;
 const screenHeight = Dimensions.get('window').height;
-// 画像のソースを取得
-const bookImageSource: ImageSourcePropType = require('../../assets/images/blue_book.png');
 
-// 画像の幅と高さを同期的に取得
-const { width: imgWidth, height: imgHeight } = Image.resolveAssetSource(bookImageSource);
+// 色に応じた画像マッピング
+const bookImages: { [key in Book['color']]: ImageSourcePropType } = {
+  blue: require('../../assets/images/blue_book.png'),
+  cyan: require('../../assets/images/cyan_book.png'),
+  green: require('../../assets/images/green_book.png'),
+  pink: require('../../assets/images/pink_book.png'),
+  red: require('../../assets/images/red_book.png'),
+  yellow: require('../../assets/images/yellow_book.png'),
+};
 
-// IMAGE_WIDTHは画面幅の1/4
-const IMAGE_WIDTH = screenWidth / 6;
+// 任意の色をランダムに返す関数
+const getRandomColor = (): Book['color'] => {
+  const colors: Book['color'][] = ['blue', 'cyan', 'green', 'pink', 'red', 'yellow'];
+  return colors[Math.floor(Math.random() * colors.length)];
+};
 
-// IMAGE_HEIGHTは縦横比維持で計算
+// 幅と高さの取得
+const { width: imgWidth, height: imgHeight } = Image.resolveAssetSource(bookImages.blue);
+const IMAGE_WIDTH = screenWidth / 5.5;
 const IMAGE_HEIGHT = (IMAGE_WIDTH * imgHeight) / imgWidth;
 
+const FONT_SIZE = IMAGE_HEIGHT * 0.1; // 画像高さの12%
+const LINE_HEIGHT = FONT_SIZE * 1;   // 文字の間隔
 
-console.log('Screen Width:', screenWidth);
-console.log('Screen Height:', screenHeight);
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
-  const { state, dispatch } = useLibrary();
+  const { state, addBook } = useLibrary(); // ✅ addBook を使う
   const [newTitle, setNewTitle] = useState('');
-  const [width, setWidth] = useState(0);
-  const [height, setHeight] = useState(0);
 
   return (
     <KeyboardAvoidingView
@@ -66,30 +74,27 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           keyExtractor={(item) => item.id}
           numColumns={5}
           contentContainerStyle={styles.gridContainer}
-          ListHeaderComponent={
-            <Text style={styles.title}>{MESSAGES.SHELF_TITLE}</Text>
-          }
           renderItem={({ item }) => (
-            <View style={styles.bookItem}>
-              <TouchableOpacity
-                onPress={() => navigation.navigate('Notebook', { bookId: item.id })}
-                style={styles.bookImageWrapper}
-                //style={[styles.bookImageWrapper, { backgroundColor: 'rgba(255,0,0,0.3)' }]} // デバッグ用背景色（透過赤）
-              >
-                <Image
-                  source={require('../../assets/images/blue_book.png')}
-                  style={styles.bookImage}
-                  resizeMode="contain"
-                />
-              </TouchableOpacity>
-              <Text style={styles.bookTitle}>
+          <View style={styles.bookItem}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Notebook', { bookId: item.id })}
+              style={styles.bookImageWrapper}
+            >
+              <Image
+                source={bookImages[item.color]}
+                style={styles.bookImage}
+                resizeMode="contain"
+              />
+              {/* ✅ タイトルを画像の上に絶対配置 */}
+              <Text style={styles.bookTitleOverlay}>
                 {item.title.split('').join('\n')}
               </Text>
-            </View>
-          )}
+            </TouchableOpacity>
+          </View>
+        )}
         />
 
-        {/* ⬇️ 画面下部に固定された追加フォーム */}
+        {/* 📘 本の追加フォーム */}
         <View style={styles.inputRow}>
           <TextInput
             style={styles.textInput}
@@ -99,18 +104,19 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           />
           <Button
             title="追加"
-            onPress={() => {
-              if (newTitle.trim()) {
-                dispatch({
-                  type: 'ADD_BOOK',
-                  book: {
-                    id: Date.now().toString(),
-                    title: newTitle.trim(),
-                    content: '',
-                  },
-                });
-                setNewTitle('');
-              }
+            onPress={async () => {
+              const trimmed = newTitle.trim();
+              if (!trimmed) return;
+
+              const color = getRandomColor();
+              await addBook({
+                id: Date.now().toString(),
+                title: trimmed,
+                content: '',
+                color, // ✅ 色を指定して保存
+              });
+
+              setNewTitle('');
             }}
           />
         </View>
@@ -129,14 +135,8 @@ const styles = StyleSheet.create({
     flex: 1,
     width: screenWidth,
   },
-  centerWrapper: {
-    flex: 1,
-    justifyContent: 'center',  // 縦中央
-    alignItems: 'center',      // 横中央
-  },
   gridContainer: {
     flex: 1,
-    paddingHorizontal: 0,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -147,25 +147,15 @@ const styles = StyleSheet.create({
   },
   bookItem: {
     width: IMAGE_WIDTH,
-    height: IMAGE_HEIGHT,  // 画像サイズ + タイトル表示用の余白
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-    marginHorizontal: 0,
-  },
-  touchable: {
-    width: IMAGE_WIDTH,
     height: IMAGE_HEIGHT,
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 8,
+    marginHorizontal: -(IMAGE_WIDTH * 0.03),
   },
   bookImageWrapper: {
     width: IMAGE_WIDTH,
     height: IMAGE_HEIGHT,
-    position: 'relative',
-    padding: 0,
-    margin: 0,
-    borderWidth: 0,
   },
   bookImage: {
     width: '100%',
@@ -183,7 +173,7 @@ const styles = StyleSheet.create({
     padding: 10,
     backgroundColor: 'rgba(255,255,255,0.9)',
     position: 'absolute',
-    top: (screenHeight * 2) / 3, // 上から2/3の位置に固定
+    top: (screenHeight * 2) / 3,
     left: 0,
     right: 0,
   },
@@ -193,5 +183,20 @@ const styles = StyleSheet.create({
     padding: 8,
     marginRight: 8,
     backgroundColor: 'white',
+  },
+  bookTitleOverlay: {
+    position: 'absolute',
+    top: '70%',
+    left: '32%',
+    transform: [
+      { translateX: -IMAGE_WIDTH * 0.5 },
+      { translateY: -IMAGE_HEIGHT * 0.4 }, // 少し上に寄せる
+    ],
+    width: IMAGE_WIDTH,
+    fontSize: FONT_SIZE,
+    lineHeight: LINE_HEIGHT,
+    color: 'black',
+    textAlign: 'center',
+    fontFamily: 'dartsfont',
   },
 });

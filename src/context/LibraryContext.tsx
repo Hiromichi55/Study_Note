@@ -6,7 +6,9 @@ export type Book = {
   id: string;
   title: string;
   content: string;
+  color: 'blue' | 'cyan' | 'green' | 'pink' | 'red' | 'yellow'; // 本の色
 };
+
 
 type State = {
   books: Book[];
@@ -20,11 +22,11 @@ type Action =
   | { type: 'SET_LOADING'; isLoading: boolean };
 
 const initialBooks: Book[] = [
-  { id: '1', title: '本A', content: '' },
-  { id: '2', title: '本B', content: '' },
-  { id: '3', title: '本C', content: '' },
-  { id: '4', title: '本D', content: '' },
-  { id: '5', title: '本E', content: '' },
+  { id: '1', title: '国語', content: '', color: 'red' },
+  { id: '2', title: '英語', content: '', color: 'yellow' },
+  { id: '3', title: '理科', content: '', color: 'green' },
+  { id: '4', title: '数学', content: '', color: 'blue' },
+  // { id: '5', title: '社会', content: '', color: 'cyan' },
 ];
 
 const initialState: State = { 
@@ -78,29 +80,44 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const database = await initDB();
         setDb(database);
 
+        // ✅ 一時的に DB を初期化して、正しいデータを挿入
+        await database.execAsync(`DROP TABLE IF EXISTS books;`);
+
         // テーブル作成
         await database.execAsync(`
           CREATE TABLE IF NOT EXISTS books (
             id TEXT PRIMARY KEY NOT NULL, 
             title TEXT NOT NULL, 
-            content TEXT
+            content TEXT,
+            color TEXT NOT NULL
           );
         `);
 
+        // 🔁 初期データ挿入
+        for (const book of initialBooks) {
+          await database.runAsync(
+            'INSERT INTO books (id, title, content, color) VALUES (?, ?, ?, ?)',
+            [book.id, book.title, book.content, book.color]
+          );
+        }
+
         // データ読み込み
         const result = await database.getAllAsync('SELECT * FROM books;');
+        console.log('📘 現在のbooksテーブル:', result);
+
         let books: Book[] = result.map((row: any) => ({
           id: String(row.id),
           title: String(row.title),
           content: String(row.content || ''),
+          color: (row.color || 'blue') as Book['color'],  // ✅ 明示的に型を指定
         }));
 
         // ✅ データベースが空なら初期データを挿入
         if (books.length === 0) {
           for (const book of initialBooks) {
             await database.runAsync(
-              'INSERT INTO books (id, title, content) VALUES (?, ?, ?)',
-              [book.id, book.title, book.content]
+              'INSERT INTO books (id, title, content, color) VALUES (?, ?, ?, ?)',
+              [book.id, book.title, book.content, book.color]
             );
           }
           books = initialBooks; // 上書き
@@ -126,8 +143,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     try {
       await db.runAsync(
-        'INSERT OR REPLACE INTO books (id, title, content) VALUES (?, ?, ?)',
-        [book.id, book.title, book.content || '']
+        'INSERT OR REPLACE INTO books (id, title, content, color) VALUES (?, ?, ?, ?)',
+        [book.id, book.title, book.content || '', book.color] // ← color を渡す
       );
       dispatch({ type: 'ADD_BOOK', book });
     } catch (error) {
