@@ -39,11 +39,13 @@ const LibraryContext = createContext<{
   dispatch: React.Dispatch<Action>;
   addBook: (book: Book) => Promise<void>;
   updateContent: (bookId: string, content: string) => Promise<void>;
+  reorderBooks: (newBooks: Book[]) => Promise<void>; 
 }>({
   state: initialState,
   dispatch: () => null,
   addBook: async () => {},
   updateContent: async () => {},
+  reorderBooks: async () => {},
 });
 
 function libraryReducer(state: State, action: Action): State {
@@ -66,6 +68,8 @@ function libraryReducer(state: State, action: Action): State {
   }
 }
 
+
+
 export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(libraryReducer, initialState);
   const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
@@ -86,13 +90,13 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         );
         const tableExists = tableCheckResult.length > 0;
 
-        const isDelete = false; // trueにすると毎回初期化される
+        const isDelete = true; // trueにすると毎回初期化される
         if (isDelete) {
           // ✅ 一時的に DB を初期化して、正しいデータを挿入
           await database.execAsync(`DROP TABLE IF EXISTS books;`);
         }
 
-        if (!tableExists) {
+        if (!tableExists || isDelete) {
           // テーブル作成
           await database.execAsync(`
             CREATE TABLE books (
@@ -181,8 +185,35 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const reorderBooks = async (newBooks: Book[]) => {
+    if (!db) {
+      console.error('Database not initialized');
+      return;
+    }
+
+    try {
+      await db.execAsync('BEGIN TRANSACTION;');
+
+      await db.execAsync('DELETE FROM books;');
+
+      for (const book of newBooks) {
+        const statement = await db.prepareAsync(
+          'INSERT OR REPLACE INTO books (id, title, content, color) VALUES (?, ?, ?, ?)'
+        );
+        await statement.executeAsync([book.id, book.title, book.content, book.color]);
+        await statement.finalizeAsync();
+      }
+
+      await db.execAsync('COMMIT;');
+      dispatch({ type: 'SET_BOOKS', books: newBooks });
+    } catch (error) {
+      await db.execAsync('ROLLBACK;');
+      console.error('並び替えの保存エラー:', error);
+    }
+  };
+
   return (
-    <LibraryContext.Provider value={{ state, dispatch, addBook, updateContent }}>
+    <LibraryContext.Provider value={{ state, dispatch, addBook, updateContent, reorderBooks }}>
       {children}
     </LibraryContext.Provider>
   );

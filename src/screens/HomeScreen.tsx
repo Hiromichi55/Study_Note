@@ -1,9 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import DraggableFlatList, { RenderItemParams }  from 'react-native-draggable-flatlist';
+import Animated from 'react-native-reanimated';
+
+
 import {
   View,
   Text,
-  TextInput,
-  Button,
   Image,
   ImageSourcePropType,
   TouchableOpacity,
@@ -12,7 +14,6 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  FlatList,
 } from 'react-native';
 
 import { useLibrary } from '../context/LibraryContext';
@@ -59,13 +60,19 @@ const COLOR_ICON_HEIGHT = IMAGE_HEIGHT / 1.5;
 
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
-  const { state, addBook } = useLibrary(); // ✅ addBook を使う
+  const { state, addBook, reorderBooks } = useLibrary(); // ✅ addBook を使う
   const [newTitle, setNewTitle] = useState('');
   // 追加：useStateで画像サイズを追跡
   const [imageLayout, setImageLayout] = useState({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT });
   const [isSelectingColor, setIsSelectingColor] = useState(false);
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<any>(null);
   const [shouldScrollToEnd, setShouldScrollToEnd] = useState(false);
+  const [bookData, setBookData] = useState<Book[]>([]);
+
+  useEffect(() => {
+    setBookData(state.books); // 状態が変わるたび更新
+  }, [state.books]);
+
 
   const handleAddBookWithColor = async (color: Book['color']) => {
     const newId = Date.now().toString(); // ユニークなIDを生成
@@ -80,12 +87,48 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   // state.booksが変化したらスクロールする
-  React.useEffect(() => {
+  useEffect(() => {
     if (shouldScrollToEnd && flatListRef.current) {
       flatListRef.current.scrollToEnd({ animated: true });
       setShouldScrollToEnd(false); // スクロール済みとしてリセット
     }
   }, [state.books, shouldScrollToEnd]);
+
+  const renderItem = ({ item, drag, isActive }: RenderItemParams<Book>) => {
+    return (
+      <Animated.View style={{ opacity: isActive ? 0.8 : 1 }}>
+        <TouchableOpacity
+          onLongPress={drag} // ✅ 長押しでドラッグ
+          disabled={isActive} // ✅ ドラッグ中はタッチ無効
+          onPress={() => navigation.navigate('Notebook', { bookId: item.id })}
+          style={styles.bookItem}
+        >
+          <Image
+            source={bookImages[item.color]}
+            style={styles.bookImage}
+            resizeMode="contain"
+            onLayout={(e) => {
+              const { width, height } = e.nativeEvent.layout;
+              setImageLayout({ width, height });
+            }}
+          />
+          <Text
+            style={[
+              styles.bookTitleOverlay,
+              {
+                transform: [
+                  { translateX: -imageLayout.width * 0.5 },
+                  { translateY: -imageLayout.height * 0.4 },
+                ],
+              },
+            ]}
+          >
+            {item.title.split('').join('\n')}
+          </Text>
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
 
   return (
     <KeyboardAvoidingView
@@ -98,69 +141,47 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         resizeMode="cover"
       >
         {/* 📚 本リスト */}
-        <FlatList
-          ref={flatListRef}
-          data={state.books}
-          keyExtractor={(item) => item.id}
-          // numColumns={5}
-          horizontal
-          contentContainerStyle={styles.horizontalScrollContainer}
-          renderItem={({ item }) => (
-          <View style={styles.bookItem}>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('Notebook', { bookId: item.id })}
-              style={styles.bookImageWrapper}
-            >
-              <Image
-                source={bookImages[item.color as Book['color']]}
-                style={styles.bookImage}
-                resizeMode="contain"
-                onLayout={(e) => {
-                  const { width, height } = e.nativeEvent.layout;
-                  setImageLayout({ width, height });
-                }}
-              />
-              {/* ✅ タイトルを画像の上に絶対配置 */}
-              <Text 
-              style={[
-                styles.bookTitleOverlay,
-                {
-                  transform: [
-                    { translateX: -imageLayout.width * 0.5 },
-                    { translateY: -imageLayout.height * 0.4 }, // 少し上に寄せる
-                  ]
-                }]}>
-                {item.title.split('').join('\n')}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        />
-
-        {/* 📘 本の追加フォーム */}
+        <View style={styles.bookListWrapper}>
+          <DraggableFlatList
+            ref={flatListRef}
+            data={bookData}
+            keyExtractor={(item) => item.id}
+            horizontal
+            renderItem={renderItem}
+            onDragEnd={({ data }) => {
+              setBookData(data);       // 見た目用
+              reorderBooks(data);      // データ保存＆反映
+            }}
+            contentContainerStyle={styles.horizontalScrollContainer}
+          />
+        </View>
         <View style={styles.addBookSection}>
-        <TouchableOpacity onPress={() => setIsSelectingColor(!isSelectingColor)} style={styles.addButton}>
-          <Text style={styles.addButtonText}>・本を追加</Text>
-        </TouchableOpacity>
-
-        {isSelectingColor && (
-          <View style={styles.colorPicker}>
-            {(['blue', 'cyan', 'green', 'pink', 'red', 'yellow'] as Book['color'][]).map((color) => (
-              <TouchableOpacity
-                key={color}
-                onPress={() => handleAddBookWithColor(color)}
-                style={styles.colorButton}
-              >
-                <Image
-                  source={bookImages[color]}
-                  style={styles.colorImage}
-                  resizeMode="contain"
-                />
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </View>
+          <TouchableOpacity
+            onPress={() => setIsSelectingColor(!isSelectingColor)}
+            style={styles.addButton}
+          >
+            <Text style={styles.addButtonText}>・本を追加</Text>
+          </TouchableOpacity>
+          {isSelectingColor && (
+            <View style={styles.colorPicker}>
+              {(['blue', 'cyan', 'green', 'pink', 'red', 'yellow'] as Book['color'][]).map(
+                (color) => (
+                  <TouchableOpacity
+                    key={color}
+                    onPress={() => handleAddBookWithColor(color)}
+                    style={styles.colorButton}
+                  >
+                    <Image
+                      source={bookImages[color]}
+                      style={styles.colorImage}
+                      resizeMode="contain"
+                    />
+                  </TouchableOpacity>
+                )
+              )}
+            </View>
+          )}
+        </View>
       </ImageBackground>
     </KeyboardAvoidingView>
   );
@@ -185,6 +206,7 @@ const styles = StyleSheet.create({
   paddingHorizontal: 50,
   paddingVertical: 20,
   alignItems: 'center',
+  justifyContent: 'center',   // ✅ 縦方向中央揃え
 },
   title: {
     fontSize: 24,
@@ -279,6 +301,11 @@ colorButton: {
 colorImage: {
   width: '100%',
   height: '100%',
+},
+bookListWrapper: {
+  height: screenHeight , // 高さを確保
+  justifyContent: 'center',  // ✅ 縦方向中央に
+  alignItems: 'center',      // ✅ 横方向中央に
 },
 
 });
