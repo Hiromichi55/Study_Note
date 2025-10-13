@@ -57,6 +57,9 @@ const LINE_HEIGHT = FONT_SIZE * 1;   // 文字の間隔
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { state, addBook } = useLibrary(); // ✅ addBook を使う
   const [newTitle, setNewTitle] = useState('');
+  // 追加：useStateで画像サイズを追跡
+  const [imageLayout, setImageLayout] = useState({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT });
+
 
   return (
     <KeyboardAvoidingView
@@ -84,9 +87,21 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
                 source={bookImages[item.color]}
                 style={styles.bookImage}
                 resizeMode="contain"
+                onLayout={(e) => {
+                  const { width, height } = e.nativeEvent.layout;
+                  setImageLayout({ width, height });
+                }}
               />
               {/* ✅ タイトルを画像の上に絶対配置 */}
-              <Text style={styles.bookTitleOverlay}>
+              <Text 
+              style={[
+                styles.bookTitleOverlay,
+                {
+                  transform: [
+                    { translateX: -imageLayout.width * 0.5 },
+                    { translateY: -imageLayout.height * 0.4 }, // 少し上に寄せる
+                  ]
+                }]}>
                 {item.title.split('').join('\n')}
               </Text>
             </TouchableOpacity>
@@ -188,10 +203,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: '70%',
     left: '32%',
-    transform: [
-      { translateX: -IMAGE_WIDTH * 0.5 },
-      { translateY: -IMAGE_HEIGHT * 0.4 }, // 少し上に寄せる
-    ],
     width: IMAGE_WIDTH,
     fontSize: FONT_SIZE,
     lineHeight: LINE_HEIGHT,
