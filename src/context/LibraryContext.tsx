@@ -79,26 +79,37 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // データベース初期化
         const database = await initDB();
         setDb(database);
+        
+        // ✅ テーブルが存在するか確認（非同期版）
+        const tableCheckResult = await database.getAllAsync(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='books';"
+        );
+        const tableExists = tableCheckResult.length > 0;
 
-        // ✅ 一時的に DB を初期化して、正しいデータを挿入
-        await database.execAsync(`DROP TABLE IF EXISTS books;`);
+        const isDelete = false; // trueにすると毎回初期化される
+        if (isDelete) {
+          // ✅ 一時的に DB を初期化して、正しいデータを挿入
+          await database.execAsync(`DROP TABLE IF EXISTS books;`);
+        }
 
-        // テーブル作成
-        await database.execAsync(`
-          CREATE TABLE IF NOT EXISTS books (
-            id TEXT PRIMARY KEY NOT NULL, 
-            title TEXT NOT NULL, 
-            content TEXT,
-            color TEXT NOT NULL
-          );
-        `);
+        if (!tableExists) {
+          // テーブル作成
+          await database.execAsync(`
+            CREATE TABLE books (
+              id TEXT PRIMARY KEY NOT NULL, 
+              title TEXT NOT NULL, 
+              content TEXT,
+              color TEXT NOT NULL
+            );
+          `);
 
-        // 🔁 初期データ挿入
-        for (const book of initialBooks) {
-          await database.runAsync(
-            'INSERT INTO books (id, title, content, color) VALUES (?, ?, ?, ?)',
-            [book.id, book.title, book.content, book.color]
-          );
+          // 初期データ挿入
+          for (const book of initialBooks) {
+            await database.runAsync(
+              'INSERT INTO books (id, title, content, color) VALUES (?, ?, ?, ?)',
+              [book.id, book.title, book.content, book.color]
+            );
+          }
         }
 
         // データ読み込み

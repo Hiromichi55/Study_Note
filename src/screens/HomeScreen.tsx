@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   horizontalScrollContainer: {
-  paddingHorizontal: 10,
+  paddingHorizontal: 50,
   paddingVertical: 20,
   alignItems: 'center',
 },
