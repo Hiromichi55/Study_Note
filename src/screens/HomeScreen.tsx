@@ -125,28 +125,28 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
         {/* 📘 本の追加フォーム */}
         <View style={styles.addBookSection}>
-          {!isSelectingColor ? (
-            <TouchableOpacity onPress={() => setIsSelectingColor(true)} style={styles.addButton}>
-              <Text style={styles.addButtonText}>本を追加</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.colorPicker}>
-              {(['blue', 'cyan', 'green', 'pink', 'red', 'yellow'] as Book['color'][]).map((color) => (
-                <TouchableOpacity
-                  key={color}
-                  onPress={() => handleAddBookWithColor(color)}
-                  style={styles.colorButton}
-                >
-                  <Image
-                    source={bookImages[color]}
-                    style={styles.colorImage}
-                    resizeMode="contain"
-                  />
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
+        <TouchableOpacity onPress={() => setIsSelectingColor(!isSelectingColor)} style={styles.addButton}>
+          <Text style={styles.addButtonText}>・本を追加</Text>
+        </TouchableOpacity>
+
+        {isSelectingColor && (
+          <View style={styles.colorPicker}>
+            {(['blue', 'cyan', 'green', 'pink', 'red', 'yellow'] as Book['color'][]).map((color) => (
+              <TouchableOpacity
+                key={color}
+                onPress={() => handleAddBookWithColor(color)}
+                style={styles.colorButton}
+              >
+                <Image
+                  source={bookImages[color]}
+                  style={styles.colorImage}
+                  resizeMode="contain"
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
       </ImageBackground>
     </KeyboardAvoidingView>
   );
@@ -224,7 +224,6 @@ const styles = StyleSheet.create({
   },
   addBookSection: {
   padding: 10,
-  backgroundColor: 'rgba(255,255,255,0.9)',
   position: 'absolute',
   top: (screenHeight * 2) / 3,
   left: 0,
@@ -233,15 +232,16 @@ const styles = StyleSheet.create({
 },
 
 addButton: {
-  backgroundColor: '#007AFF',
   paddingVertical: 10,
   paddingHorizontal: 20,
   borderRadius: 5,
 },
 
 addButtonText: {
-  color: 'white',
-  fontSize: 16,
+  backgroundColor: 'rgba(255, 255, 255, 0)', // ← 透明度 60% に変更
+  color: 'black',
+  fontSize: 35,
+  fontFamily: 'dartsfont',
 },
 
 colorPicker: {
