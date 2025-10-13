@@ -54,12 +54,26 @@ const IMAGE_HEIGHT = (IMAGE_WIDTH * imgHeight) / imgWidth;
 const FONT_SIZE = IMAGE_HEIGHT * 0.1; // 画像高さの12%
 const LINE_HEIGHT = FONT_SIZE * 1;   // 文字の間隔
 
+const COLOR_ICON_WIDTH = IMAGE_WIDTH / 1.5;
+const COLOR_ICON_HEIGHT = IMAGE_HEIGHT / 1.5;
+
+
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { state, addBook } = useLibrary(); // ✅ addBook を使う
   const [newTitle, setNewTitle] = useState('');
   // 追加：useStateで画像サイズを追跡
   const [imageLayout, setImageLayout] = useState({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT });
+  const [isSelectingColor, setIsSelectingColor] = useState(false);
 
+  const handleAddBookWithColor = async (color: Book['color']) => {
+    await addBook({
+      id: Date.now().toString(),
+      title: '新しい本', // ←固定でも、空文字でも、ランダムでもOK
+      content: '',
+      color,
+    });
+    setIsSelectingColor(false); // 色選択モードを終了
+  };
 
   return (
     <KeyboardAvoidingView
@@ -110,30 +124,28 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         />
 
         {/* 📘 本の追加フォーム */}
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.textInput}
-            placeholder={MESSAGES.ADD_BOOK_PLACEHOLDER}
-            value={newTitle}
-            onChangeText={setNewTitle}
-          />
-          <Button
-            title="追加"
-            onPress={async () => {
-              const trimmed = newTitle.trim();
-              if (!trimmed) return;
-
-              const color = getRandomColor();
-              await addBook({
-                id: Date.now().toString(),
-                title: trimmed,
-                content: '',
-                color, // ✅ 色を指定して保存
-              });
-
-              setNewTitle('');
-            }}
-          />
+        <View style={styles.addBookSection}>
+          {!isSelectingColor ? (
+            <TouchableOpacity onPress={() => setIsSelectingColor(true)} style={styles.addButton}>
+              <Text style={styles.addButtonText}>本を追加</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.colorPicker}>
+              {(['blue', 'cyan', 'green', 'pink', 'red', 'yellow'] as Book['color'][]).map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  onPress={() => handleAddBookWithColor(color)}
+                  style={styles.colorButton}
+                >
+                  <Image
+                    source={bookImages[color]}
+                    style={styles.colorImage}
+                    resizeMode="contain"
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
       </ImageBackground>
     </KeyboardAvoidingView>
@@ -210,4 +222,44 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontFamily: 'dartsfont',
   },
+  addBookSection: {
+  padding: 10,
+  backgroundColor: 'rgba(255,255,255,0.9)',
+  position: 'absolute',
+  top: (screenHeight * 2) / 3,
+  left: 0,
+  right: 0,
+  alignItems: 'center',
+},
+
+addButton: {
+  backgroundColor: '#007AFF',
+  paddingVertical: 10,
+  paddingHorizontal: 20,
+  borderRadius: 5,
+},
+
+addButtonText: {
+  color: 'white',
+  fontSize: 16,
+},
+
+colorPicker: {
+  flexDirection: 'row',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginTop: 10,
+},
+
+colorButton: {
+  width: COLOR_ICON_WIDTH,
+  height: COLOR_ICON_HEIGHT,
+  marginHorizontal: 6,
+},
+
+colorImage: {
+  width: '100%',
+  height: '100%',
+},
+
 });
