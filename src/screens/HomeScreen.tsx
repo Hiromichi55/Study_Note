@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -64,16 +64,28 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   // 追加：useStateで画像サイズを追跡
   const [imageLayout, setImageLayout] = useState({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT });
   const [isSelectingColor, setIsSelectingColor] = useState(false);
+  const flatListRef = useRef<FlatList>(null);
+  const [shouldScrollToEnd, setShouldScrollToEnd] = useState(false);
 
   const handleAddBookWithColor = async (color: Book['color']) => {
+    const newId = Date.now().toString(); // ユニークなIDを生成
     await addBook({
-      id: Date.now().toString(),
+      id: newId,
       title: '新しい本', // ←固定でも、空文字でも、ランダムでもOK
       content: '',
       color,
     });
     setIsSelectingColor(false); // 色選択モードを終了
+    setShouldScrollToEnd(true);  // スクロールすべきフラグを立てる
   };
+
+  // state.booksが変化したらスクロールする
+  React.useEffect(() => {
+    if (shouldScrollToEnd && flatListRef.current) {
+      flatListRef.current.scrollToEnd({ animated: true });
+      setShouldScrollToEnd(false); // スクロール済みとしてリセット
+    }
+  }, [state.books, shouldScrollToEnd]);
 
   return (
     <KeyboardAvoidingView
@@ -87,10 +99,12 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       >
         {/* 📚 本リスト */}
         <FlatList
+          ref={flatListRef}
           data={state.books}
           keyExtractor={(item) => item.id}
-          numColumns={5}
-          contentContainerStyle={styles.gridContainer}
+          // numColumns={5}
+          horizontal
+          contentContainerStyle={styles.horizontalScrollContainer}
           renderItem={({ item }) => (
           <View style={styles.bookItem}>
             <TouchableOpacity
@@ -98,7 +112,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               style={styles.bookImageWrapper}
             >
               <Image
-                source={bookImages[item.color]}
+                source={bookImages[item.color as Book['color']]}
                 style={styles.bookImage}
                 resizeMode="contain"
                 onLayout={(e) => {
@@ -167,6 +181,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  horizontalScrollContainer: {
+  paddingHorizontal: 10,
+  paddingVertical: 20,
+  alignItems: 'center',
+},
   title: {
     fontSize: 24,
     marginBottom: 20,
