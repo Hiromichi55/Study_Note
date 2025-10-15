@@ -7,6 +7,7 @@ export type Book = {
   title: string;
   content: string;
   color: 'blue' | 'cyan' | 'green' | 'pink' | 'red' | 'yellow'; // 本の色
+  order_index: number; // 並び順を管理するためのフィールド
 };
 
 
@@ -22,11 +23,11 @@ type Action =
   | { type: 'SET_LOADING'; isLoading: boolean };
 
 const initialBooks: Book[] = [
-  { id: '1', title: '国語', content: '', color: 'red' },
-  { id: '2', title: '英語', content: '', color: 'yellow' },
-  { id: '3', title: '理科', content: '', color: 'green' },
-  { id: '4', title: '数学', content: '', color: 'blue' },
-  // { id: '5', title: '社会', content: '', color: 'cyan' },
+  { id: '1', title: '国語', content: '', color: 'red', order_index: 0 },
+  { id: '2', title: '英語', content: '', color: 'yellow', order_index: 1 },
+  { id: '3', title: '理科', content: '', color: 'green', order_index: 2 },
+  { id: '4', title: '数学', content: '', color: 'blue', order_index: 3 },
+  // { id: '5', title: '社会', content: '', color: 'cyan', order_index: 4 },
 ];
 
 const initialState: State = { 
@@ -103,15 +104,16 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
               id TEXT PRIMARY KEY NOT NULL, 
               title TEXT NOT NULL, 
               content TEXT,
-              color TEXT NOT NULL
+              color TEXT NOT NULL,
+              order_index INTEGER DEFAULT 0
             );
           `);
 
           // 初期データ挿入
           for (const book of initialBooks) {
             await database.runAsync(
-              'INSERT INTO books (id, title, content, color) VALUES (?, ?, ?, ?)',
-              [book.id, book.title, book.content, book.color]
+              'INSERT INTO books (id, title, content, color, order_index) VALUES (?, ?, ?, ?, ?)',
+              [book.id, book.title, book.content, book.color, book.order_index]
             );
           }
         }
@@ -125,6 +127,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           title: String(row.title),
           content: String(row.content || ''),
           color: (row.color || 'blue') as Book['color'],  // ✅ 明示的に型を指定
+          order_index: Number(row.order_index || 0), // order_index フィールドを追加
         }));
 
         // ✅ データベースが空なら初期データを挿入
@@ -158,8 +161,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     try {
       await db.runAsync(
-        'INSERT OR REPLACE INTO books (id, title, content, color) VALUES (?, ?, ?, ?)',
-        [book.id, book.title, book.content || '', book.color] // ← color を渡す
+        'INSERT OR REPLACE INTO books (id, title, content, color, order_index) VALUES (?, ?, ?, ?, ?)',
+        [book.id, book.title, book.content || '', book.color, book.order_index]
       );
       dispatch({ type: 'ADD_BOOK', book });
     } catch (error) {
@@ -194,18 +197,28 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await db.execAsync('BEGIN TRANSACTION;');
 
-      await db.execAsync('DELETE FROM books;');
-
-      for (const book of newBooks) {
-        const statement = await db.prepareAsync(
-          'INSERT OR REPLACE INTO books (id, title, content, color) VALUES (?, ?, ?, ?)'
+      // order_indexを0から連番で振り直して順番更新
+      for (let i = 0; i < newBooks.length; i++) {
+        const book = newBooks[i];
+        await db.runAsync(
+          'UPDATE books SET order_index = ? WHERE id = ?',
+          [i, book.id]
         );
-        await statement.executeAsync([book.id, book.title, book.content, book.color]);
-        await statement.finalizeAsync();
       }
 
       await db.execAsync('COMMIT;');
-      dispatch({ type: 'SET_BOOKS', books: newBooks });
+
+      // 更新後のDB内容を取得してログ出力
+      const result = await db.getAllAsync('SELECT * FROM books ORDER BY order_index ASC;');
+      console.log('🔄 並び替え後のbooksテーブル:', JSON.stringify(result, null, 2)); // テーブルチェック
+
+      // state側も更新。order_indexを修正した状態でセット
+      const updatedBooks = newBooks.map((book, index) => ({
+        ...book,
+        order_index: index,
+      }));
+
+      dispatch({ type: 'SET_BOOKS', books: updatedBooks });
     } catch (error) {
       await db.execAsync('ROLLBACK;');
       console.error('並び替えの保存エラー:', error);

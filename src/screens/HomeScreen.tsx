@@ -75,14 +75,27 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleAddBookWithColor = async (color: Book['color']) => {
     const newId = Date.now().toString(); // ユニークなIDを生成
-    await addBook({
+    const newBook: Book = {
       id: newId,
-      title: '新しい本', // ←固定でも、空文字でも、ランダムでもOK
+      title: 'NEW',
       content: '',
       color,
-    });
+      order_index: state.books.length, // 追加する本の順序を最後に設定
+    };
+    await addBook(newBook);
     setIsSelectingColor(false); // 色選択モードを終了
-    setShouldScrollToEnd(true);  // スクロールすべきフラグを立てる
+    
+    // スクロールのために一時的に新しい本も含めたデータを更新
+    const updatedBooks = [...state.books, newBook];
+    setBookData(updatedBooks);
+
+    // 少し遅らせてからスクロール（描画待ち）
+    setTimeout(() => {
+      const newIndex = updatedBooks.findIndex((b) => b.id === newId);
+      if (flatListRef.current && newIndex >= 0) {
+        flatListRef.current.scrollToIndex({ index: newIndex, animated: true });
+      }
+    }, 100);
   };
 
   // state.booksが変化したらスクロールする
@@ -159,7 +172,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           </TouchableOpacity>
           {isSelectingColor && (
             <View style={styles.colorPicker}>
-              {(['blue', 'cyan', 'green', 'pink', 'red', 'yellow'] as Book['color'][]).map(
+              {(['red', 'pink', 'yellow', 'green', 'cyan', 'blue'] as Book['color'][]).map(
                 (color) => (
                   <TouchableOpacity
                     key={color}
@@ -249,13 +262,12 @@ const styles = StyleSheet.create({
   },
   bookTitleOverlay: {
     position: 'absolute',
-    top: '70%',
-    left: '32%',
+    top: '30%',
+    left: '16%',
     width: IMAGE_WIDTH,
     fontSize: FONT_SIZE,
     lineHeight: LINE_HEIGHT,
     color: 'black',
-    textAlign: 'center',
     fontFamily: 'dartsfont',
   },
   addBookSection: {
