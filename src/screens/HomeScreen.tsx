@@ -308,7 +308,7 @@ addButton: {
 addButtonText: {
   backgroundColor: 'rgba(255, 255, 255, 0)', // ← 透明度 60% に変更
   color: 'black',
-  fontSize: 35,
+  fontSize: 40,
   fontFamily: 'dartsfont',
 },
 
