@@ -55,8 +55,8 @@ const IMAGE_HEIGHT = (IMAGE_WIDTH * imgHeight) / imgWidth;
 const FONT_SIZE = IMAGE_HEIGHT * 0.1; // 画像高さの12%
 const LINE_HEIGHT = FONT_SIZE * 1;   // 文字の間隔
 
-const COLOR_ICON_WIDTH = IMAGE_WIDTH / 1.5;
-const COLOR_ICON_HEIGHT = IMAGE_HEIGHT / 1.5;
+const COLOR_ICON_WIDTH = IMAGE_WIDTH / 1.7;
+const COLOR_ICON_HEIGHT = IMAGE_HEIGHT / 1.7;
 
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
@@ -96,6 +96,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         flatListRef.current.scrollToIndex({ index: newIndex, animated: true });
       }
     }, 100);
+  };
+
+  const handleShowInstructions = () => {
+    console.log('使い方');
   };
 
   // state.booksが変化したらスクロールする
@@ -189,6 +193,12 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               )}
             </View>
           )}
+          <TouchableOpacity
+            onPress={() => handleShowInstructions()}
+            style={styles.addButton}
+          >
+            <Text style={styles.addButtonText}>・使い方　</Text>
+          </TouchableOpacity>
         </View>
       </ImageBackground>
     </KeyboardAvoidingView>
@@ -297,6 +307,19 @@ colorPicker: {
   justifyContent: 'center',
   alignItems: 'center',
   marginTop: 10,
+    // 背景と装飾
+  backgroundColor: 'rgba(255, 255, 255, 0.95)', // 少し透けた白
+  padding: 10,
+  borderRadius: 12,
+  borderWidth: 1,
+  borderColor: '#ccc',
+
+  // iOS shadow（Androidでは elevation）
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.2,
+  shadowRadius: 4,
+  elevation: 5, // Android用
 },
 
 colorButton: {
