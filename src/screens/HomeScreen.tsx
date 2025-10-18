@@ -79,7 +79,6 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     const newBook: Book = {
       id: newId,
       title: 'NEW',
-      content: '',
       color,
       order_index: state.books.length, // 追加する本の順序を最後に設定
     };
