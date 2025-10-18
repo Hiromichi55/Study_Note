@@ -11,7 +11,7 @@ import * as Font from 'expo-font';
 import AppLoading from 'expo-app-loading';
 import * as SplashScreen from 'expo-splash-screen';
 import { MESSAGES } from './constants/messages';
-
+import { Provider as PaperProvider } from 'react-native-paper';
 
 const Stack = createStackNavigator<RootStackParamList>();
 
@@ -29,16 +29,18 @@ export default function App() {
 
   return (
     <LibraryProvider>
-      <NavigationContainer>
-        <Stack.Navigator initialRouteName="Home"
-          screenOptions={{
-            headerTitleStyle: { fontFamily: 'MyFont' },
-          }}
-        >
-          <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }}  />
-          <Stack.Screen name="Notebook" component={NotebookScreen} options={{ title: MESSAGES.NOTE_TITLE }} />
-        </Stack.Navigator>
-      </NavigationContainer>
+      <PaperProvider>
+        <NavigationContainer>
+          <Stack.Navigator initialRouteName="Home"
+            screenOptions={{
+              headerTitleStyle: { fontFamily: 'MyFont' },
+            }}
+          >
+            <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }}  />
+            <Stack.Screen name="Notebook" component={NotebookScreen} options={{ title: MESSAGES.NOTE_TITLE }} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </PaperProvider>
     </LibraryProvider>
   );
 }
