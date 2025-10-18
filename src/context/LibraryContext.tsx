@@ -5,7 +5,6 @@ import { initDB } from '../db/db';
 export type Book = {
   id: string;
   title: string;
-  content: string;
   color: 'blue' | 'cyan' | 'green' | 'pink' | 'red' | 'yellow'; // 本の色
   order_index: number; // 並び順を管理するためのフィールド
 };
@@ -19,15 +18,14 @@ type State = {
 type Action =
   | { type: 'SET_BOOKS'; books: Book[] }
   | { type: 'ADD_BOOK'; book: Book }
-  | { type: 'UPDATE_CONTENT'; bookId: string; content: string }
   | { type: 'SET_LOADING'; isLoading: boolean };
 
 const initialBooks: Book[] = [
-  { id: '1', title: '国語', content: '', color: 'red', order_index: 0 },
-  { id: '2', title: '英語', content: '', color: 'yellow', order_index: 1 },
-  { id: '3', title: '理科', content: '', color: 'green', order_index: 2 },
-  { id: '4', title: '数学', content: '', color: 'blue', order_index: 3 },
-  // { id: '5', title: '社会', content: '', color: 'cyan', order_index: 4 },
+  { id: '1', title: '国語', color: 'red', order_index: 0 },
+  { id: '2', title: '英語', color: 'yellow', order_index: 1 },
+  { id: '3', title: '理科', color: 'green', order_index: 2 },
+  { id: '4', title: '数学', color: 'blue', order_index: 3 },
+  // { id: '5', title: '社会', color: 'cyan', order_index: 4 },
 ];
 
 const initialState: State = { 
@@ -39,13 +37,11 @@ const LibraryContext = createContext<{
   state: State;
   dispatch: React.Dispatch<Action>;
   addBook: (book: Book) => Promise<void>;
-  updateContent: (bookId: string, content: string) => Promise<void>;
   reorderBooks: (newBooks: Book[]) => Promise<void>; 
 }>({
   state: initialState,
   dispatch: () => null,
   addBook: async () => {},
-  updateContent: async () => {},
   reorderBooks: async () => {},
 });
 
@@ -55,13 +51,6 @@ function libraryReducer(state: State, action: Action): State {
       return { ...state, books: action.books };
     case 'ADD_BOOK':
       return { ...state, books: [...state.books, action.book] };
-    case 'UPDATE_CONTENT':
-      return {
-        ...state,
-        books: state.books.map(b =>
-          b.id === action.bookId ? { ...b, content: action.content } : b
-        ),
-      };
     case 'SET_LOADING':
       return { ...state, isLoading: action.isLoading };
     default:
@@ -103,7 +92,6 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
             CREATE TABLE books (
               id TEXT PRIMARY KEY NOT NULL, 
               title TEXT NOT NULL, 
-              content TEXT,
               color TEXT NOT NULL,
               order_index INTEGER DEFAULT 0
             );
@@ -112,8 +100,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // 初期データ挿入
           for (const book of initialBooks) {
             await database.runAsync(
-              'INSERT INTO books (id, title, content, color, order_index) VALUES (?, ?, ?, ?, ?)',
-              [book.id, book.title, book.content, book.color, book.order_index]
+              'INSERT INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
+              [book.id, book.title, book.color, book.order_index]
             );
           }
         }
@@ -125,7 +113,6 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         let books: Book[] = result.map((row: any) => ({
           id: String(row.id),
           title: String(row.title),
-          content: String(row.content || ''),
           color: (row.color || 'blue') as Book['color'],  // ✅ 明示的に型を指定
           order_index: Number(row.order_index || 0), // order_index フィールドを追加
         }));
@@ -134,8 +121,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (books.length === 0) {
           for (const book of initialBooks) {
             await database.runAsync(
-              'INSERT INTO books (id, title, content, color) VALUES (?, ?, ?, ?)',
-              [book.id, book.title, book.content, book.color]
+              'INSERT INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
+              [book.id, book.title, book.color, book.order_index]
             );
           }
           books = initialBooks; // 上書き
@@ -161,30 +148,12 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     try {
       await db.runAsync(
-        'INSERT OR REPLACE INTO books (id, title, content, color, order_index) VALUES (?, ?, ?, ?, ?)',
-        [book.id, book.title, book.content || '', book.color, book.order_index]
+        'INSERT OR REPLACE INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
+        [book.id, book.title || '', book.color, book.order_index]
       );
       dispatch({ type: 'ADD_BOOK', book });
     } catch (error) {
       console.error('本の追加エラー:', error);
-    }
-  };
-
-  // コンテンツを更新する関数
-  const updateContent = async (bookId: string, content: string) => {
-    if (!db) {
-      console.error('Database not initialized');
-      return;
-    }
-
-    try {
-      await db.runAsync(
-        'UPDATE books SET content = ? WHERE id = ?',
-        [content, bookId]
-      );
-      dispatch({ type: 'UPDATE_CONTENT', bookId, content });
-    } catch (error) {
-      console.error('コンテンツ更新エラー:', error);
     }
   };
 
@@ -226,7 +195,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   return (
-    <LibraryContext.Provider value={{ state, dispatch, addBook, updateContent, reorderBooks }}>
+    <LibraryContext.Provider value={{ state, dispatch, addBook, reorderBooks }}>
       {children}
     </LibraryContext.Provider>
   );
