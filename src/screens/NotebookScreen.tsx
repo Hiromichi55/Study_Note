@@ -34,13 +34,28 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           onDismiss={closeMenu}
           anchor={
             <TouchableOpacity onPress={openMenu} style={{ paddingRight: 15 }}>
-              <Ionicons name="ellipsis-horizontal" size={24} color="black" />
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  backgroundColor: '#FFFFFF', // 白背景
+                  borderWidth: 2,
+                  borderColor: '#4FC3F7',     // 水色の枠
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Ionicons name="ellipsis-horizontal" size={20} color='#4FC3F7' /> {/* アイコンを水色に */}
+              </View>
             </TouchableOpacity>
           }
+          contentStyle={{
+            marginTop: 40, // ← これで「下にずらす」
+          }}
         >
           <Menu.Item onPress={() => { 
             closeMenu();
-            // 新規追加処理
             console.log('追加処理');
           }} title="ノートを追加" />
           <Menu.Item onPress={() => {
@@ -49,7 +64,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           }} title="ノートを編集" />
           <Menu.Item onPress={() => {
             closeMenu();
-            // 削除処理
             dispatch({ type: 'DELETE_BOOK', bookId: book!.id });
           }} title="ノートを削除" />
         </Menu>
