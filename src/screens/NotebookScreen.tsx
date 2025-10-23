@@ -1,4 +1,4 @@
-import React, { useState, useLayoutEffect } from 'react';
+import React, { useState, useLayoutEffect, useRef } from 'react';
 import {
   View,
   TextInput,
@@ -12,6 +12,7 @@ import {
   Keyboard,
 } from 'react-native';
 import PagerView from 'react-native-pager-view';
+import Slider from '@react-native-community/slider'; // ← 追加！
 import { RouteProp, useNavigation } from '@react-navigation/native';
 import { useLibrary } from '../context/LibraryContext';
 import { MESSAGES } from '../constants/messages';
@@ -34,12 +35,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [editing, setEditing] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
+  const pagerRef = useRef<PagerView>(null); // ← ページ移動用参照を追加
 
   const [pages, setPages] = useState<string[]>(
     Array.isArray(book?.content) ? book?.content : [book?.content ?? '']
   );
 
-  // 🔍 追加部分：検索用ステート
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -122,39 +123,48 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             <View style={[styles.container, { backgroundColor: 'transparent'}]}>
               <Text style={styles.title}>{book.title}</Text>
 
-              {/* スライダー部分 */}
-              <View style={{ flex: 1, height: 400, marginBottom: 100 }}>
-                <PagerView
-                  style={{ flex: 1 }}
-                  initialPage={currentPage}
-                  onPageSelected={(e) => setCurrentPage(e.nativeEvent.position)}
-                >
-                  {pages.map((page, index) => (
-                    <View key={index} style={{ padding: 16 }}>
-                      {editing ? (
-                        <TextInput
-                          style={[styles.textInput, { minHeight: 200 }]}
-                          multiline
-                          value={pages[index]}
-                          onChangeText={(text) => {
-                            const updatedPages = [...pages];
-                            updatedPages[index] = text;
-                            setPages(updatedPages);
-                          }}
-                        />
-                      ) : (
-                        <Text style={styles.contentText}>
-                          {page || MESSAGES.NEW_BOOK_CONTENT}
-                        </Text>
-                      )}
-                    </View>
-                  ))}
-                </PagerView>
+              {/* スライダー付きページビュー */}
+              <View
+                style={{
+                  position: 'absolute',
+                  bottom: 150,
+                  left: 20,
+                  right: 20,
+                  height: 200,
+                  backgroundColor: 'white',
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: 'red',
+                  overflow: 'hidden',
+                  shadowColor: '#000',
+                  shadowOpacity: 0.2,
+                  shadowOffset: { width: 0, height: 3 },
+                  elevation: 5,
+                }}
+              >
+
+
+                {/* 丸いつまみのスライダー（ページ切り替え用） */}
+                <View style={{ paddingHorizontal: 20, paddingBottom: 10 }}>
+                  <Slider
+                    minimumValue={0}
+                    maximumValue={pages.length - 1}
+                    step={1}
+                    value={currentPage}
+                    minimumTrackTintColor="#000"
+                    maximumTrackTintColor="#ccc"
+                    thumbTintColor="#000" // 丸いつまみの色
+                    onValueChange={(v) => {
+                      setCurrentPage(v);
+                      pagerRef.current?.setPage(v);
+                    }}
+                  />
+                </View>
               </View>
             </View>
           </ImageBackground>
 
-          {/* 🔍 検索バー（虫眼鏡押下時に表示） */}
+          {/* 🔍 検索バー */}
           {showSearch && (
             <View
               style={{
@@ -185,7 +195,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 autoFocus
-                // 👇 日本語IMEを出しやすくする設定
                 keyboardType="default"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -199,10 +208,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           )}
 
           {/* 編集ボタン（右下） */}
-          <TouchableOpacity
-            style={styles.floatingEditButton}
-            onPress={() => setEditing(!editing)}
-          >
+          <TouchableOpacity style={styles.floatingEditButton} onPress={() => {}}>
             <Ionicons name={editing ? 'checkmark' : 'create'} size={35} color="white" />
           </TouchableOpacity>
 
