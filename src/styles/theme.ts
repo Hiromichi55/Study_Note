@@ -174,16 +174,32 @@ export const styles = StyleSheet.create({
     scroll: {
     marginTop: 20,
   },
+//   textInput: {
+//     borderWidth: 1,
+//     padding: 10,
+//     minHeight: 400,
+//     textAlignVertical: 'top',  // Androidでテキスト入力の縦方向の位置をトップに固定
+//   },
+//   contentText: {
+//     fontSize: 16,
+//     lineHeight: 24,
+//     fontFamily: 'MyFont',
+//   },
   textInput: {
-    borderWidth: 1,
-    padding: 10,
-    minHeight: 400,
-    textAlignVertical: 'top',  // Androidでテキスト入力の縦方向の位置をトップに固定
+  fontSize: 16,
+  padding: 12,
+  backgroundColor: 'black',
+  borderRadius: 8,
+  textAlignVertical: 'top',
+  minHeight: 200,
   },
+
   contentText: {
     fontSize: 16,
     lineHeight: 24,
-    fontFamily: 'MyFont',
+    backgroundColor: 'black',
+    padding: 12,
+    borderRadius: 8,
   },
     title: {
     fontSize: 20,
