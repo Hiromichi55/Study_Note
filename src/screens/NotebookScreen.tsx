@@ -115,34 +115,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       >
         <View style={styles.backgroundWrapper}>
           <ImageBackground
-            source={require('../../assets/images/title.png')}
+            source={require('../../assets/images/note.png')}
             style={styles.background}
             resizeMode="contain"
           >
-            <View style={styles.container}>
+            <View style={[styles.container, { backgroundColor: 'transparent'}]}>
               <Text style={styles.title}>{book.title}</Text>
-
-              <View style={styles.buttonRow}>
-                <View style={editing ? styles.editButtonWrapper : undefined}>
-                  <Button
-                    title={editing ? '編集終了' : '編集する'}
-                    onPress={() => setEditing(!editing)}
-                  />
-                </View>
-                {editing && (
-                  <Button
-                    title="保存"
-                    onPress={() => {
-                      dispatch({
-                        type: 'UPDATE_CONTENT',
-                        bookId: book.id,
-                        content: pages,
-                      });
-                      setEditing(false);
-                    }}
-                  />
-                )}
-              </View>
 
               {/* スライダー部分 */}
               <View style={{ flex: 1, height: 400, marginBottom: 100 }}>
