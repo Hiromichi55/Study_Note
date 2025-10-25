@@ -116,6 +116,17 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               }}
               extraData={bookData} // ← 状態更新に合わせて再レンダリング
               contentContainerStyle={styles.horizontalScrollContainer}
+              getItemLayout={(data, index) => ({
+                length: theme.IMAGE_WIDTH,           // アイテムの幅
+                offset: theme.IMAGE_WIDTH * index,   // オフセット計算
+                index,
+              })}
+                onScrollToIndexFailed={(info) => {
+                  // 失敗した場合に少し待って再スクロール
+                  setTimeout(() => {
+                    flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
+                  }, 100);
+                }}
             />
           </View>
 
