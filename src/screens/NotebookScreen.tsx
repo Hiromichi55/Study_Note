@@ -38,6 +38,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const pagerRef = useRef<PagerView>(null); // ← ページ移動用参照を追加
+  const searchInputRef = useRef<TextInput>(null);
 
   const [pages, setPages] = useState<string[]>(
     Array.isArray(book?.content) ? book?.content : [book?.content ?? '']
@@ -125,174 +126,197 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   if (!book) return <Text>{MESSAGES.NOT_FOUND_BOOK}</Text>;
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <View style={styles.backgroundWrapper}>
-          <ImageBackground
-            source={require('../../assets/images/note.png')}
-            style={styles.background}
-            resizeMode="contain"
-          >
-            {/* ノート全体をタップで切り替え */}
-            <TouchableOpacity
-              style={[styles.container, { backgroundColor: 'transparent', flex: 1 }]}
-              activeOpacity={1}
-              onPress={() => setIsVisible(!isVisible)} // ← ここで表示切り替え！
+    <TouchableWithoutFeedback 
+      onPress={() => {
+        if (showSearch) {
+          // 検索中は検索バー閉じてスライダー表示
+          setShowSearch(false);
+          setIsVisible(true);
+
+          // フォーカス解除してキーボードを確実に閉じる
+          if (searchInputRef.current) {
+            searchInputRef.current.blur();
+            setTimeout(() => Keyboard.dismiss(), 50); // 少し遅延させる
+          } else {
+            Keyboard.dismiss();
+          }
+        } else {
+          // 検索バー非表示時はスライダー切替
+          setIsVisible((prev) => !prev);
+        }
+      }}
+      style={{ flex: 1 }}
+    >
+      <View style={{ flex: 1 }}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.backgroundWrapper}>
+            <ImageBackground
+              source={require('../../assets/images/note.png')}
+              style={styles.background}
+              resizeMode="contain"
             >
-              <Text style={styles.title}>{book.title}</Text>
-            </TouchableOpacity>
-                          {/* 👇 Animated.View でフェード */}
-              <Animated.View
+              {/* ノート全体をタップで切り替え */}
+              <TouchableOpacity
+                style={[styles.container, { backgroundColor: 'transparent', flex: 1 }]}
+                activeOpacity={1}
+                onPress={() => setIsVisible(!isVisible)} // ← ここで表示切り替え！
+              >
+                <Text style={styles.title}>{book.title}</Text>
+              </TouchableOpacity>
+                            {/* 👇 Animated.View でフェード */}
+                <Animated.View
+                  style={{
+                    opacity: fadeAnim, // ← アニメーション制御
+                    position: 'absolute',
+                    bottom: 150,
+                    left: 15,
+                    right: 15,
+                    height: 400,
+                    flexDirection: 'row',
+                    backgroundColor: 'transparent',
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: 'transparent',
+                    overflow: 'hidden',
+                    shadowColor: '#000',
+                    shadowOpacity: 0.2,
+                    shadowOffset: { width: 0, height: 3 },
+                    elevation: 5,
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                  pointerEvents={isVisible ? 'auto' : 'none'} // ← 非表示中はタップ無効
+                >
+                  {/* スライダー付きページビュー */}
+                  {isVisible && (
+                    <View
+                      style={{
+                        position: 'absolute',
+                        bottom: 150,
+                        left: 10,
+                        right: 10,
+                        height: 100,
+                        flexDirection: 'row', // ← 横並び
+                        backgroundColor: 'transparent',
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: 'transparent',
+                        overflow: 'hidden',
+                        shadowColor: '#000',
+                        shadowOpacity: 0.2,
+                        shadowOffset: { width: 0, height: 3 },
+                        elevation: 5,
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+
+                        {/* 📚 ページ一覧ボタン */}
+                        <TouchableOpacity
+                          onPress={() => console.log('ページ一覧を表示')}
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 10,
+                            backgroundColor: 'rgba(0,0,0,0.6)',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginRight: 10,
+                            marginLeft: 10,
+                          }}
+                        >
+                              <Ionicons name="albums-outline" size={30} color="white" />
+                        </TouchableOpacity>
+
+
+                        {/* 丸いつまみのスライダー（右70%） */}
+                        <View style={{ width: '75%', marginLeft: 10, marginRight: 10 }}>
+                          <Slider
+                            style={{
+                              width: '100%',
+                              height: 50,
+                              alignSelf: 'flex-end',
+                            }}
+                            minimumValue={0}
+                            maximumValue={pages.length - 1}
+                            step={1}
+                            value={currentPage}
+                            minimumTrackTintColor="#000"
+                            maximumTrackTintColor="#ccc"
+                            thumbTintColor="#000"
+                            onValueChange={(v) => {
+                              setCurrentPage(v);
+                              pagerRef.current?.setPage(v);
+                            }}
+                          />
+                        </View>
+                      </View>
+                    )}
+                </Animated.View> 
+            </ImageBackground>
+
+            {/* 🔍 検索バー */}
+            {showSearch && (
+              <View
                 style={{
-                  opacity: fadeAnim, // ← アニメーション制御
                   position: 'absolute',
-                  bottom: 150,
+                  bottom: 100,
                   left: 20,
                   right: 20,
-                  height: 400,
+                  backgroundColor: 'white',
+                  borderRadius: 10,
+                  paddingHorizontal: 15,
+                  paddingVertical: 8,
                   flexDirection: 'row',
-                  backgroundColor: 'transparent',
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: 'transparent',
-                  overflow: 'hidden',
+                  alignItems: 'center',
                   shadowColor: '#000',
                   shadowOpacity: 0.2,
-                  shadowOffset: { width: 0, height: 3 },
+                  shadowOffset: { width: 0, height: 2 },
                   elevation: 5,
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
                 }}
-                pointerEvents={isVisible ? 'auto' : 'none'} // ← 非表示中はタップ無効
               >
-                {/* スライダー付きページビュー */}
-                {isVisible && (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      bottom: 150,
-                      left: 10,
-                      right: 10,
-                      height: 100,
-                      flexDirection: 'row', // ← 横並び
-                      backgroundColor: 'transparent',
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: 'transparent',
-                      overflow: 'hidden',
-                      shadowColor: '#000',
-                      shadowOpacity: 0.2,
-                      shadowOffset: { width: 0, height: 3 },
-                      elevation: 5,
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
+                <Ionicons name="search" size={20} color="gray" />
+                <TextInput
+                  style={{
+                    flex: 1,
+                    marginLeft: 8,
+                    fontSize: 16,
+                  }}
+                  ref={searchInputRef}
+                  placeholder="検索キーワードを入力"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoFocus
+                  keyboardType="default"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="none"
+                  keyboardAppearance="default"
+                />
+                <TouchableOpacity onPress={() => setShowSearch(false)}>
+                  <Ionicons name="close" size={24} color="gray" />
+                </TouchableOpacity>
+              </View>
+            )}
 
-                      {/* 📚 ページ一覧ボタン */}
-                      <TouchableOpacity
-                        onPress={() => console.log('ページ一覧を表示')}
-                        style={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: 10,
-                          backgroundColor: 'rgba(0,0,0,0.6)',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          marginRight: 10,
-                          marginLeft: 10,
-                        }}
-                      >
-                            <Ionicons name="albums-outline" size={30} color="white" />
-                      </TouchableOpacity>
+            {/* 編集ボタン（右下） */}
+            <TouchableOpacity style={styles.floatingEditButton} onPress={() => {}}>
+              <Ionicons name={editing ? 'checkmark' : 'create'} size={35} color="white" />
+            </TouchableOpacity>
 
-
-                      {/* 丸いつまみのスライダー（右70%） */}
-                      <View style={{ width: '80%', marginLeft: 10, marginRight: 10 }}>
-                        <Slider
-                          style={{
-                            width: '100%',
-                            height: 50,
-                            alignSelf: 'flex-end',
-                          }}
-                          minimumValue={0}
-                          maximumValue={pages.length - 1}
-                          step={1}
-                          value={currentPage}
-                          minimumTrackTintColor="#000"
-                          maximumTrackTintColor="#ccc"
-                          thumbTintColor="#000"
-                          onValueChange={(v) => {
-                            setCurrentPage(v);
-                            pagerRef.current?.setPage(v);
-                          }}
-                        />
-                      </View>
-                    </View>
-                  )}
-              </Animated.View> 
-          </ImageBackground>
-
-          {/* 🔍 検索バー */}
-          {showSearch && (
-            <View
-              style={{
-                position: 'absolute',
-                bottom: 100,
-                left: 20,
-                right: 20,
-                backgroundColor: 'white',
-                borderRadius: 10,
-                paddingHorizontal: 15,
-                paddingVertical: 8,
-                flexDirection: 'row',
-                alignItems: 'center',
-                shadowColor: '#000',
-                shadowOpacity: 0.2,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 5,
-              }}
+            {/* 虫眼鏡ボタン（左下） */}
+            <TouchableOpacity
+              style={styles.floatingSearchButton}
+              onPress={() => setShowSearch(!showSearch)}
             >
-              <Ionicons name="search" size={20} color="gray" />
-              <TextInput
-                style={{
-                  flex: 1,
-                  marginLeft: 8,
-                  fontSize: 16,
-                }}
-                placeholder="検索キーワードを入力"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                autoFocus
-                keyboardType="default"
-                autoCapitalize="none"
-                autoCorrect={false}
-                textContentType="none"
-                keyboardAppearance="default"
-              />
-              <TouchableOpacity onPress={() => setShowSearch(false)}>
-                <Ionicons name="close" size={24} color="gray" />
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* 編集ボタン（右下） */}
-          <TouchableOpacity style={styles.floatingEditButton} onPress={() => {}}>
-            <Ionicons name={editing ? 'checkmark' : 'create'} size={35} color="white" />
-          </TouchableOpacity>
-
-          {/* 虫眼鏡ボタン（左下） */}
-          <TouchableOpacity
-            style={styles.floatingSearchButton}
-            onPress={() => setShowSearch(!showSearch)}
-          >
-            <Ionicons name="search" size={35} color="white" />
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
+              <Ionicons name="search" size={35} color="white" />
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </View>
     </TouchableWithoutFeedback>
   );
 };
