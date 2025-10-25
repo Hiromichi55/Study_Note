@@ -30,6 +30,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const navigation = useNavigation();
   const { bookId } = route.params;
   const { state, dispatch } = useLibrary();
+  const [isVisible, setIsVisible] = useState(true); // ← 表示／非表示の状態
 
   const book = state.books.find((b) => b.id === bookId);
   const [editing, setEditing] = useState(false);
@@ -120,10 +121,16 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             style={styles.background}
             resizeMode="contain"
           >
-            <View style={[styles.container, { backgroundColor: 'transparent'}]}>
+            <TouchableOpacity
+              style={[styles.container, { backgroundColor: 'transparent', flex: 1 }]}
+              activeOpacity={1}
+              onPress={() => setIsVisible(!isVisible)} // ← ここで表示切り替え！
+            >
               <Text style={styles.title}>{book.title}</Text>
+            </TouchableOpacity>
 
-              {/* スライダー付きページビュー */}
+            {/* スライダー付きページビュー */}
+            {isVisible && (
               <View
                 style={{
                   position: 'absolute',
@@ -186,7 +193,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   />
                 </View>
               </View>
-            </View>
+            )}
           </ImageBackground>
 
           {/* 🔍 検索バー */}
