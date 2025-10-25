@@ -1,4 +1,4 @@
-import React, { useState, useLayoutEffect, useRef } from 'react';
+import React, { useState, useLayoutEffect, useRef, useEffect } from 'react';
 import {
   View,
   TextInput,
@@ -10,6 +10,8 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
+  Animated, 
+  Easing,
 } from 'react-native';
 import PagerView from 'react-native-pager-view';
 import Slider from '@react-native-community/slider'; // ← 追加！
@@ -30,7 +32,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const navigation = useNavigation();
   const { bookId } = route.params;
   const { state, dispatch } = useLibrary();
-  const [isVisible, setIsVisible] = useState(true); // ← 表示／非表示の状態
 
   const book = state.books.find((b) => b.id === bookId);
   const [editing, setEditing] = useState(false);
@@ -45,8 +46,22 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // 👇 表示状態とアニメーション用の値
+  const [isVisible, setIsVisible] = useState(true); // ← 表示／非表示の状態
+  const fadeAnim = useRef(new Animated.Value(1)).current; // 1=表示, 0=非表示
+
   const openMenu = () => setMenuVisible(true);
   const closeMenu = () => setMenuVisible(false);
+
+    // 👇 表示状態が変わったらアニメーションさせる
+    useEffect(() => {
+      Animated.timing(fadeAnim, {
+        toValue: isVisible ? 1 : 0,
+        duration: 300, // ← アニメーションの速度（ms）
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    }, [isVisible]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -121,6 +136,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             style={styles.background}
             resizeMode="contain"
           >
+            {/* ノート全体をタップで切り替え */}
             <TouchableOpacity
               style={[styles.container, { backgroundColor: 'transparent', flex: 1 }]}
               activeOpacity={1}
@@ -128,17 +144,16 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             >
               <Text style={styles.title}>{book.title}</Text>
             </TouchableOpacity>
-
-            {/* スライダー付きページビュー */}
-            {isVisible && (
-              <View
+                          {/* 👇 Animated.View でフェード */}
+              <Animated.View
                 style={{
+                  opacity: fadeAnim, // ← アニメーション制御
                   position: 'absolute',
                   bottom: 150,
                   left: 20,
                   right: 20,
                   height: 400,
-                  flexDirection: 'row', // ← 横並び
+                  flexDirection: 'row',
                   backgroundColor: 'transparent',
                   borderRadius: 16,
                   borderWidth: 1,
@@ -151,49 +166,74 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                 }}
+                pointerEvents={isVisible ? 'auto' : 'none'} // ← 非表示中はタップ無効
               >
-
-                {/* 📚 ページ一覧ボタン */}
-                <TouchableOpacity
-                  onPress={() => console.log('ページ一覧を表示')}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 10,
-                    backgroundColor: 'rgba(0,0,0,0.6)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: 10,
-                    marginLeft: 10,
-                  }}
-                >
-                      <Ionicons name="albums-outline" size={30} color="white" />
-                </TouchableOpacity>
-
-
-                {/* 丸いつまみのスライダー（右70%） */}
-                <View style={{ width: '80%', marginLeft: 10 }}>
-                  <Slider
+                {/* スライダー付きページビュー */}
+                {isVisible && (
+                  <View
                     style={{
-                      width: '100%',
-                      height: 50,
-                      alignSelf: 'flex-end',
+                      position: 'absolute',
+                      bottom: 150,
+                      left: 10,
+                      right: 10,
+                      height: 100,
+                      flexDirection: 'row', // ← 横並び
+                      backgroundColor: 'transparent',
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: 'transparent',
+                      overflow: 'hidden',
+                      shadowColor: '#000',
+                      shadowOpacity: 0.2,
+                      shadowOffset: { width: 0, height: 3 },
+                      elevation: 5,
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
                     }}
-                    minimumValue={0}
-                    maximumValue={pages.length - 1}
-                    step={1}
-                    value={currentPage}
-                    minimumTrackTintColor="#000"
-                    maximumTrackTintColor="#ccc"
-                    thumbTintColor="#000"
-                    onValueChange={(v) => {
-                      setCurrentPage(v);
-                      pagerRef.current?.setPage(v);
-                    }}
-                  />
-                </View>
-              </View>
-            )}
+                  >
+
+                      {/* 📚 ページ一覧ボタン */}
+                      <TouchableOpacity
+                        onPress={() => console.log('ページ一覧を表示')}
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 10,
+                          backgroundColor: 'rgba(0,0,0,0.6)',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: 10,
+                          marginLeft: 10,
+                        }}
+                      >
+                            <Ionicons name="albums-outline" size={30} color="white" />
+                      </TouchableOpacity>
+
+
+                      {/* 丸いつまみのスライダー（右70%） */}
+                      <View style={{ width: '80%', marginLeft: 10, marginRight: 10 }}>
+                        <Slider
+                          style={{
+                            width: '100%',
+                            height: 50,
+                            alignSelf: 'flex-end',
+                          }}
+                          minimumValue={0}
+                          maximumValue={pages.length - 1}
+                          step={1}
+                          value={currentPage}
+                          minimumTrackTintColor="#000"
+                          maximumTrackTintColor="#ccc"
+                          thumbTintColor="#000"
+                          onValueChange={(v) => {
+                            setCurrentPage(v);
+                            pagerRef.current?.setPage(v);
+                          }}
+                        />
+                      </View>
+                    </View>
+                  )}
+              </Animated.View> 
           </ImageBackground>
 
           {/* 🔍 検索バー */}
