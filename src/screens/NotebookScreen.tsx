@@ -29,6 +29,7 @@ interface Props {
 }
 
 const NotebookScreen: React.FC<Props> = ({ route }) => {
+  const isTest = true; // 開発環境なら true、リリースは false
   const navigation = useNavigation();
   const { bookId } = route.params;
   const { state, dispatch } = useLibrary();
@@ -39,6 +40,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [currentPage, setCurrentPage] = useState(0);
   const pagerRef = useRef<PagerView>(null); // ← ページ移動用参照を追加
   const searchInputRef = useRef<TextInput>(null);
+  // キーボードの表示状態を取得
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const [pages, setPages] = useState<string[]>(
     Array.isArray(book?.content) ? book?.content : [book?.content ?? '']
@@ -54,15 +57,29 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const openMenu = () => setMenuVisible(true);
   const closeMenu = () => setMenuVisible(false);
 
-    // 👇 表示状態が変わったらアニメーションさせる
-    useEffect(() => {
-      Animated.timing(fadeAnim, {
-        toValue: isVisible ? 1 : 0,
-        duration: 300, // ← アニメーションの速度（ms）
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-      }).start();
-    }, [isVisible]);
+  useEffect(() => {
+  const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+    setKeyboardHeight(e.endCoordinates.height);
+  });
+  const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+    setKeyboardHeight(0);
+  });
+
+  return () => {
+    showSub.remove();
+    hideSub.remove();
+  };
+}, []);
+
+  // 👇 表示状態が変わったらアニメーションさせる
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: isVisible ? 1 : 0,
+      duration: 300, // ← アニメーションの速度（ms）
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  }, [isVisible]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -182,7 +199,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   style={{
                     opacity: fadeAnim, // ← アニメーション制御
                     position: 'absolute',
-                    bottom: 150,
+                    bottom: showSearch ? keyboardHeight : 150, // ← 検索バーがあるときは上に
                     left: 15,
                     right: 15,
                     height: 400,
@@ -209,9 +226,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         bottom: 150,
                         left: 10,
                         right: 10,
-                        height: 100,
+                        height: 50,
                         flexDirection: 'row', // ← 横並び
-                        backgroundColor: 'transparent',
+                        backgroundColor: isTest ? 'rgba(0, 0, 255, 0.2)' : 'transparent', // ← 半透明青
                         borderRadius: 16,
                         borderWidth: 1,
                         borderColor: 'transparent',
@@ -222,6 +239,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         elevation: 5,
                         alignItems: 'center',
                         justifyContent: 'space-between',
+                        marginBottom: showSearch ? 0 : 20, // ← 検索バーがあるときは上に
                       }}
                     >
 
@@ -277,9 +295,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   bottom: 100,
                   left: 20,
                   right: 20,
-                  backgroundColor: 'white',
+                  backgroundColor: isTest ? 'rgba(255, 0, 0, 0.2)' : 'white', // ← 半透明赤
                   borderRadius: 10,
-                  paddingHorizontal: 15,
+                  paddingHorizontal: 10,
                   paddingVertical: 8,
                   flexDirection: 'row',
                   alignItems: 'center',
