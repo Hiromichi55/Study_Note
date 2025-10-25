@@ -130,7 +130,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   bottom: 150,
                   left: 20,
                   right: 20,
-                  height: 220,
+                  height: 400,
+                  flexDirection: 'row', // ← 横並び
                   backgroundColor: 'transparent',
                   borderRadius: 16,
                   borderWidth: 1,
@@ -140,20 +141,44 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   shadowOpacity: 0.2,
                   shadowOffset: { width: 0, height: 3 },
                   elevation: 5,
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
                 }}
               >
 
+                {/* 📚 ページ一覧ボタン */}
+                <TouchableOpacity
+                  onPress={() => console.log('ページ一覧を表示')}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 10,
+                    marginLeft: 10,
+                  }}
+                >
+                      <Ionicons name="albums-outline" size={30} color="white" />
+                </TouchableOpacity>
 
-                {/* 丸いつまみのスライダー（ページ切り替え用） */}
-                <View style={{ paddingHorizontal: 20, paddingBottom: 10 }}>
+
+                {/* 丸いつまみのスライダー（右70%） */}
+                <View style={{ width: '80%', marginLeft: 10 }}>
                   <Slider
+                    style={{
+                      width: '100%',
+                      height: 50,
+                      alignSelf: 'flex-end',
+                    }}
                     minimumValue={0}
                     maximumValue={pages.length - 1}
                     step={1}
                     value={currentPage}
                     minimumTrackTintColor="#000"
                     maximumTrackTintColor="#ccc"
-                    thumbTintColor="#000" // 丸いつまみの色
+                    thumbTintColor="#000"
                     onValueChange={(v) => {
                       setCurrentPage(v);
                       pagerRef.current?.setPage(v);
