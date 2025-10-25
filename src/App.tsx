@@ -6,6 +6,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from './screens/HomeScreen';
 import NotebookScreen from './screens/NotebookScreen';
+import EditScreen from './screens/EditScreen';
 import { LibraryProvider } from './context/LibraryContext';
 import { Text, StyleSheet } from 'react-native';
 import * as Font from 'expo-font';
@@ -43,6 +44,7 @@ export default function App() {
             >
               <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }}  />
               <Stack.Screen name="Notebook" component={NotebookScreen} options={{ title: MESSAGES.NOTE_TITLE }} />
+              <Stack.Screen name="Edit" component={EditScreen}/>
             </Stack.Navigator>
           </NavigationContainer>
         </PaperProvider>
@@ -56,4 +58,5 @@ export default function App() {
 export type RootStackParamList = {
   Home: undefined;
   Notebook: { bookId: string };
+  Edit: { bookId: string };
 };

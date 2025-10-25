@@ -309,8 +309,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               </View>
             )}
 
-            {/* 編集ボタン（右下） */}
-            <TouchableOpacity style={styles.floatingEditButton} onPress={() => {}}>
+              {/* 編集ボタン（右下） */}
+              <TouchableOpacity
+                style={styles.floatingEditButton}
+                onPress={() => {
+                  navigation.navigate('Edit', { bookId: book.id }); // ← 編集画面へ遷移
+                }}
+              >
               <Ionicons name={editing ? 'checkmark' : 'create'} size={35} color="white" />
             </TouchableOpacity>
 
