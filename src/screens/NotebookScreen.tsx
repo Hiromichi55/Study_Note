@@ -43,6 +43,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   // キーボードの表示状態を取得
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
+  // デバッグ用の背景色を返す関数
+  const getDebugStyle = (color: string) =>
+    isTest ? { backgroundColor: color } : {};
+
   const [pages, setPages] = useState<string[]>(
     Array.isArray(book?.content) ? book?.content : [book?.content ?? '']
   );
@@ -164,7 +168,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           // フォーカス解除してキーボードを確実に閉じる
           if (searchInputRef.current) {
             searchInputRef.current.blur();
-            setTimeout(() => Keyboard.dismiss(), 50); // 少し遅延させる
+            Keyboard.dismiss();
           } else {
             Keyboard.dismiss();
           }
@@ -177,18 +181,24 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     >
       <View style={{ flex: 1 }}>
         <KeyboardAvoidingView
-          style={styles.container}
+          style={[
+            styles.container,
+            getDebugStyle('rgba(0, 255, 0, 0.15)'),
+          ]}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={styles.backgroundWrapper}>
             <ImageBackground
               source={require('../../assets/images/note.png')}
-              style={styles.background}
+              style={[
+                styles.background,
+                getDebugStyle('rgba(255, 255, 0, 0.15)'),
+              ]}
               resizeMode="contain"
             >
               {/* ノート全体をタップで切り替え */}
               <TouchableOpacity
-                style={[styles.container, { backgroundColor: 'transparent', flex: 1 }]}
+                style={[styles.container, { backgroundColor: 'transparent', flex: 1 }, getDebugStyle('rgba(0, 0, 255, 0.15)')]}
                 activeOpacity={1}
                 onPress={() => setIsVisible(!isVisible)} // ← ここで表示切り替え！
               >
@@ -196,8 +206,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               </TouchableOpacity>
                             {/* 👇 Animated.View でフェード */}
                 <Animated.View
-                  style={{
-                    opacity: fadeAnim, // ← アニメーション制御
+                  style={[
+                    {
+                    opacity: showSearch ? 1: fadeAnim, // ← アニメーション制御
                     position: 'absolute',
                     bottom: showSearch ? keyboardHeight : 150, // ← 検索バーがあるときは上に
                     left: 15,
@@ -215,47 +226,55 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     elevation: 5,
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                  }}
+                  },
+                  getDebugStyle('rgba(255, 0, 255, 0.15)'),
+                  ]}
                   pointerEvents={isVisible ? 'auto' : 'none'} // ← 非表示中はタップ無効
                 >
                   {/* スライダー付きページビュー */}
                   {isVisible && (
                     <View
-                      style={{
-                        position: 'absolute',
-                        bottom: 150,
-                        left: 10,
-                        right: 10,
-                        height: 50,
-                        flexDirection: 'row', // ← 横並び
-                        backgroundColor: isTest ? 'rgba(0, 0, 255, 0.2)' : 'transparent', // ← 半透明青
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: 'transparent',
-                        overflow: 'hidden',
-                        shadowColor: '#000',
-                        shadowOpacity: 0.2,
-                        shadowOffset: { width: 0, height: 3 },
-                        elevation: 5,
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: showSearch ? 0 : 20, // ← 検索バーがあるときは上に
-                      }}
+                      style={[
+                        {
+                          position: 'absolute',
+                          bottom: 150,
+                          left: 10,
+                          right: 10,
+                          height: 50,
+                          flexDirection: 'row', // ← 横並び
+                          backgroundColor: 'transparent', // ← 半透明青
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          borderColor: 'transparent',
+                          overflow: 'hidden',
+                          shadowColor: '#000',
+                          shadowOpacity: 0.2,
+                          shadowOffset: { width: 0, height: 3 },
+                          elevation: 5,
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: showSearch ? 0 : 20, // ← 検索バーがあるときは上に
+                      },
+                      getDebugStyle('rgba(0, 0, 255, 0.2)'), // スライダー：薄い青
+                    ]}
                     >
 
                         {/* 📚 ページ一覧ボタン */}
                         <TouchableOpacity
                           onPress={() => console.log('ページ一覧を表示')}
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 10,
-                            backgroundColor: 'rgba(0,0,0,0.6)',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            marginRight: 10,
-                            marginLeft: 10,
-                          }}
+                          style={[
+                            {
+                              width: 40,
+                              height: 40,
+                              borderRadius: 10,
+                              backgroundColor: 'rgba(0,0,0,0.6)',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              marginRight: 10,
+                              marginLeft: 10,
+                            },
+                            getDebugStyle('rgba(0, 0, 0, 0.4)'), // ボタン：グレー
+                          ]}
                         >
                               <Ionicons name="albums-outline" size={30} color="white" />
                         </TouchableOpacity>
@@ -290,22 +309,25 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             {/* 🔍 検索バー */}
             {showSearch && (
               <View
-                style={{
-                  position: 'absolute',
-                  bottom: 100,
-                  left: 20,
-                  right: 20,
-                  backgroundColor: isTest ? 'rgba(255, 0, 0, 0.2)' : 'white', // ← 半透明赤
-                  borderRadius: 10,
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  shadowColor: '#000',
-                  shadowOpacity: 0.2,
-                  shadowOffset: { width: 0, height: 2 },
-                  elevation: 5,
-                }}
+                style={[
+                  {
+                    position: 'absolute',
+                    bottom: 100,
+                    left: 20,
+                    right: 20,
+                    backgroundColor: 'white', // ← 半透明赤
+                    borderRadius: 10,
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    shadowColor: '#000',
+                    shadowOpacity: 0.2,
+                    shadowOffset: { width: 0, height: 2 },
+                    elevation: 5,
+                  },
+                  getDebugStyle('rgba(255, 0, 0, 0.2)'), // 検索バー：薄い赤
+                ]}
               >
                 <Ionicons name="search" size={20} color="gray" />
                 <TextInput
