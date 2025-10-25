@@ -1,5 +1,4 @@
-// screens/EditScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useLayoutEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { RouteProp, useNavigation } from '@react-navigation/native';
 import { RootStackParamList } from '../App';
@@ -19,18 +18,32 @@ const EditScreen: React.FC<Props> = ({ route }) => {
   const book = state.books.find((b) => b.id === bookId);
   const [title, setTitle] = useState(book?.title || '');
 
+  // --- ヘッダーフォントの設定 ---
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: '編集',
+      headerTitleStyle: {
+        fontSize: 20,
+        color: 'black',
+        fontWeight: '400', 
+      },
+    });
+  }, [navigation]);
+
   if (!book) return <Text>本が見つかりません。</Text>;
 
-  /** 📘 保存処理（ボタン共通） */
   const handleSave = () => {
-    dispatch({ type: 'UPDATE_BOOK_TITLE', bookId, title });
+    dispatch({ 
+        type: 'UPDATE_BOOK_TITLE', 
+        bookId:book.id, 
+        title,
+     });
     navigation.goBack();
   };
 
   return (
     <View style={{ flex: 1, padding: 20, backgroundColor: 'white' }}>
       <Text style={{ fontSize: 20, marginBottom: 10 }}>タイトルを編集</Text>
-
       <TextInput
         value={title}
         onChangeText={setTitle}
@@ -42,21 +55,6 @@ const EditScreen: React.FC<Props> = ({ route }) => {
           fontSize: 18,
         }}
       />
-
-      {/* ✅ 元々の青い保存ボタン */}
-      <TouchableOpacity
-        onPress={handleSave}
-        style={{
-          backgroundColor: '#007AFF',
-          marginTop: 20,
-          padding: 12,
-          borderRadius: 8,
-        }}
-      >
-        <Text style={{ color: 'white', textAlign: 'center', fontSize: 18 }}>保存</Text>
-      </TouchableOpacity>
-
-      {/* ✅ 右下のチェックマークボタン */}
       <TouchableOpacity
         style={{
           position: 'absolute',

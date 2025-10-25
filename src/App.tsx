@@ -44,7 +44,7 @@ export default function App() {
             >
               <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }}  />
               <Stack.Screen name="Notebook" component={NotebookScreen} options={{ title: MESSAGES.NOTE_TITLE }} />
-              <Stack.Screen name="Edit" component={EditScreen}/>
+              <Stack.Screen name="Edit" component={EditScreen} options={{ title: MESSAGES.EDIT_TITLE }}/>
             </Stack.Navigator>
           </NavigationContainer>
         </PaperProvider>

@@ -9,4 +9,7 @@ export const MESSAGES = {
   NOT_FOUND_BOOK: '本が見つかりません',
   NOTE_TITLE: 'ノート',
   ADD_BOOK_PLACEHOLDER: '新しい本のタイトル',
+
+// Edit
+  EDIT_TITLE:'編集画面'  
 };
