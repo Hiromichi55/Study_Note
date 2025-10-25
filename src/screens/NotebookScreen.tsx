@@ -213,7 +213,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     bottom: showSearch ? keyboardHeight : 150, // ← 検索バーがあるときは上に
                     left: 15,
                     right: 15,
-                    height: 400,
+                    height: 1000,
                     flexDirection: 'row',
                     backgroundColor: 'transparent',
                     borderRadius: 16,
@@ -227,7 +227,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                   },
-                  getDebugStyle('rgba(255, 0, 255, 0.15)'),
+                  getDebugStyle('rgba(255, 255, 0, 0.15)'),
                   ]}
                   pointerEvents={isVisible ? 'auto' : 'none'} // ← 非表示中はタップ無効
                 >
