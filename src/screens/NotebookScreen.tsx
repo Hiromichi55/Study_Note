@@ -70,9 +70,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         <TouchableOpacity onPress={() => console.log('目次を開く')}>
           <Text
             style={{
-              fontFamily: 'dartsfont',
-              fontSize: 25,
-              fontWeight: 'bold',
+              fontSize: 20,
               color: 'black',
             }}
           >
@@ -93,6 +91,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             </TouchableOpacity>
           }
           contentStyle={{
+            backgroundColor: 'white',
             marginTop: 40,
           }}
         >
@@ -117,6 +116,14 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               dispatch({ type: 'DELETE_BOOK', bookId: book!.id });
             }}
             title="ページ削除"
+          />
+          <Menu.Item
+            onPress={() => {
+              closeMenu();
+              dispatch({ type: 'DELETE_BOOK', bookId: book!.id });
+            }}
+            title="ノート削除"
+            titleStyle={{ color: 'red'}}
           />
         </Menu>
       ),
