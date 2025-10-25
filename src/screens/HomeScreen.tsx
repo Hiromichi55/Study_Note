@@ -15,7 +15,6 @@ import { useLibrary } from '../context/LibraryContext';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../App';
 import { Book } from '../context/LibraryContext';
-import { MESSAGES } from '../constants/messages';
 
 import bookImages from '../constants/bookImage';
 import { styles, theme } from '../styles/theme';
@@ -28,10 +27,12 @@ interface Props {
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { state, addBook, reorderBooks } = useLibrary();
-  const [isSelectingColor, setIsSelectingColor] = useState(false);
   const [bookData, setBookData] = useState<Book[]>([]);
   const flatListRef = useRef<any>(null);
-  const [shouldScrollToEnd, setShouldScrollToEnd] = useState(false);
+
+  const colorOptions: Book['color'][] = ['red', 'pink', 'yellow', 'green', 'cyan', 'blue'];
+
+  const [showBookOptions, setShowBookOptions] = useState(false);
 
   useEffect(() => {
     setBookData(state.books);
@@ -46,9 +47,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       order_index: state.books.length,
     };
     await addBook(newBook);
-    setIsSelectingColor(false);
+
     const updatedBooks = [...state.books, newBook];
     setBookData(updatedBooks);
+
     setTimeout(() => {
       const newIndex = updatedBooks.findIndex((b) => b.id === newId);
       if (flatListRef.current && newIndex >= 0) {
@@ -65,7 +67,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         onPress={() => navigation.navigate('Notebook', { bookId: item.id })}
         style={styles.bookItem}
       >
-        <Image source={bookImages[item.color]} style={styles.bookImage} resizeMode="contain" />
+        <Image
+          source={bookImages[item.color]}
+          style={styles.bookImage}
+          resizeMode="contain"
+        />
         <Text
           style={[
             styles.bookTitleOverlay,
@@ -105,37 +111,42 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
                 setBookData(data);
                 reorderBooks(data);
               }}
+              extraData={bookData} // ← 状態更新に合わせて再レンダリング
               contentContainerStyle={styles.horizontalScrollContainer}
             />
           </View>
 
           <View style={styles.addBookSection}>
             <TouchableOpacity
-              onPress={() => setIsSelectingColor(!isSelectingColor)}
+              onPress={() => setShowBookOptions(prev => !prev)}
               style={styles.addButton}
             >
               <Text style={styles.addButtonText}>・本を追加</Text>
             </TouchableOpacity>
 
-            {isSelectingColor && (
-              <View style={styles.colorPicker}>
-                {(['red', 'pink', 'yellow', 'green', 'cyan', 'blue'] as Book['color'][]).map(
-                  (color) => (
-                    <TouchableOpacity
-                      key={color}
-                      onPress={() => handleAddBookWithColor(color)}
-                      style={styles.colorButton}
-                    >
-                      <Image
-                        source={bookImages[color]}
-                        style={styles.colorImage}
-                        resizeMode="contain"
-                      />
-                    </TouchableOpacity>
-                  )
-                )}
-              </View>
-            )}
+            {/* 常にマウントしておく。表示／非表示はスタイルで制御 */}
+            <View style={{
+              backgroundColor: 'white',
+              borderWidth: 1,               // 枠の太さ
+              borderColor: '#ccc',          // 枠の色
+              borderRadius: 8,              // 角丸
+              padding: 8,                   // 内側の余白
+              // marginVertical: 8,            // 上下の余白
+              flexDirection: 'row',         // 横並び
+              opacity: showBookOptions ? 1 : 0,
+              height: showBookOptions ? 'auto' : 0,
+              overflow: 'hidden'
+            }}>
+              {colorOptions.map(color => (
+                <TouchableOpacity
+                  key={color}
+                  onPress={() => handleAddBookWithColor(color)}
+                  style={styles.colorButton}
+                >
+                  <Image source={bookImages[color]} style={styles.colorImage} resizeMode="contain" />
+                </TouchableOpacity>
+              ))}
+            </View>
 
             <TouchableOpacity
               onPress={() => console.log('使い方')}
