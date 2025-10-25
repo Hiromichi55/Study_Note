@@ -102,13 +102,15 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             }}
             title="ページ追加"
             rippleColor="rgba(0, 122, 255, 0.3)"
+            leadingIcon="plus"
           />
           <Menu.Item
             onPress={() => {
-              closeMenu();
-              setEditing(true);
-            }}
+                  closeMenu();
+                  navigation.navigate('Edit', { bookId: book.id }); // ← 編集画面へ遷移
+                }}
             title="ページ編集"
+            leadingIcon="pencil"
           />
           <Menu.Item
             onPress={() => {
@@ -116,6 +118,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               dispatch({ type: 'DELETE_BOOK', bookId: book!.id });
             }}
             title="ページ削除"
+            leadingIcon="trash-can"
           />
           <Menu.Item
             onPress={() => {
@@ -124,6 +127,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             }}
             title="ノート削除"
             titleStyle={{ color: 'red'}}
+            leadingIcon="delete"
           />
         </Menu>
       ),
