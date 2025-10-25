@@ -51,6 +51,9 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     const updatedBooks = [...state.books, newBook];
     setBookData(updatedBooks);
 
+    // ここで選択肢を非表示に
+    setShowBookOptions(false);
+
     setTimeout(() => {
       const newIndex = updatedBooks.findIndex((b) => b.id === newId);
       if (flatListRef.current && newIndex >= 0) {
