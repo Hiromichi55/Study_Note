@@ -3,6 +3,13 @@
 import { db } from './db';
 import { MemoBlock } from '../types/memo';
 
+export type Contents = {
+  id: string;
+  bookId: string;
+  attribute: 'title' | 'text' | 'image' | 'list';
+  content: string;
+}
+
 // メモブロックを取得
 export function getMemoBlocks(memoId: number): Promise<MemoBlock[]> {
   return new Promise((resolve, reject) => {
