@@ -59,8 +59,6 @@ function libraryReducer(state: State, action: Action): State {
   }
 }
 
-
-
 export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(libraryReducer, initialState);
   const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
