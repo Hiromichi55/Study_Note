@@ -1,99 +1,176 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, ImageBackground, ActivityIndicator, Dimensions, StyleSheet } from 'react-native';
-import Canvas from 'react-native-canvas';
+import React, { useEffect, useState } from 'react';
+import { View, ActivityIndicator, Dimensions, StyleSheet, ImageBackground,PixelRatio } from 'react-native';
+import { Skia, PaintStyle } from '@shopify/react-native-skia';
 import * as FileSystem from 'expo-file-system/legacy';
+import { Asset } from 'expo-asset';
 
 const CACHE_FILE = FileSystem.cacheDirectory + 'background.png';
-
-// 開発用フラグ：true の場合、キャッシュ無視して毎回生成
 const DEV_FORCE_REGENERATE = true;
+const { width, height } = Dimensions.get('window');
+
+// 背景のパラメータ
+const space = 0.03; // 左右の隙間%
+const interval = 30; // 罫線の間隔
+const row = Math.trunc(height / interval); // 行数
+const upperSpace = 4; // 描画しない初めの行数
 
 const ScreenBackground: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
-    const canvasRef = useRef<Canvas | null>(null);
-    const [bgUri, setBgUri] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
+  const [bgUri, setBgUri] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-    const generateBackground = async (canvas: Canvas): Promise<string> => {
+  /** Uint8Array → Base64 */
+  const uint8ToBase64 = (u8Arr: Uint8Array): string => {
+    let binary = '';
+    const len = u8Arr.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(u8Arr[i]);
+    }
+    return global.btoa(binary);
+  };
+
+  /** 背景を生成してファイルに保存 */
+  const generateAndSaveBackground = async (): Promise<string> => {
     console.log('背景生成開始');
-    const { width, height } = Dimensions.get('window');
-    canvas.width = width;
-    canvas.height = height;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return '';
+    const surface = Skia.Surface.MakeOffscreen(width, height);
+    if (!surface) throw new Error('Skia.Surface.MakeOffscreen が null');
 
-    ctx.fillStyle = '#f0f0f0';
-    ctx.fillRect(0, 0, width, height);
+    const canvas = surface.getCanvas();
 
-    ctx.strokeStyle = '#ccc';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 20; i++) {
-        ctx.beginPath();
-        ctx.moveTo(Math.random() * width, Math.random() * height);
-        ctx.lineTo(Math.random() * width, Math.random() * height);
-        ctx.stroke();
+    // 背景塗り
+    const bgPaint = Skia.Paint();
+    bgPaint.setColor(Skia.Color('rgba(255, 255, 255, 1)'));
+    canvas.drawRect({ x: 0, y: 0, width, height }, bgPaint);
+
+    // タイトル横線
+    const linePaint = Skia.Paint();
+    linePaint.setColor(Skia.Color('rgba(152, 173, 211, 1)'));
+    linePaint.setStrokeWidth(1.5);
+
+    const x1_title = width * space;
+    const y1_title = (upperSpace - 1) / row * height - interval * 0.2;
+    const x2_title = width * (1 - space);
+    const y2_title = y1_title;
+    canvas.drawLine(x1_title, y1_title, x2_title, y2_title, linePaint);
+
+    const x1 = width * space;
+    const y1 = upperSpace / row * height;
+    const x2 = width * (1 - space);
+    const y2 = y1;
+    canvas.drawLine(x1, y1, x2, y2, linePaint);
+
+    // その他横線
+    linePaint.setColor(Skia.Color('rgba(196, 204, 218, 1)'));
+    linePaint.setStrokeWidth(1);
+    for (let i = upperSpace + 1; i < row + 1; i++) {
+      const x1 = width * space;
+      const y1 = i / row * height;
+      const x2 = width * (1 - space);
+      const y2 = y1;
+      canvas.drawLine(x1, y1, x2, y2, linePaint);
     }
 
-    const dataUrl = await canvas.toDataURL('image/png');
-    const base64 = dataUrl.split(',')[1];
+    // ======== ここから文字描画 =========
+    try {
+      // フォントファイルを Expo Asset から取得
+      const asset = Asset.fromModule(require('../../assets/fonts/dartsfont.ttf'));
+      await asset.downloadAsync();
+      const localUri = asset.localUri || asset.uri;
 
-    await FileSystem.writeAsStringAsync(CACHE_FILE, base64, { encoding: 'base64' });
-    console.log('背景生成完了');
+      // --- ここから修正部分 ---
+      // フォントファイルをバイナリで読み込む
+      const fontBase64 = await FileSystem.readAsStringAsync(localUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const fontBytes = Uint8Array.from(atob(fontBase64), (c) => c.charCodeAt(0));
 
-    // キャッシュしたファイルの URI を返す
-    return CACHE_FILE;
-    };
+      const binary = global.atob ? global.atob(fontBase64) : Buffer.from(fontBase64, 'base64').toString('binary');
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-
-    const loadBackground = async () => {
-    console.log('キャッシュ確認');
-    const fileInfo = await FileSystem.getInfoAsync(CACHE_FILE);
-
-    if (fileInfo.exists && !DEV_FORCE_REGENERATE) {
-        console.log('キャッシュあり');
-        setBgUri(fileInfo.uri);
-        setLoading(false);
-    } else {
-        console.log('キャッシュなし、新規生成します');
-        if (canvasRef.current) {
-        const fileUri = await generateBackground(canvasRef.current);
-        setBgUri(fileUri); // ここは dataUrl ではなく file:// URI
-        setLoading(false);
+      const skData = Skia.Data.fromBytes(bytes);
+      const typeface = Skia.Typeface.MakeFreeTypeFaceFromData(skData);
+        if (!typeface) {
+        throw new Error('フォントの読み込みに失敗しました。');
         }
+
+        const font = Skia.Font(typeface, 48);
+
+      // テキストペイント
+      const textPaint = Skia.Paint();
+      textPaint.setColor(Skia.Color('rgba(0, 0, 0, 1)'));
+      textPaint.setStyle(PaintStyle.Fill); // enum を使う
+      textPaint.setAntiAlias(true); // 滑らかに
+      textPaint.setStrokeWidth(5); // 輪郭を少し強調
+
+      // タイトル文字描画
+      canvas.drawText('今日のノート', width * 0.08, interval * 2.5, textPaint, font);
+    } catch (err) {
+      console.warn('⚠️ フォント読み込みに失敗しました:', err);
     }
-    };
+    // ======== 文字描画ここまで =========
 
+    const image = surface.makeImageSnapshot();
+    const pngBytes = image.encodeToBytes();
+    const base64 = uint8ToBase64(pngBytes);
 
-    useEffect(() => {
-        loadBackground();
-    }, []);
+    await FileSystem.writeAsStringAsync(CACHE_FILE, base64, { encoding: FileSystem.EncodingType.Base64 });
 
-    if (loading || !bgUri) {
-        return (
-        <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#666" />
-            {/* 画面外に Canvas を置く */}
-            <Canvas ref={canvasRef} style={{ position: 'absolute', width: 0, height: 0, top: 0, left: 0 }} />
-        </View>
-        );
+    console.log('背景生成完了');
+    return CACHE_FILE;
+  };
+
+  /** 背景ロード */
+  const loadBackground = async () => {
+    try {
+      if (DEV_FORCE_REGENERATE) {
+        await FileSystem.deleteAsync(CACHE_FILE).catch(() => {});
+      }
+
+      const fileInfo = await FileSystem.getInfoAsync(CACHE_FILE);
+
+      if (fileInfo.exists) {
+        console.log('キャッシュあり → 使う');
+        setBgUri(fileInfo.uri);
+      } else {
+        console.log('キャッシュなし → 新規生成');
+        const uri = await generateAndSaveBackground();
+        setBgUri(uri);
+      }
+    } catch (err) {
+      console.error('背景ロードエラー:', err);
+    } finally {
+      setLoading(false);
     }
+  };
 
+  useEffect(() => {
+    loadBackground();
+  }, []);
+
+  if (loading || !bgUri) {
     return (
-        <ImageBackground source={{ uri: bgUri }} style={styles.background}>
-        {children}
-        </ImageBackground>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#666" />
+      </View>
     );
+  }
+
+  return (
+    <ImageBackground
+      key={bgUri}
+      source={{ uri: bgUri }}
+      style={styles.background}
+      resizeMode="cover"
+    >
+      {children}
+    </ImageBackground>
+  );
 };
 
 export default ScreenBackground;
 
 const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  background: {
-    flex: 1,
-  },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  background: { flex: 1 },
 });

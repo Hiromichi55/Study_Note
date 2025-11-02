@@ -98,82 +98,82 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.backgroundWrapper}>
-        {/* <ImageBackground
-          source={require('../../assets/images/title.png')}
-          style={styles.background}
-          resizeMode="contain"
-        > */}
-        <ScreenBackground>
-          <View style={styles.bookListWrapper}>
-            <DraggableFlatList
-              ref={flatListRef}
-              data={bookData}
-              keyExtractor={(item) => item.id}
-              horizontal
-              renderItem={renderItem}
-              onDragEnd={({ data }) => {
-                setBookData(data);
-                reorderBooks(data);
+    {/* <View style={styles.backgroundWrapper}> */}
+      {/* <ImageBackground
+        source={require('../../assets/images/title.png')}
+        style={styles.background}
+        resizeMode="contain"
+      > */}
+      <ScreenBackground>
+        <View style={styles.bookListWrapper}>
+          <DraggableFlatList
+            ref={flatListRef}
+            data={bookData}
+            keyExtractor={(item) => item.id}
+            horizontal
+            renderItem={renderItem}
+            onDragEnd={({ data }) => {
+              setBookData(data);
+              reorderBooks(data);
+            }}
+            extraData={bookData} // ← 状態更新に合わせて再レンダリング
+            contentContainerStyle={styles.horizontalScrollContainer}
+            getItemLayout={(data, index) => ({
+              length: theme.IMAGE_WIDTH,           // アイテムの幅
+              offset: theme.IMAGE_WIDTH * index,   // オフセット計算
+              index,
+            })}
+              onScrollToIndexFailed={(info) => {
+                // 失敗した場合に少し待って再スクロール
+                setTimeout(() => {
+                  flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
+                }, 100);
               }}
-              extraData={bookData} // ← 状態更新に合わせて再レンダリング
-              contentContainerStyle={styles.horizontalScrollContainer}
-              getItemLayout={(data, index) => ({
-                length: theme.IMAGE_WIDTH,           // アイテムの幅
-                offset: theme.IMAGE_WIDTH * index,   // オフセット計算
-                index,
-              })}
-                onScrollToIndexFailed={(info) => {
-                  // 失敗した場合に少し待って再スクロール
-                  setTimeout(() => {
-                    flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
-                  }, 100);
-                }}
-            />
+          />
+        </View>
+
+        <View style={styles.addBookSection}>
+          <TouchableOpacity
+            onPress={() => setShowBookOptions(prev => !prev)}
+            style={styles.addButton}
+          >
+            <Text style={styles.addButtonText}>・本を追加</Text>
+          </TouchableOpacity>
+
+          {/* 常にマウントしておく。表示／非表示はスタイルで制御 */}
+          <View style={{
+            backgroundColor: 'white',
+            borderWidth: 1,               // 枠の太さ
+            borderColor: '#ccc',          // 枠の色
+            borderRadius: 8,              // 角丸
+            padding: 8,                   // 内側の余白
+            // marginVertical: 8,            // 上下の余白
+            flexDirection: 'row',         // 横並び
+            opacity: showBookOptions ? 1 : 0,
+            height: showBookOptions ? 'auto' : 0,
+            overflow: 'hidden'
+          }}>
+            {colorOptions.map(color => (
+              <TouchableOpacity
+                key={color}
+                onPress={() => handleAddBookWithColor(color)}
+                style={styles.colorButton}
+              >
+                <Image source={bookImages[color]} style={styles.colorImage} resizeMode="contain" />
+              </TouchableOpacity>
+            ))}
           </View>
 
-          <View style={styles.addBookSection}>
-            <TouchableOpacity
-              onPress={() => setShowBookOptions(prev => !prev)}
-              style={styles.addButton}
-            >
-              <Text style={styles.addButtonText}>・本を追加</Text>
-            </TouchableOpacity>
-
-            {/* 常にマウントしておく。表示／非表示はスタイルで制御 */}
-            <View style={{
-              backgroundColor: 'white',
-              borderWidth: 1,               // 枠の太さ
-              borderColor: '#ccc',          // 枠の色
-              borderRadius: 8,              // 角丸
-              padding: 8,                   // 内側の余白
-              // marginVertical: 8,            // 上下の余白
-              flexDirection: 'row',         // 横並び
-              opacity: showBookOptions ? 1 : 0,
-              height: showBookOptions ? 'auto' : 0,
-              overflow: 'hidden'
-            }}>
-              {colorOptions.map(color => (
-                <TouchableOpacity
-                  key={color}
-                  onPress={() => handleAddBookWithColor(color)}
-                  style={styles.colorButton}
-                >
-                  <Image source={bookImages[color]} style={styles.colorImage} resizeMode="contain" />
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <TouchableOpacity
-              onPress={() => console.log('使い方')}
-              style={styles.addButton}
-            >
-              <Text style={styles.addButtonText}>・使い方　</Text>
-            </TouchableOpacity>
-          </View>
-        {/* </ImageBackground> */}
-        </ScreenBackground>
-      </View>
+          <TouchableOpacity
+            onPress={() => console.log('使い方')}
+            style={styles.addButton}
+          >
+            <Text style={styles.addButtonText}>・使い方　</Text>
+          </TouchableOpacity>
+        </View>
+      {/* </ImageBackground> */}
+      </ScreenBackground>
+      {/* </View> */}
     </KeyboardAvoidingView>
   );
 };

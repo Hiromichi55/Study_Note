@@ -3,5 +3,8 @@
   "compilerOptions": {
     "strict": true,
     "jsx": "react-native"
-  }
+  },
+  "moduleResolution": "node",
+  "esModuleInterop": true,
+  "allowSyntheticDefaultImports": true,
 }
