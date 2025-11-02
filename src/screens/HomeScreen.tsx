@@ -1,3 +1,4 @@
+import ScreenBackground from './ScreenBackground';
 import React, { useState, useRef, useEffect } from 'react';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import Animated from 'react-native-reanimated';
@@ -98,11 +99,12 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.backgroundWrapper}>
-        <ImageBackground
+        {/* <ImageBackground
           source={require('../../assets/images/title.png')}
           style={styles.background}
           resizeMode="contain"
-        >
+        > */}
+        <ScreenBackground>
           <View style={styles.bookListWrapper}>
             <DraggableFlatList
               ref={flatListRef}
@@ -169,7 +171,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               <Text style={styles.addButtonText}>・使い方　</Text>
             </TouchableOpacity>
           </View>
-        </ImageBackground>
+        {/* </ImageBackground> */}
+        </ScreenBackground>
       </View>
     </KeyboardAvoidingView>
   );
