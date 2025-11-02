@@ -36,8 +36,10 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
   },
   background: {
+    flex: 1,
     width: screenWidth,
-    height: screenWidth * imageAspectRatio,
+    // height: screenWidth * imageAspectRatio,
+    height: screenHeight,
   },
   horizontalScrollContainer: {
     paddingHorizontal: 50,
@@ -118,6 +120,29 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
   },
     // NotebookScreen用スタイル
+
+  sliderWrapper: { // スライダーの親要素
+    display: 'flex',
+    position: 'absolute',
+    bottom: 150,
+    left: 10,
+    right: 10,
+    height: 50,
+    flexDirection: 'row', // ← 横並び
+    backgroundColor: 'transparent', // ← 半透明青
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    // marginBottom: showSearch ? 0 : 20, // ← 検索バーがあるときは上に
+  },
+
   notebookBackground: {
     flex: 1,
     alignItems: 'center',
