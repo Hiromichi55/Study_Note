@@ -29,13 +29,14 @@ interface Props {
 }
 
 const NotebookScreen: React.FC<Props> = ({ route }) => {
-  const isTest = true; // 開発環境なら true、リリースは false
+  const isTest = false; // 開発環境なら true、リリースは false
   const navigation = useNavigation();
   const { bookId } = route.params;
   const { state, dispatch } = useLibrary();
 
   const book = state.books.find((b) => b.id === bookId);
   const [editing, setEditing] = useState(false);
+  const [editableText, setEditableText] = useState(''); // ← 編集中のテキスト内容
   const [menuVisible, setMenuVisible] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const pagerRef = useRef<PagerView>(null); // ← ページ移動用参照を追加
@@ -146,7 +147,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               closeMenu();
               dispatch({ type: 'DELETE_BOOK', bookId: book!.id });
             }}
-            title="ノート削除"
+            title="本削除"
             titleStyle={{ color: 'red'}}
             leadingIcon="delete"
           />
@@ -232,7 +233,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   pointerEvents={isVisible ? 'auto' : 'none'} // ← 非表示中はタップ無効
                 >
                   {/* スライダー付きページビュー */}
-                  {isVisible && (
+                  {isVisible && !editing && (
                     <View
                       style={[
                         {
@@ -304,6 +305,39 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       </View>
                     )}
                 </Animated.View> 
+
+                {/* 編集モード中のテキスト入力フィールド */}
+                {editing && (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      top: 120,
+                      left: 20,
+                      right: 20,
+                      bottom: keyboardHeight > 0 ? keyboardHeight + 40 : 150,
+                      backgroundColor: 'rgba(255,255,255,0.9)',
+                      borderRadius: 12,
+                      padding: 12,
+                      shadowColor: '#000',
+                      shadowOpacity: 0.2,
+                      shadowOffset: { width: 0, height: 2 },
+                      elevation: 5,
+                    }}
+                  >
+                    <TextInput
+                      value={editableText}
+                      onChangeText={setEditableText}
+                      placeholder="ここに入力..."
+                      multiline
+                      style={{
+                        flex: 1,
+                        fontSize: 18,
+                        textAlignVertical: 'top',
+                      }}
+                      autoFocus
+                    />
+                  </View>
+                )}
             </ImageBackground>
 
             {/* 🔍 検索バー */}
@@ -356,20 +390,32 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               {/* 編集ボタン（右下） */}
               <TouchableOpacity
                 style={styles.floatingEditButton}
-                onPress={() => {
-                  navigation.navigate('Edit', { bookId: book.id }); // ← 編集画面へ遷移
-                }}
+                  onPress={() => {
+                    if (editing) {
+                      // ✅ 編集中なら保存動作
+                      console.log('保存内容:', editableText);
+                      setEditing(false);
+                      Keyboard.dismiss();
+                    } else {
+                      // ✅ 編集開始：現在ページ内容をロード
+                      const currentContent = pages[currentPage] ?? '';
+                      setEditableText(currentContent);
+                      setEditing(true);
+                    }
+                  }}
               >
               <Ionicons name={editing ? 'checkmark' : 'create'} size={35} color="white" />
             </TouchableOpacity>
 
             {/* 虫眼鏡ボタン（左下） */}
-            <TouchableOpacity
-              style={styles.floatingSearchButton}
-              onPress={() => setShowSearch(!showSearch)}
-            >
-              <Ionicons name="search" size={35} color="white" />
-            </TouchableOpacity>
+            {!editing && (
+              <TouchableOpacity
+                style={styles.floatingSearchButton}
+                onPress={() => setShowSearch(!showSearch)}
+              >
+                <Ionicons name="search" size={35} color="white" />
+              </TouchableOpacity>
+            )}
           </View>
         </KeyboardAvoidingView>
       </View>
