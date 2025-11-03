@@ -64,18 +64,30 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const closeMenu = () => setMenuVisible(false);
 
   useEffect(() => {
-  const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
-    setKeyboardHeight(e.endCoordinates.height);
-  });
-  const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-    setKeyboardHeight(0);
-  });
+    // iOS: keyboardWillShow / WillHide を使うと表示前に高さ取得できる
+    const showSubWill = Keyboard.addListener('keyboardWillShow', (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
 
-  return () => {
-    showSub.remove();
-    hideSub.remove();
-  };
-}, []);
+    // Android: keyboardDidShow / DidHide のみ発火
+    const showSubDid = Keyboard.addListener('keyboardDidShow', (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+
+    const hideSubWill = Keyboard.addListener('keyboardWillHide', () => {
+      setKeyboardHeight(0);
+    });
+    const hideSubDid = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSubWill.remove();
+      showSubDid.remove();
+      hideSubWill.remove();
+      hideSubDid.remove();
+    };
+  }, []);
 
   // 👇 表示状態が変わったらアニメーションさせる
   useEffect(() => {
@@ -300,20 +312,21 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         </View>
                       </View>
                     )}
-                </Animated.View> 
+                </Animated.View>
 
                 {/* 編集モード中のテキスト入力フィールド */}
                 {editing && (
                   <View
                     style={{
                       position: 'absolute',
-                      top: 120,
-                      left: 20,
-                      right: 20,
-                      bottom: keyboardHeight > 0 ? keyboardHeight + 40 : 150,
-                      backgroundColor: 'rgba(255,255,255,0.9)',
+                      width: screenWidth*0.9,
+                      height: (screenHeight-keyboardHeight)*0.7,
+                      top: (screenHeight-keyboardHeight)*0.1/2,
+                      left: screenWidth*0.1/2,
+                      // bottom: keyboardHeight > 0 ? keyboardHeight + 40 : 150,
+                      backgroundColor: 'rgba(255,255,255,0.85)',
                       borderRadius: 12,
-                      padding: 12,
+                      // padding: 12,
                       shadowColor: '#000',
                       shadowOpacity: 0.2,
                       shadowOffset: { width: 0, height: 2 },
@@ -358,7 +371,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   getDebugStyle('rgba(255, 0, 0, 0.2)'), // 検索バー：薄い赤
                 ]}
               >
-                <Ionicons name="search" size={screenWidth/18} color="gray" />
+                <Ionicons name="search" size={screenWidth/12} color="gray" />
                 <TextInput
                   style={{
                     flex: 1,
@@ -377,14 +390,17 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   keyboardAppearance="default"
                 />
                 <TouchableOpacity onPress={() => setShowSearch(false)}>
-                  <Ionicons name="close" size={screenWidth/18} color="gray" />
+                  <Ionicons name="close" size={screenWidth/12} color="gray" />
                 </TouchableOpacity>
               </View>
             )}
 
               {/* 編集ボタン（右下） */}
               <TouchableOpacity
-                style={styles.floatingEditButton}
+                style={[
+                  styles.floatingEditButton,
+                  {bottom: !editing ? screenHeight*0.02 : screenHeight*0.15}
+                ]}
                   onPress={() => {
                     if (editing) {
                       // ✅ 編集中なら保存動作
@@ -399,7 +415,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     }
                   }}
               >
-              <Ionicons name={editing ? 'checkmark' : 'create'} size={screenWidth/15} color="white" />
+              <Ionicons name={editing ? 'checkmark' : 'create'} size={screenWidth/12} color="white" />
             </TouchableOpacity>
 
             {/* 虫眼鏡ボタン（左下） */}
@@ -408,7 +424,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 style={styles.floatingSearchButton}
                 onPress={() => setShowSearch(!showSearch)}
               >
-                <Ionicons name="search" size={screenWidth/15} color="white" />
+                <Ionicons name="search" size={screenWidth/12} color="white" />
               </TouchableOpacity>
             )}
           </ScreenBackground>
