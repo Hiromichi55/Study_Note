@@ -77,7 +77,6 @@ const ScreenBackground: React.FC<{ children?: React.ReactNode }> = ({ children }
       await asset.downloadAsync();
       const localUri = asset.localUri || asset.uri;
 
-      // --- ここから修正部分 ---
       // フォントファイルをバイナリで読み込む
       const fontBase64 = await FileSystem.readAsStringAsync(localUri, {
         encoding: FileSystem.EncodingType.Base64,
@@ -90,21 +89,27 @@ const ScreenBackground: React.FC<{ children?: React.ReactNode }> = ({ children }
 
       const skData = Skia.Data.fromBytes(bytes);
       const typeface = Skia.Typeface.MakeFreeTypeFaceFromData(skData);
-        if (!typeface) {
+      if (!typeface) {
         throw new Error('フォントの読み込みに失敗しました。');
-        }
+      }
 
-        const font = Skia.Font(typeface, 48);
+      const font = Skia.Font(typeface, 80);
+      const text = "美ノート"
 
       // テキストペイント
       const textPaint = Skia.Paint();
       textPaint.setColor(Skia.Color('rgba(0, 0, 0, 1)'));
-      textPaint.setStyle(PaintStyle.Fill); // enum を使う
-      textPaint.setAntiAlias(true); // 滑らかに
-      textPaint.setStrokeWidth(5); // 輪郭を少し強調
+      // 文字幅を取得
+      const textBlob = font.measureText(text);
+      // 画面中央に配置するためのX座標を計算
+      const textWidth = typeof textBlob === 'number'
+      ? textBlob
+      : (textBlob?.width ?? 0);
+      const x = (width - textWidth) / 2;
+      const y = height * 0.25;
 
       // タイトル文字描画
-      canvas.drawText('今日のノート', width * 0.08, interval * 2.5, textPaint, font);
+      canvas.drawText(text, x, y, textPaint, font);
     } catch (err) {
       console.warn('⚠️ フォント読み込みに失敗しました:', err);
     }

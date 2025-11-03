@@ -4,14 +4,17 @@ import bookImages from '../constants/bookImage';
 const screenWidth = Dimensions.get('window').width;
 const screenHeight = Dimensions.get('window').height;
 
+// 画面の縦横
 const { width: imgWidth, height: imgHeight } = Image.resolveAssetSource(bookImages.blue);
 const imageAspectRatio = imgHeight / imgWidth;
+// 本
 const IMAGE_WIDTH = screenWidth / 5.5;
-const IMAGE_HEIGHT = (IMAGE_WIDTH * imgHeight) / imgWidth;
-const FONT_SIZE = IMAGE_HEIGHT * 0.1;
-const LINE_HEIGHT = FONT_SIZE * 1;
+const IMAGE_HEIGHT = IMAGE_WIDTH * ( imgHeight / imgWidth );
+// 選択本
 const COLOR_ICON_WIDTH = IMAGE_WIDTH / 1.7;
 const COLOR_ICON_HEIGHT = IMAGE_HEIGHT / 1.7;
+const FONT_SIZE = IMAGE_HEIGHT * 0.1;
+const LINE_HEIGHT = FONT_SIZE * 1;
 
 export const theme = {
   screenWidth,
