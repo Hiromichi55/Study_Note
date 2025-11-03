@@ -21,7 +21,8 @@ import { MESSAGES } from '../constants/messages';
 import { Ionicons } from '@expo/vector-icons';
 import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
-import { theme, styles } from '../styles/theme';
+import { theme, styles, screenWidth, screenHeight } from '../styles/theme';
+import ScreenBackground from './ScreenBackground';
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 interface Props {
@@ -29,7 +30,7 @@ interface Props {
 }
 
 const NotebookScreen: React.FC<Props> = ({ route }) => {
-  const isTest = false; // 開発環境なら true、リリースは false
+  const isTest = true; // 開発環境なら true、リリースは false
   const navigation = useNavigation();
   const { bookId } = route.params;
   const { state, dispatch } = useLibrary();
@@ -188,15 +189,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           ]}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.backgroundWrapper}>
-            <ImageBackground
-              source={require('../../assets/images/note.png')}
-              style={[
-                styles.background,
-                getDebugStyle('rgba(255, 255, 0, 0.15)'),
-              ]}
-              resizeMode="contain"
-            >
+          {/* <View style={styles.backgroundWrapper}> */}
+          <ScreenBackground>
               {/* ノート全体をタップで切り替え */}
               <TouchableOpacity
                 style={[styles.container, { backgroundColor: 'transparent', flex: 1 }, getDebugStyle('rgba(0, 0, 255, 0.15)')]}
@@ -210,23 +204,24 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   style={[
                     {
                     opacity: showSearch ? 1: fadeAnim, // ← アニメーション制御
-                    position: 'absolute',
-                    bottom: showSearch ? keyboardHeight : 150, // ← 検索バーがあるときは上に
-                    left: 15,
-                    right: 15,
-                    height: 1000,
+                    // position: 'absolute',
+                    position: 'relative',
+                    // bottom: showSearch ? keyboardHeight : 150, // ← 検索バーがあるときは上に
+                    width: theme.screenWidth,
+                    height: theme.screenHeight,
+                    justifyContent: 'center',
+                    alignContent: 'center',
                     flexDirection: 'row',
                     backgroundColor: 'transparent',
                     borderRadius: 16,
                     borderWidth: 1,
-                    borderColor: 'transparent',
+                    borderColor: isVisible ? 'blue' : 'transparent',
                     overflow: 'hidden',
                     shadowColor: '#000',
                     shadowOpacity: 0.2,
                     shadowOffset: { width: 0, height: 3 },
                     elevation: 5,
                     alignItems: 'center',
-                    justifyContent: 'space-between',
                   },
                   getDebugStyle('rgba(255, 255, 0, 0.15)'),
                   ]}
@@ -238,12 +233,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       style={[
                         {
                           position: 'absolute',
-                          bottom: 150,
-                          left: 10,
-                          right: 10,
-                          height: 50,
+                          height: theme.screenHeight/15,
+                          width: theme.screenWidth*0.8,
+                          bottom: !showSearch ? theme.screenHeight*0.25 : theme.screenHeight*0.3,
                           flexDirection: 'row', // ← 横並び
-                          backgroundColor: 'transparent', // ← 半透明青
                           borderRadius: 16,
                           borderWidth: 1,
                           borderColor: 'transparent',
@@ -254,22 +247,23 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                           elevation: 5,
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          marginBottom: showSearch ? 0 : 20, // ← 検索バーがあるときは上に
+                          // marginBottom: showSearch ? 0 : theme.screenHeight*0.4, // ← 検索バーがあるときは上に
                       },
                       getDebugStyle('rgba(0, 0, 255, 0.2)'), // スライダー：薄い青
                     ]}
                     >
-
+                    <View style={{ width: '20%', alignItems:'center'}}>
                         {/* 📚 ページ一覧ボタン */}
                         <TouchableOpacity
                           onPress={() => console.log('ページ一覧を表示')}
                           style={[
                             {
-                              width: 40,
-                              height: 40,
-                              borderRadius: 10,
+                              width: screenWidth/10,
+                              height: screenWidth/10,
+                              borderRadius: 15,
                               backgroundColor: 'rgba(0,0,0,0.6)',
                               alignItems: 'center',
+                              alignContent: 'center',
                               justifyContent: 'center',
                               marginRight: 10,
                               marginLeft: 10,
@@ -277,17 +271,19 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                             getDebugStyle('rgba(0, 0, 0, 0.4)'), // ボタン：グレー
                           ]}
                         >
-                              <Ionicons name="albums-outline" size={30} color="white" />
+                              <Ionicons name="albums-outline" size={screenWidth/15} color="white" />
                         </TouchableOpacity>
-
+                    </View>
 
                         {/* 丸いつまみのスライダー（右70%） */}
-                        <View style={{ width: '75%', marginLeft: 10, marginRight: 10 }}>
+                        <View style={{ width: '70%', alignItems: 'center'}}>
                           <Slider
                             style={{
                               width: '100%',
                               height: 50,
                               alignSelf: 'flex-end',
+                              marginRight: 20,
+                              marginLeft: 20,
                             }}
                             minimumValue={0}
                             maximumValue={pages.length - 1}
@@ -338,7 +334,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     />
                   </View>
                 )}
-            </ImageBackground>
 
             {/* 🔍 検索バー */}
             {showSearch && (
@@ -363,7 +358,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   getDebugStyle('rgba(255, 0, 0, 0.2)'), // 検索バー：薄い赤
                 ]}
               >
-                <Ionicons name="search" size={20} color="gray" />
+                <Ionicons name="search" size={screenWidth/18} color="gray" />
                 <TextInput
                   style={{
                     flex: 1,
@@ -382,7 +377,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   keyboardAppearance="default"
                 />
                 <TouchableOpacity onPress={() => setShowSearch(false)}>
-                  <Ionicons name="close" size={24} color="gray" />
+                  <Ionicons name="close" size={screenWidth/18} color="gray" />
                 </TouchableOpacity>
               </View>
             )}
@@ -404,7 +399,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     }
                   }}
               >
-              <Ionicons name={editing ? 'checkmark' : 'create'} size={35} color="white" />
+              <Ionicons name={editing ? 'checkmark' : 'create'} size={screenWidth/15} color="white" />
             </TouchableOpacity>
 
             {/* 虫眼鏡ボタン（左下） */}
@@ -413,10 +408,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 style={styles.floatingSearchButton}
                 onPress={() => setShowSearch(!showSearch)}
               >
-                <Ionicons name="search" size={35} color="white" />
+                <Ionicons name="search" size={screenWidth/15} color="white" />
               </TouchableOpacity>
             )}
-          </View>
+          </ScreenBackground>
         </KeyboardAvoidingView>
       </View>
     </TouchableWithoutFeedback>

@@ -1,14 +1,14 @@
 import { Dimensions, StyleSheet, Image } from 'react-native';
 import bookImages from '../constants/bookImage';
 
-const screenWidth = Dimensions.get('window').width;
-const screenHeight = Dimensions.get('window').height;
+export const screenWidth = Dimensions.get('window').width;
+export const screenHeight = Dimensions.get('window').height;
 
 // 画面の縦横
 const { width: imgWidth, height: imgHeight } = Image.resolveAssetSource(bookImages.blue);
 const imageAspectRatio = imgHeight / imgWidth;
 // 本
-const IMAGE_HEIGHT = screenHeight / 4;
+const IMAGE_HEIGHT = screenHeight / 3.7;
 const IMAGE_WIDTH = IMAGE_HEIGHT * ( imgWidth / imgHeight );
 // 選択本
 const COLOR_ICON_WIDTH = IMAGE_WIDTH / 1.7;
@@ -53,6 +53,8 @@ export const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+    // width: screenWidth,
+    // height: screenHeight,
   },
   backgroundWrapper: {
     flex: 1,
@@ -264,12 +266,12 @@ export const styles = StyleSheet.create({
   },
   floatingEditButton: {
   position: 'absolute',
-  bottom: 30,
+  bottom: screenHeight*0.02,
   right: 20,
   backgroundColor: 'black', // 好きな色に
-  borderRadius: 30,
-  width: 60,
-  height: 60,
+  borderRadius: screenHeight,
+  width: screenWidth/7,
+  height: screenWidth/7,
   justifyContent: 'center',
   alignItems: 'center',
   shadowColor: '#000',
@@ -280,12 +282,12 @@ export const styles = StyleSheet.create({
 },
 floatingSearchButton: {
   position: 'absolute',
-  bottom: 30,
+  bottom: screenHeight*0.02,
   left: 20,
   backgroundColor: "black",
-  borderRadius: 30,
-  width: 60,
-  height: 60,
+  borderRadius: screenHeight,
+  width: screenWidth/7,
+  height: screenWidth/7,
   justifyContent: 'center',
   alignItems: 'center',
   shadowColor: '#000',
