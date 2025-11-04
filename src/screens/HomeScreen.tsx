@@ -27,7 +27,7 @@ interface Props {
 }
 
 // ✅ 開発用フラグ
-const DEBUG_LAYOUT = true;
+const DEBUG_LAYOUT = false;
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { state, addBook, reorderBooks } = useLibrary();

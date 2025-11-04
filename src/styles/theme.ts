@@ -38,7 +38,7 @@ export const styles = StyleSheet.create({
     top: screenHeight*0.2,
     width: '100%',
     alignContent: 'center',
-    borderWidth: 1, 
+    // borderWidth: 1, 
     height: 'auto',       // 高さを文字サイズに合わせる
   },
   titleText: {

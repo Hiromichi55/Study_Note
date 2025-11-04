@@ -30,14 +30,12 @@ interface Props {
 }
 
 const NotebookScreen: React.FC<Props> = ({ route }) => {
-  const isTest = true; // 開発環境なら true、リリースは false
+  const isTest = false; // 開発環境なら true、リリースは false
   const navigation = useNavigation();
   const { bookId } = route.params;
   const { state, dispatch } = useLibrary();
 
   const book = state.books.find((b) => b.id === bookId);
-  const [editing, setEditing] = useState(false);
-  const [editableText, setEditableText] = useState(''); // ← 編集中のテキスト内容
   const [menuVisible, setMenuVisible] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const pagerRef = useRef<PagerView>(null); // ← ページ移動用参照を追加
@@ -62,6 +60,16 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   const openMenu = () => setMenuVisible(true);
   const closeMenu = () => setMenuVisible(false);
+
+  // 編集関連の状態
+  const [editing, setEditing] = useState(false);
+  const [editableText, setEditableText] = useState('');
+  const [currentAttribute, setCurrentAttribute] = useState<'章' | '節' | '項' | '単語' | '画像' | '文章'>('文章');
+  const ATTRIBUTES = ['章', '節', '項', '単語', '画像', '文章'] as const;
+  // 単語用
+  const [word, setWord] = useState('');
+  const [definition, setDefinition] = useState('');
+
 
   useEffect(() => {
     // iOS: keyboardWillShow / WillHide を使うと表示前に高さ取得できる
@@ -227,7 +235,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     backgroundColor: 'transparent',
                     borderRadius: 16,
                     borderWidth: 1,
-                    borderColor: isVisible ? 'blue' : 'transparent',
+                    borderColor: !isVisible ? 'blue' : 'transparent',
                     overflow: 'hidden',
                     shadowColor: '#000',
                     shadowOpacity: 0.2,
@@ -319,32 +327,125 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   <View
                     style={{
                       position: 'absolute',
-                      width: screenWidth*0.9,
-                      height: (screenHeight-keyboardHeight)*0.7,
-                      top: (screenHeight-keyboardHeight)*0.1/2,
-                      left: screenWidth*0.1/2,
-                      // bottom: keyboardHeight > 0 ? keyboardHeight + 40 : 150,
-                      backgroundColor: 'rgba(255,255,255,0.85)',
+                      width: screenWidth * 0.9,
+                      height: (screenHeight - keyboardHeight) * 0.7,
+                      top: (screenHeight - keyboardHeight) * 0.1 / 2,
+                      left: screenWidth * 0.05,
+                      backgroundColor: 'rgba(255,255,255,0.9)',
                       borderRadius: 12,
-                      // padding: 12,
                       shadowColor: '#000',
                       shadowOpacity: 0.2,
                       shadowOffset: { width: 0, height: 2 },
                       elevation: 5,
+                      padding: 10,
                     }}
                   >
-                    <TextInput
-                      value={editableText}
-                      onChangeText={setEditableText}
-                      placeholder="ここに入力..."
-                      multiline
+                    {/* 属性ボタンバー */}
+                    <View
                       style={{
-                        flex: 1,
-                        fontSize: 18,
-                        textAlignVertical: 'top',
+                        flexDirection: 'row',
+                        justifyContent: 'space-around',
+                        marginBottom: 10,
                       }}
-                      autoFocus
-                    />
+                    >
+                      {ATTRIBUTES.map((attr) => (
+                        <TouchableOpacity
+                          key={attr}
+                          onPress={() => setCurrentAttribute(attr)}
+                          style={{
+                            backgroundColor:
+                              currentAttribute === attr ? '#007AFF' : 'rgba(0,0,0,0.1)',
+                            paddingHorizontal: 10,
+                            paddingVertical: 6,
+                            borderRadius: 8,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: currentAttribute === attr ? 'white' : 'black',
+                              fontWeight: 'bold',
+                            }}
+                          >
+                            {attr}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    {/* 入力UIの切り替え */}
+                    {currentAttribute === '単語' ? (
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>単語：</Text>
+                        <TextInput
+                          value={word}
+                          onChangeText={setWord}
+                          placeholder="単語を入力"
+                          style={{
+                            backgroundColor: '#fff',
+                            borderRadius: 6,
+                            padding: 8,
+                            marginBottom: 10,
+                            borderWidth: 1,
+                            borderColor: '#ccc',
+                          }}
+                        />
+                        <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>説明：</Text>
+                        <TextInput
+                          value={definition}
+                          onChangeText={setDefinition}
+                          placeholder="説明を入力"
+                          multiline
+                          style={{
+                            flex: 1,
+                            backgroundColor: '#fff',
+                            borderRadius: 6,
+                            padding: 8,
+                            borderWidth: 1,
+                            borderColor: '#ccc',
+                            textAlignVertical: 'top',
+                          }}
+                        />
+                      </View>
+                    ) : currentAttribute === '画像' ? (
+                      <View
+                        style={{
+                          flex: 1,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <TouchableOpacity
+                          onPress={() => console.log('画像選択')}
+                          style={{
+                            backgroundColor: '#eee',
+                            padding: 20,
+                            borderRadius: 10,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Ionicons name="image-outline" size={40} color="#666" />
+                          <Text>画像を追加</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TextInput
+                        value={editableText}
+                        onChangeText={setEditableText}
+                        placeholder={`${currentAttribute}の内容を入力`}
+                        multiline
+                        style={{
+                          flex: 1,
+                          fontSize: 18,
+                          textAlignVertical: 'top',
+                          backgroundColor: '#fff',
+                          borderRadius: 8,
+                          borderWidth: 1,
+                          borderColor: '#ccc',
+                          padding: 10,
+                        }}
+                        autoFocus
+                      />
+                    )}
                   </View>
                 )}
 
@@ -404,9 +505,20 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   onPress={() => {
                     if (editing) {
                       // ✅ 編集中なら保存動作
+                      const updatedPages = [...pages];
                       console.log('保存内容:', editableText);
+                      // updatedPages[currentPage] = editableText;
+
+                      // setPages(updatedPages);
                       setEditing(false);
                       Keyboard.dismiss();
+
+                          // Context（useLibrary）側も更新
+                      // dispatch({
+                      //   type: 'UPDATE_BOOK_CONTENT',
+                      //   bookId: book.id,
+                      //   content: updatedPages,
+                      // });
                     } else {
                       // ✅ 編集開始：現在ページ内容をロード
                       const currentContent = pages[currentPage] ?? '';
