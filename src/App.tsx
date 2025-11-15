@@ -1,62 +1,89 @@
 // App.tsx
-import React from 'react';
-import { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
+import { ScrollView, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-// import { createStackNavigator } from '@react-navigation/stack';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import HomeScreen from './screens/HomeScreen';
-import NotebookScreen from './screens/NotebookScreen';
-import EditScreen from './screens/EditScreen';
-import { LibraryProvider } from './context/LibraryContext';
-import { Text, StyleSheet } from 'react-native';
-import * as Font from 'expo-font';
-import AppLoading from 'expo-app-loading';
-import * as SplashScreen from 'expo-splash-screen';
-import { MESSAGES } from './constants/messages';
-import { Provider as PaperProvider } from 'react-native-paper';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { EditorProvider, useEditor, Content } from './context/EditorContext';
 
+// スタックナビゲーション
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// アプリの起動時にスプラッシュスクリーンを保持
-SplashScreen.preventAutoHideAsync();
+// ===== DBTestComponent: DB動作確認用 =====
+const DBTestComponent = () => {
+  const { state, addContent, select } = useEditor();
 
-export default function App() {
-  const [fontsLoaded] = Font.useFonts({
-    'MyFont': require('../assets/fonts/dartsfont.ttf'),
-  });
+  useEffect(() => {
+    const testDB = async () => {
+      try {
+        // 同じ内容を何度も追加しない
+        const existing = await select<Content>('contents', 'content = ?', ['テストコンテンツ']);
+        if (existing.length === 0) {
+          const newContent: Content = {
+            content: 'テストコンテンツ',
+            order_index: 1,
+            type: 'note',
+            book_Id: 'book1',
+            page: 1,
+            height: 100,
+          };
+          await addContent(newContent);
+        }
 
-  if (!fontsLoaded) {
-    return <AppLoading />;
-  }
+        const allContents = await select<Content>('contents');
+        console.log('Contents from DBTestComponent:', allContents);
+      } catch (err) {
+        console.error('DBTestComponent error:', err);
+      }
+    };
+
+    if (!state.isLoading) {
+      testDB();
+    }
+  }, [state.isLoading]);
 
   return (
+    <ScrollView style={{ padding: 20 }}>
+      <Text style={{ fontSize: 18, fontWeight: 'bold' }}>EditorContext + DB Test</Text>
+      <Text>Hello from EditorContext!</Text>
+      <Text>isLoading: {state.isLoading ? 'true' : 'false'}</Text>
+      {state.contents.map((c, idx) => (
+        <Text key={idx}>{`${c.order_index}: ${c.content} (Book: ${c.book_Id})`}</Text>
+      ))}
+    </ScrollView>
+  );
+};
+
+// ===== HomeScreen（仮の画面） =====
+const HomeScreen = ({ navigation }: any) => {
+  return (
+    <ScrollView style={{ padding: 20 }}>
+      <Text style={{ fontSize: 18, fontWeight: 'bold' }}>Home Screen</Text>
+      <Text onPress={() => navigation.navigate('DBTest')} style={{ marginTop: 20, color: 'blue' }}>
+        Go to DBTest
+      </Text>
+    </ScrollView>
+  );
+};
+
+// ===== メイン App =====
+export default function App() {
+  return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <LibraryProvider>
-        <PaperProvider>
-          <NavigationContainer>
-            <Stack.Navigator initialRouteName="Home"
-              screenOptions={{
-                headerTitleStyle: { fontFamily: 'MyFont' },
-                gestureEnabled: true,
-                animation: 'slide_from_right',
-              }}
-            >
-              <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }}  />
-              <Stack.Screen name="Notebook" component={NotebookScreen} options={{ title: MESSAGES.NOTE_TITLE }} />
-              <Stack.Screen name="Edit" component={EditScreen} options={{ title: MESSAGES.EDIT_TITLE }}/>
-            </Stack.Navigator>
-          </NavigationContainer>
-        </PaperProvider>
-      </LibraryProvider>
+      <EditorProvider>
+        <NavigationContainer>
+          <Stack.Navigator initialRouteName="Home">
+            <Stack.Screen name="Home" component={HomeScreen} />
+            <Stack.Screen name="DBTest" component={DBTestComponent} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </EditorProvider>
     </GestureHandlerRootView>
   );
 }
 
-
-// 画面遷移時のパラメータの型定義（Home画面はパラメータなし、Notebook画面は本のID(bookId)を受け取る）
+// 画面遷移時のパラメータ型
 export type RootStackParamList = {
   Home: undefined;
-  Notebook: { bookId: string };
-  Edit: { bookId: string };
+  DBTest: undefined;
 };
