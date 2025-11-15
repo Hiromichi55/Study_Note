@@ -191,34 +191,69 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     dispatch({
       type: 'SET_ALL',
-      payload: { contents, images, outlines, texts, words },
+      payload: {
+      contents: contents as Content[],    // 型アサーションを使って Content[] 型に変換
+      images: images as Image[],          // 型アサーションを使って Image[] 型に変換
+      outlines: outlines as Outline[],    // 型アサーションを使って Outline[] 型に変換
+      texts: texts as Text[],             // 型アサーションを使って Text[] 型に変換
+      words: words as Word[],             // 型アサーションを使って Word[] 型に変換
+    },
     });
   };
 
   // ===== 共通ヘルパー =====
   const insert = async (table: string, data: any) => {
     if (!db) return;
+    
     const keys = Object.keys(data);
     const placeholders = keys.map(() => '?').join(',');
     const values = Object.values(data);
-    await db.runAsync(`INSERT INTO ${table} (${keys.join(',')}) VALUES (${placeholders});`, values);
+    
+    // valuesをSQLiteBindParamsにキャスト
+    await db.runAsync(
+      `INSERT INTO ${table} (${keys.join(',')}) VALUES (${placeholders});`, 
+      values as SQLite.SQLiteBindParams
+    );
+    
+    // 全テーブルのデータを再読み込み
     await refreshAll();
   };
 
+
   const update = async (table: string, idField: string, id: string, data: any) => {
     if (!db) return;
+    
     const keys = Object.keys(data);
     const setClause = keys.map((k) => `${k} = ?`).join(', ');
     const values = [...Object.values(data), id];
-    await db.runAsync(`UPDATE ${table} SET ${setClause} WHERE ${idField} = ?;`, values);
+    
+    // valuesをSQLiteBindParamsにキャスト
+    await db.runAsync(
+      `UPDATE ${table} SET ${setClause} WHERE ${idField} = ?;`,
+      values as SQLite.SQLiteBindParams
+    );
+    
+    // 全テーブルのデータを再読み込み
     await refreshAll();
   };
+
 
   const remove = async (table: string, idField: string, id: string) => {
     if (!db) return;
     await db.runAsync(`DELETE FROM ${table} WHERE ${idField} = ?;`, [id]);
     await refreshAll();
   };
+
+  const select = async (table: string, where?: string, params: any[] = []) => {
+    if (!db) return [];
+
+    const query = where
+      ? `SELECT * FROM ${table} WHERE ${where};`
+      : `SELECT * FROM ${table};`;
+
+    return await db.getAllAsync(query, params);
+} ;
+
 
   // ===== 各テーブル専用CRUD =====
   const addContent = (data: Content) => insert('contents', data);
