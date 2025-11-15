@@ -46,6 +46,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const editInputRef = useRef<TextInput>(null);
 
+  const [editingLineIndex, setEditingLineIndex] = useState<number | null>(null);
+
+
 
   // デバッグ用の背景色を返す関数
   const getDebugStyle = (color: string) =>
@@ -385,21 +388,20 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       }}
                     >
                       <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>メモ内容：</Text>
-                      <ScrollView
-                        style={{ flex: 1 }}
-                        contentContainerStyle={{ paddingBottom: 20 }}
-                        showsVerticalScrollIndicator={true}
-                      >
-                        <Text
-                          style={{
-                            flex: 1,
-                            fontSize: 16,
-                            lineHeight: 22,
-                            color: '#333',
-                          }}
-                        >
-                          {pageContent}
-                        </Text>
+                      <ScrollView>
+                        {pageContent.split('\n').map((line, i) => (
+                          <TouchableOpacity
+                            key={i}
+                            onPress={() => {
+                              setEditableText(line);       // タップした行を編集欄に反映
+                              setEditing(true);
+                              setEditingLineIndex(i);      // この行を編集中として記録
+                              setTimeout(() => editInputRef.current?.focus(), 100);
+                            }}
+                          >
+                            <Text>{line}</Text>
+                          </TouchableOpacity>
+                        ))}
                       </ScrollView>
                     </TouchableOpacity>
 
@@ -473,19 +475,38 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                             let newItem = '';
 
                             if (currentAttribute === '単語') {
-                              newItem = `【単語】${word}\n${definition}\n\n`;
+                              newItem = `【単語】${word}\n${definition}`;
                               setWord('');
                               setDefinition('');
                             } else {
-                              newItem = `【${currentAttribute}】${editableText}\n\n`;
-                              setEditableText('');
+                              // 編集中は属性名を追加せず、新規追加時のみ付与
+                              if (editingLineIndex !== null) {
+                                newItem = editableText; // ←更新時は属性なし
+                              } else {
+                                newItem = `【${currentAttribute}】${editableText}`; // ←新規追加時は属性付き
+                                setEditableText('');
+                              }
                             }
 
-                            setPageContent(prev => prev + newItem);
+                            setPageContent(prev => {
+                              const lines = prev.split('\n');
+
+                              if (editingLineIndex !== null) {
+                                // 編集中の行を置き換える
+                                setEditableText('');
+                                lines[editingLineIndex] = newItem;
+                                setEditingLineIndex(null); // 編集終了
+                              } else {
+                                // 新規追加
+                                lines.push(newItem);
+                              }
+
+                              return lines.join('\n');
+                            });
                           }}
                         >
                           <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold' }}>
-                            追加する
+                            {editingLineIndex !== null ? '更新する' : '追加する'}
                           </Text>
                         </TouchableOpacity>
                       </View>
@@ -552,9 +573,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       // ✅ 編集中なら保存動作
                       const updatedPages = [...pages];
                       console.log('保存内容:', editableText);
-                      // updatedPages[currentPage] = editableText;
+                      updatedPages[currentPage] = editableText;
 
-                      // setPages(updatedPages);
+                      setPages(updatedPages);
                       setEditing(false);
                       Keyboard.dismiss();
 
@@ -568,6 +589,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       // ✅ 編集開始：現在ページ内容をロード
                       const currentContent = pages[currentPage] ?? '';
                       setEditableText(currentContent);
+                      setPageContent(currentContent);
                       setEditing(true);
                     }
                   }}
