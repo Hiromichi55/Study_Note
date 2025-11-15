@@ -12,9 +12,10 @@ import {
   Keyboard,
   Animated, 
   Easing,
+  ScrollView
 } from 'react-native';
 import PagerView from 'react-native-pager-view';
-import Slider from '@react-native-community/slider'; // ← 追加！
+import Slider from '@react-native-community/slider';
 import { RouteProp, useNavigation } from '@react-navigation/native';
 import { useLibrary } from '../context/LibraryContext';
 import { MESSAGES } from '../constants/messages';
@@ -30,7 +31,7 @@ interface Props {
 }
 
 const NotebookScreen: React.FC<Props> = ({ route }) => {
-  const isTest = false; // 開発環境なら true、リリースは false
+  const isTest = true; // 開発環境なら true、リリースは false
   const navigation = useNavigation();
   const { bookId } = route.params;
   const { state, dispatch } = useLibrary();
@@ -42,6 +43,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const searchInputRef = useRef<TextInput>(null);
   // キーボードの表示状態を取得
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const editInputRef = useRef<TextInput>(null);
+
 
   // デバッグ用の背景色を返す関数
   const getDebugStyle = (color: string) =>
@@ -51,6 +55,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     Array.isArray(book?.content) ? book?.content : [book?.content ?? '']
   );
 
+  const [pageContent, setPageContent] = useState(pages[currentPage] ?? '');
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -70,23 +75,26 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [word, setWord] = useState('');
   const [definition, setDefinition] = useState('');
 
-
   useEffect(() => {
     // iOS: keyboardWillShow / WillHide を使うと表示前に高さ取得できる
     const showSubWill = Keyboard.addListener('keyboardWillShow', (e) => {
       setKeyboardHeight(e.endCoordinates.height);
+      setIsKeyboardVisible(true);
     });
 
     // Android: keyboardDidShow / DidHide のみ発火
     const showSubDid = Keyboard.addListener('keyboardDidShow', (e) => {
       setKeyboardHeight(e.endCoordinates.height);
+      setIsKeyboardVisible(true);
     });
 
     const hideSubWill = Keyboard.addListener('keyboardWillHide', () => {
       setKeyboardHeight(0);
+      setIsKeyboardVisible(false);
     });
     const hideSubDid = Keyboard.addListener('keyboardDidHide', () => {
       setKeyboardHeight(0);
+      setIsKeyboardVisible(false);
     });
 
     return () => {
@@ -106,6 +114,22 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       useNativeDriver: true,
     }).start();
   }, [isVisible]);
+
+  useEffect(() => {
+    if (editing && currentAttribute !== '単語') {
+      setTimeout(() => {
+        editInputRef.current?.focus();
+      }, 100);
+    }
+  }, [editing, currentAttribute]);
+
+  useEffect(() => {
+    if (editing) {
+      setTimeout(() => {
+        editInputRef.current?.focus();
+      }, 150);
+    }
+  }, [editing]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -181,6 +205,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   return (
     <TouchableWithoutFeedback 
+      disabled={editing}
       onPress={() => {
         if (showSearch) {
           // 検索中は検索バー閉じてスライダー表示
@@ -213,6 +238,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           <ScreenBackground>
               {/* ノート全体をタップで切り替え */}
               <TouchableOpacity
+                disabled={editing}
                 style={[styles.container, { backgroundColor: 'transparent', flex: 1 }, getDebugStyle('rgba(0, 0, 255, 0.15)')]}
                 activeOpacity={1}
                 onPress={() => setIsVisible(!isVisible)} // ← ここで表示切り替え！
@@ -275,6 +301,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     <View style={{ width: '20%', alignItems:'center'}}>
                         {/* 📚 ページ一覧ボタン */}
                         <TouchableOpacity
+                          disabled={editing}
                           onPress={() => console.log('ページ一覧を表示')}
                           style={[
                             {
@@ -324,130 +351,148 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
                 {/* 編集モード中のテキスト入力フィールド */}
                 {editing && (
-                  <View
+                  <View 
                     style={{
                       position: 'absolute',
-                      width: screenWidth * 0.9,
-                      height: (screenHeight - keyboardHeight) * 0.7,
-                      top: (screenHeight - keyboardHeight) * 0.1 / 2,
-                      left: screenWidth * 0.05,
-                      backgroundColor: 'rgba(255,255,255,0.9)',
-                      borderRadius: 12,
-                      shadowColor: '#000',
-                      shadowOpacity: 0.2,
-                      shadowOffset: { width: 0, height: 2 },
-                      elevation: 5,
-                      padding: 10,
-                    }}
-                  >
-                    {/* 属性ボタンバー */}
-                    <View
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0, // 画面全体を覆う
+                      justifyContent: 'flex-start',
+                      alignItems: 'center',
+                    }}>
+                    {/* 📘 メモの反映部分（大きめ） */}
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setEditableText(pageContent); // ← 現在の内容を編集欄へ
+                        setEditing(true);             // ← 編集モード ON
+                        setTimeout(() => {
+                          editInputRef.current?.focus(); // ← キーボード
+                        }, 100);
+                      }}
                       style={{
-                        flexDirection: 'row',
-                        justifyContent: 'space-around',
-                        marginBottom: 10,
+                        position: 'absolute',
+                        top: 10,
+                        left: screenWidth * 0.05,
+                        width: screenWidth * 0.9,
+                        height: (screenHeight - keyboardHeight)*0.5,
+                        backgroundColor: 'rgba(255,255,255,0.9)',
+                        borderRadius: 12,
+                        padding: 12,
+                        borderWidth: 1,
+                        borderColor: '#ccc',
                       }}
                     >
-                      {ATTRIBUTES.map((attr) => (
-                        <TouchableOpacity
-                          key={attr}
-                          onPress={() => setCurrentAttribute(attr)}
-                          style={{
-                            backgroundColor:
-                              currentAttribute === attr ? '#007AFF' : 'rgba(0,0,0,0.1)',
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            borderRadius: 8,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: currentAttribute === attr ? 'white' : 'black',
-                              fontWeight: 'bold',
-                            }}
-                          >
-                            {attr}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-
-                    {/* 入力UIの切り替え */}
-                    {currentAttribute === '単語' ? (
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>単語：</Text>
-                        <TextInput
-                          value={word}
-                          onChangeText={setWord}
-                          placeholder="単語を入力"
-                          style={{
-                            backgroundColor: '#fff',
-                            borderRadius: 6,
-                            padding: 8,
-                            marginBottom: 10,
-                            borderWidth: 1,
-                            borderColor: '#ccc',
-                          }}
-                        />
-                        <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>説明：</Text>
-                        <TextInput
-                          value={definition}
-                          onChangeText={setDefinition}
-                          placeholder="説明を入力"
-                          multiline
+                      <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>メモ内容：</Text>
+                      <ScrollView
+                        style={{ flex: 1 }}
+                        contentContainerStyle={{ paddingBottom: 20 }}
+                        showsVerticalScrollIndicator={true}
+                      >
+                        <Text
                           style={{
                             flex: 1,
-                            backgroundColor: '#fff',
-                            borderRadius: 6,
-                            padding: 8,
-                            borderWidth: 1,
-                            borderColor: '#ccc',
-                            textAlignVertical: 'top',
-                          }}
-                        />
-                      </View>
-                    ) : currentAttribute === '画像' ? (
-                      <View
-                        style={{
-                          flex: 1,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <TouchableOpacity
-                          onPress={() => console.log('画像選択')}
-                          style={{
-                            backgroundColor: '#eee',
-                            padding: 20,
-                            borderRadius: 10,
-                            alignItems: 'center',
+                            fontSize: 16,
+                            lineHeight: 22,
+                            color: '#333',
                           }}
                         >
-                          <Ionicons name="image-outline" size={40} color="#666" />
-                          <Text>画像を追加</Text>
+                          {pageContent}
+                        </Text>
+                      </ScrollView>
+                    </TouchableOpacity>
+
+                    {/* ✏️ 入力エリア（小さめ） */}
+                    <View
+                      style={{
+                        position: 'absolute',
+                        bottom: 100,
+                        left: screenWidth * 0.05,
+                        width: screenWidth * 0.9,
+                        backgroundColor: 'white',
+                        borderRadius: 12,
+                        padding: 10,
+                        borderWidth: 1,
+                        borderColor: '#ddd',
+                      }}
+                    >
+                      {/* 属性ボタン */}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                        {ATTRIBUTES.map((attr) => (
+                          <TouchableOpacity
+                            key={attr}
+                            onPress={() => setCurrentAttribute(attr)}
+                            style={{
+                              backgroundColor:
+                                currentAttribute === attr ? '#007AFF' : 'rgba(0,0,0,0.1)',
+                              paddingHorizontal: 8,
+                              paddingVertical: 5,
+                              borderRadius: 8,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: currentAttribute === attr ? 'white' : 'black',
+                                fontWeight: 'bold',
+                              }}
+                            >
+                              {attr}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+
+                      {/* 入力欄 */}
+                      <View style={{ marginTop: 10 }}>
+                        {/* 2. その他属性の TextInput（Always mounted） */}
+                        <View style={{ display: 'flex' }}>
+                          <TextInput
+                            ref={editInputRef}
+                            value={editableText}
+                            onChangeText={setEditableText}
+                            placeholder={`${currentAttribute}を入力`}
+                            style={[styles.inputSmallStyle, { height: 40 }]}
+                            multiline
+                          />
+                        </View>
+
+                        {/* 追加ボタン */}
+                        <TouchableOpacity
+                          style={{
+                            backgroundColor: '#007AFF',
+                            paddingVertical: 5,
+                            width: '70%',
+                            marginTop: 10,
+                            borderRadius: 8,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            alignSelf: 'center'
+                          }}
+                          onPress={() => {
+                            let newItem = '';
+
+                            if (currentAttribute === '単語') {
+                              newItem = `【単語】${word}\n${definition}\n\n`;
+                              setWord('');
+                              setDefinition('');
+                            } else {
+                              newItem = `【${currentAttribute}】${editableText}\n\n`;
+                              setEditableText('');
+                            }
+
+                            setPageContent(prev => prev + newItem);
+                          }}
+                        >
+                          <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold' }}>
+                            追加する
+                          </Text>
                         </TouchableOpacity>
                       </View>
-                    ) : (
-                      <TextInput
-                        value={editableText}
-                        onChangeText={setEditableText}
-                        placeholder={`${currentAttribute}の内容を入力`}
-                        multiline
-                        style={{
-                          flex: 1,
-                          fontSize: 18,
-                          textAlignVertical: 'top',
-                          backgroundColor: '#fff',
-                          borderRadius: 8,
-                          borderWidth: 1,
-                          borderColor: '#ccc',
-                          padding: 10,
-                        }}
-                        autoFocus
-                      />
-                    )}
+                    </View>
                   </View>
                 )}
+
 
             {/* 🔍 検索バー */}
             {showSearch && (
