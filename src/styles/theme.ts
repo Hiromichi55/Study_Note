@@ -1,17 +1,20 @@
 import { Dimensions, StyleSheet, Image } from 'react-native';
 import bookImages from '../constants/bookImage';
 
-const screenWidth = Dimensions.get('window').width;
-const screenHeight = Dimensions.get('window').height;
+export const screenWidth = Dimensions.get('window').width;
+export const screenHeight = Dimensions.get('window').height;
 
+// 画面の縦横
 const { width: imgWidth, height: imgHeight } = Image.resolveAssetSource(bookImages.blue);
 const imageAspectRatio = imgHeight / imgWidth;
-const IMAGE_WIDTH = screenWidth / 5.5;
-const IMAGE_HEIGHT = (IMAGE_WIDTH * imgHeight) / imgWidth;
-const FONT_SIZE = IMAGE_HEIGHT * 0.1;
-const LINE_HEIGHT = FONT_SIZE * 1;
+// 本
+const IMAGE_HEIGHT = screenHeight / 3.7;
+const IMAGE_WIDTH = IMAGE_HEIGHT * ( imgWidth / imgHeight );
+// 選択本
 const COLOR_ICON_WIDTH = IMAGE_WIDTH / 1.7;
 const COLOR_ICON_HEIGHT = IMAGE_HEIGHT / 1.7;
+const FONT_SIZE = IMAGE_HEIGHT * 0.1;
+const LINE_HEIGHT = FONT_SIZE * 1;
 
 export const theme = {
   screenWidth,
@@ -26,9 +29,32 @@ export const theme = {
 };
 
 export const styles = StyleSheet.create({
+  // HomeScreen
+  titleHome: {
+    // paddingVertical: 20,
+    // flex:1,
+    // justifyContent: 'center',
+    position: 'absolute',
+    top: screenHeight*0.2,
+    width: '100%',
+    alignContent: 'center',
+    // borderWidth: 1, 
+    height: 'auto',       // 高さを文字サイズに合わせる
+  },
+  titleText: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+    // fontSize: 80,
+    fontSize: screenHeight/12,
+    fontFamily: 'dartsfont',
+    textAlign: 'center'
+  },
   container: {
     flex: 1,
     backgroundColor: '#fff',
+    // width: screenWidth,
+    // height: screenHeight,
   },
   backgroundWrapper: {
     flex: 1,
@@ -63,7 +89,7 @@ export const styles = StyleSheet.create({
     position: 'absolute',
     top: '30%',
     left: '16%',
-    width: IMAGE_WIDTH,
+    width: FONT_SIZE,
     fontSize: FONT_SIZE,
     lineHeight: LINE_HEIGHT,
     color: 'black',
@@ -72,7 +98,7 @@ export const styles = StyleSheet.create({
   addBookSection: {
     padding: 10,
     position: 'absolute',
-    top: screenHeight / 2 + IMAGE_HEIGHT * 1.3,
+    top: screenHeight / 2 + IMAGE_HEIGHT * 0.5,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -86,7 +112,8 @@ export const styles = StyleSheet.create({
   addButtonText: {
     backgroundColor: 'rgba(255, 255, 255, 0)',
     color: 'black',
-    fontSize: 40,
+    // fontSize: 40,
+    fontSize: screenHeight/20,
     fontFamily: 'dartsfont',
   },
   colorPicker: {
@@ -239,12 +266,11 @@ export const styles = StyleSheet.create({
   },
   floatingEditButton: {
   position: 'absolute',
-  bottom: 30,
   right: 20,
   backgroundColor: 'black', // 好きな色に
-  borderRadius: 30,
-  width: 60,
-  height: 60,
+  borderRadius: screenHeight,
+  width: screenWidth/6,
+  height: screenWidth/6,
   justifyContent: 'center',
   alignItems: 'center',
   shadowColor: '#000',
@@ -255,12 +281,12 @@ export const styles = StyleSheet.create({
 },
 floatingSearchButton: {
   position: 'absolute',
-  bottom: 30,
+  bottom: screenHeight*0.02,
   left: 20,
   backgroundColor: "black",
-  borderRadius: 30,
-  width: 60,
-  height: 60,
+  borderRadius: screenHeight,
+  width: screenWidth/6,
+  height: screenWidth/6,
   justifyContent: 'center',
   alignItems: 'center',
   shadowColor: '#000',

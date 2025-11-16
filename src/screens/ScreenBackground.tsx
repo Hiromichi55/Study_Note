@@ -71,43 +71,44 @@ const ScreenBackground: React.FC<{ children?: React.ReactNode }> = ({ children }
     }
 
     // ======== ここから文字描画 =========
-    try {
-      // フォントファイルを Expo Asset から取得
-      const asset = Asset.fromModule(require('../../assets/fonts/dartsfont.ttf'));
-      await asset.downloadAsync();
-      const localUri = asset.localUri || asset.uri;
+  //  try {
+  //     // フォントファイルを Expo Asset から取得
+  //     const asset = Asset.fromModule(require('../../assets/fonts/dartsfont.ttf'));
+  //     await asset.downloadAsync();
+  //     const localUri = asset.localUri || asset.uri;
 
-      // --- ここから修正部分 ---
-      // フォントファイルをバイナリで読み込む
-      const fontBase64 = await FileSystem.readAsStringAsync(localUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const fontBytes = Uint8Array.from(atob(fontBase64), (c) => c.charCodeAt(0));
+  //     const fontBase64 = await FileSystem.readAsStringAsync(localUri, {
+  //       encoding: FileSystem.EncodingType.Base64,
+  //     });
+  //     const binary = global.atob ? global.atob(fontBase64) : Buffer.from(fontBase64, 'base64').toString('binary');
+  //     const bytes = new Uint8Array(binary.length);
+  //     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-      const binary = global.atob ? global.atob(fontBase64) : Buffer.from(fontBase64, 'base64').toString('binary');
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  //     const skData = Skia.Data.fromBytes(bytes);
+  //     const typeface = Skia.Typeface.MakeFreeTypeFaceFromData(skData);
+  //     if (!typeface) throw new Error('フォントの読み込みに失敗しました');
 
-      const skData = Skia.Data.fromBytes(bytes);
-      const typeface = Skia.Typeface.MakeFreeTypeFaceFromData(skData);
-        if (!typeface) {
-        throw new Error('フォントの読み込みに失敗しました。');
-        }
+  //     const font = Skia.Font(typeface, 80); // フォントサイズ
+  //     const text = "美ノート";
 
-        const font = Skia.Font(typeface, 48);
+  //     const textPaint = Skia.Paint();
+  //     textPaint.setColor(Skia.Color('rgba(0, 0, 0, 1)'));
+  //     textPaint.setStyle(PaintStyle.Fill);       // 塗りつぶし
+  //     textPaint.setAntiAlias(true);              // 滑らかに描画
 
-      // テキストペイント
-      const textPaint = Skia.Paint();
-      textPaint.setColor(Skia.Color('rgba(0, 0, 0, 1)'));
-      textPaint.setStyle(PaintStyle.Fill); // enum を使う
-      textPaint.setAntiAlias(true); // 滑らかに
-      textPaint.setStrokeWidth(5); // 輪郭を少し強調
+  //     const textBlob = font.measureText(text);
+  //     // 文字幅を計算して中央に配置
+  //     const textWidth = typeof textBlob === 'number'
+  //       ? textBlob
+  //       : (textBlob?.width ?? 0);
+  //     const x = (width - textWidth) / 2;
+  //     const y = height * 0.25;
 
-      // タイトル文字描画
-      canvas.drawText('今日のノート', width * 0.08, interval * 2.5, textPaint, font);
-    } catch (err) {
-      console.warn('⚠️ フォント読み込みに失敗しました:', err);
-    }
+  //     canvas.drawText(text, x, y, textPaint, font);
+  //   } catch (err) {
+  //     console.warn('⚠️ フォント読み込みに失敗しました:', err);
+  //   }
+
     // ======== 文字描画ここまで =========
 
     const image = surface.makeImageSnapshot();

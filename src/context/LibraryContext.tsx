@@ -20,6 +20,7 @@ type Action =
   | { type: 'SET_BOOKS'; books: Book[] }
   | { type: 'ADD_BOOK'; book: Book }
   | { type: 'SET_LOADING'; isLoading: boolean };
+  // | { type: 'UPDATE_BOOK_CONTENT'; bookId: string; content: string[] };
 
 const initialBooks: Book[] = [
   { id: '1', title: '国語', color: 'red', order_index: 0 },
@@ -54,6 +55,13 @@ function libraryReducer(state: State, action: Action): State {
       return { ...state, books: [...state.books, action.book] };
     case 'SET_LOADING':
       return { ...state, isLoading: action.isLoading };
+    // case 'UPDATE_BOOK_CONTENT':
+    //   return {
+    //     ...state,
+    //     books: state.books.map((b) =>
+    //       b.id === action.bookId ? { ...b, content: action.content } : b
+    //     ),
+    //   };
     default:
       return state;
   }

@@ -26,9 +26,13 @@ interface Props {
   navigation: HomeScreenNavProp;
 }
 
+// ✅ 開発用フラグ
+const DEBUG_LAYOUT = false;
+
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { state, addBook, reorderBooks } = useLibrary();
   const [bookData, setBookData] = useState<Book[]>([]);
+  const [imageLoaded, setImageLoaded] = useState(false); // 画像ロード完了フラグ
   const flatListRef = useRef<any>(null);
 
   const colorOptions: Book['color'][] = ['red', 'pink', 'yellow', 'green', 'cyan', 'blue'];
@@ -69,26 +73,33 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         onLongPress={drag}
         disabled={isActive}
         onPress={() => navigation.navigate('Notebook', { bookId: item.id })}
-        style={styles.bookItem}
+        style={[
+          styles.bookItem,
+          DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'red' }, // デバッグ用枠線
+        ]}
       >
         <Image
           source={bookImages[item.color]}
           style={styles.bookImage}
           resizeMode="contain"
+          onLoadEnd={() => setImageLoaded(true)}
         />
-        <Text
-          style={[
-            styles.bookTitleOverlay,
-            {
-              transform: [
-                { translateX: -theme.IMAGE_WIDTH * 0.5 },
-                { translateY: -theme.IMAGE_HEIGHT * 0.4 },
-              ],
-            },
-          ]}
-        >
-          {item.title.split('').join('\n')}
-        </Text>
+        {imageLoaded && (
+          <Text
+            style={[
+              styles.bookTitleOverlay,
+              {
+                transform: [
+                  { translateX: -theme.IMAGE_WIDTH * 0.5 },
+                  { translateY: -theme.IMAGE_HEIGHT * 0.4 },
+                ],
+              },
+              DEBUG_LAYOUT && { backgroundColor: 'rgba(255,0,0,0.2)' } // 見やすくする
+            ]}
+          >
+            {item.title.split('').join('\n')}
+          </Text>
+        )}  
       </TouchableOpacity>
     </Animated.View>
   );
@@ -105,7 +116,16 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         resizeMode="contain"
       > */}
       <ScreenBackground>
-        <View style={styles.bookListWrapper}>
+        <View style={[
+          styles.titleHome,
+          DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'green' }, // タイトル全体の枠
+          ]}>
+          <Text style={styles.titleText}>美ノート</Text>
+        </View>
+        <View style={[
+          styles.bookListWrapper,
+          DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'orange' },
+        ]}>
           <DraggableFlatList
             ref={flatListRef}
             data={bookData}
@@ -132,7 +152,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           />
         </View>
 
-        <View style={styles.addBookSection}>
+        <View style={[
+          styles.addBookSection,
+          DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'purple' },
+          ]}>
           <TouchableOpacity
             onPress={() => setShowBookOptions(prev => !prev)}
             style={styles.addButton}
@@ -144,14 +167,15 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           <View style={{
             backgroundColor: 'white',
             borderWidth: 1,               // 枠の太さ
-            borderColor: '#ccc',          // 枠の色
+            // borderColor: '#ccc',          // 枠の色
             borderRadius: 8,              // 角丸
             padding: 8,                   // 内側の余白
             // marginVertical: 8,            // 上下の余白
             flexDirection: 'row',         // 横並び
             opacity: showBookOptions ? 1 : 0,
             height: showBookOptions ? 'auto' : 0,
-            overflow: 'hidden'
+            overflow: 'hidden',
+            ...(DEBUG_LAYOUT && { borderColor: 'brown' }),
           }}>
             {colorOptions.map(color => (
               <TouchableOpacity
