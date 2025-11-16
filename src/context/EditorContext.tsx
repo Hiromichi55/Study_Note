@@ -5,7 +5,7 @@ import { initDB } from '../db/db';
 // ===== 型定義 =====
 export type Content = {
   content: string;
-  order: number;
+  order_index: number;
   type: string;
   book_Id: string;
   page: number;
@@ -67,10 +67,11 @@ const initialState: State = {
 const EditorContext = createContext<{
   state: State;
   refreshAll: () => Promise<void>;
+  select: <T = any>(table: string, where?: string, params?: any[]) => Promise<T[]>;
 
   addContent: (data: Content) => Promise<void>;
-  updateContent: (content: string, data: Partial<Content>) => Promise<void>;
-  deleteContent: (content: string) => Promise<void>;
+  updateContent: (id: string, data: Partial<Content>) => Promise<void>;
+  deleteContent: (id: string) => Promise<void>;
 
   addImage: (data: Image) => Promise<void>;
   updateImage: (id: string, data: Partial<Image>) => Promise<void>;
@@ -90,6 +91,7 @@ const EditorContext = createContext<{
 }>({
   state: initialState,
   refreshAll: async () => {},
+  select: async () => [],
   addContent: async () => {},
   updateContent: async () => {},
   deleteContent: async () => {},
@@ -125,56 +127,79 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
 
   useEffect(() => {
-    const setupDatabase = async () => {
-      try {
-        dispatch({ type: 'SET_LOADING', isLoading: true });
-        const database = await initDB();
-        setDb(database);
+  const setupDatabase = async () => {
+    try {
+      dispatch({ type: 'SET_LOADING', isLoading: true });
 
-        // テーブル作成
-        await database.execAsync(`
-          CREATE TABLE IF NOT EXISTS contents (
-            content TEXT PRIMARY KEY NOT NULL,
-            "order" INTEGER,
-            type TEXT,
-            book_Id TEXT,
-            page INTEGER,
-            height REAL
-          );
-          CREATE TABLE IF NOT EXISTS images (
-            image_id TEXT PRIMARY KEY NOT NULL,
-            image TEXT,
-            content_id TEXT
-          );
-          CREATE TABLE IF NOT EXISTS outlines (
-            outline_id TEXT PRIMARY KEY NOT NULL,
-            content TEXT,
-            type TEXT,
-            content_id TEXT
-          );
-          CREATE TABLE IF NOT EXISTS texts (
-            text_id TEXT PRIMARY KEY NOT NULL,
-            content TEXT,
-            content_id TEXT
-          );
-          CREATE TABLE IF NOT EXISTS words (
-            word_id TEXT PRIMARY KEY NOT NULL,
-            word TEXT,
-            explanation TEXT,
-            order_index INTEGER,
-            content_id TEXT
-          );
-        `);
+      const database = await initDB();
+      setDb(database);
 
-        await refreshAll(database);
-      } catch (e) {
-        console.error('DB初期化エラー:', e);
-      } finally {
-        dispatch({ type: 'SET_LOADING', isLoading: false });
-      }
-    };
-    setupDatabase();
-  }, []);
+      // ===== 古いテーブルを削除 =====
+      await database.execAsync(`DROP TABLE IF EXISTS contents;`);
+      await database.execAsync(`DROP TABLE IF EXISTS images;`);
+      await database.execAsync(`DROP TABLE IF EXISTS outlines;`);
+      await database.execAsync(`DROP TABLE IF EXISTS texts;`);
+      await database.execAsync(`DROP TABLE IF EXISTS words;`);
+
+      // ===== テーブル作成 =====
+      await database.execAsync(`
+        CREATE TABLE contents (
+          content TEXT PRIMARY KEY NOT NULL,
+          order_index INTEGER,
+          type TEXT,
+          book_Id TEXT,
+          page INTEGER,
+          height REAL
+        )
+      `);
+
+      await database.execAsync(`
+        CREATE TABLE images (
+          image_id TEXT PRIMARY KEY NOT NULL,
+          image TEXT,
+          content_id TEXT
+        )
+      `);
+
+      await database.execAsync(`
+        CREATE TABLE outlines (
+          outline_id TEXT PRIMARY KEY NOT NULL,
+          content TEXT,
+          type TEXT,
+          content_id TEXT
+        )
+      `);
+
+      await database.execAsync(`
+        CREATE TABLE texts (
+          text_id TEXT PRIMARY KEY NOT NULL,
+          content TEXT,
+          content_id TEXT
+        )
+      `);
+
+      await database.execAsync(`
+        CREATE TABLE words (
+          word_id TEXT PRIMARY KEY NOT NULL,
+          word TEXT,
+          explanation TEXT,
+          order_index INTEGER,
+          content_id TEXT
+        )
+      `);
+
+      // ===== データ読み込み =====
+      await refreshAll(database);
+    } catch (e) {
+      console.error('DB初期化エラー:', e);
+    } finally {
+      dispatch({ type: 'SET_LOADING', isLoading: false });
+    }
+  };
+
+  setupDatabase();
+}, []);
+
 
   // ===== 全テーブル読み込み =====
   const refreshAll = async (database?: SQLite.SQLiteDatabase) => {
@@ -192,51 +217,41 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     dispatch({
       type: 'SET_ALL',
       payload: {
-      contents: contents as Content[],    // 型アサーションを使って Content[] 型に変換
-      images: images as Image[],          // 型アサーションを使って Image[] 型に変換
-      outlines: outlines as Outline[],    // 型アサーションを使って Outline[] 型に変換
-      texts: texts as Text[],             // 型アサーションを使って Text[] 型に変換
-      words: words as Word[],             // 型アサーションを使って Word[] 型に変換
-    },
+        contents: contents as Content[],
+        images: images as Image[],
+        outlines: outlines as Outline[],
+        texts: texts as Text[],
+        words: words as Word[],
+      },
     });
   };
 
-  // ===== 共通ヘルパー =====
+  // ===== 共通CRUDヘルパー =====
   const insert = async (table: string, data: any) => {
     if (!db) return;
-    
     const keys = Object.keys(data);
     const placeholders = keys.map(() => '?').join(',');
     const values = Object.values(data);
-    
-    // valuesをSQLiteBindParamsにキャスト
+
     await db.runAsync(
-      `INSERT INTO ${table} (${keys.join(',')}) VALUES (${placeholders});`, 
+      `INSERT INTO ${table} (${keys.join(',')}) VALUES (${placeholders});`,
       values as SQLite.SQLiteBindParams
     );
-    
-    // 全テーブルのデータを再読み込み
     await refreshAll();
   };
 
-
   const update = async (table: string, idField: string, id: string, data: any) => {
     if (!db) return;
-    
     const keys = Object.keys(data);
     const setClause = keys.map((k) => `${k} = ?`).join(', ');
     const values = [...Object.values(data), id];
-    
-    // valuesをSQLiteBindParamsにキャスト
+
     await db.runAsync(
       `UPDATE ${table} SET ${setClause} WHERE ${idField} = ?;`,
       values as SQLite.SQLiteBindParams
     );
-    
-    // 全テーブルのデータを再読み込み
     await refreshAll();
   };
-
 
   const remove = async (table: string, idField: string, id: string) => {
     if (!db) return;
@@ -244,48 +259,51 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await refreshAll();
   };
 
-  const select = async (table: string, where?: string, params: any[] = []) => {
+  const select = async <T = any>(table: string, where?: string, params: any[] = []): Promise<T[]> => {
     if (!db) return [];
+    const query = where ? `SELECT * FROM ${table} WHERE ${where};` : `SELECT * FROM ${table};`;
+    try {
+      const results = await db.getAllAsync(query, params);
+      return results as T[];
+    } catch (err) {
+      console.error(`SELECT ${table} エラー:`, err);
+      return [];
+    }
+  };
 
-    const query = where
-      ? `SELECT * FROM ${table} WHERE ${where};`
-      : `SELECT * FROM ${table};`;
+  // ===== CRUD =====
+const addContent = (data: Content) => insert('contents', data);
+const updateContent = (id: string, data: Partial<Content>) => update('contents', 'content', id, data);
+const deleteContent = (id: string) => remove('contents', 'content', id);
+const getContents = () => select<Content>('contents');
 
-    return await db.getAllAsync(query, params);
-} ;
+const addImage = (data: Image) => insert('images', data);
+const updateImage = (id: string, data: Partial<Image>) => update('images', 'image_id', id, data);
+const deleteImage = (id: string) => remove('images', 'image_id', id);
+const getImages = () => select<Image>('images');
 
+const addOutline = (data: Outline) => insert('outlines', data);
+const updateOutline = (id: string, data: Partial<Outline>) => update('outlines', 'outline_id', id, data);
+const deleteOutline = (id: string) => remove('outlines', 'outline_id', id);
+const getOutlines = () => select<Outline>('outlines');
 
-  // ===== 各テーブル専用CRUD =====
-  const addContent = (data: Content) => insert('contents', data);
-  const updateContent = (id: string, data: Partial<Content>) =>
-    update('contents', 'content', id, data);
-  const deleteContent = (id: string) => remove('contents', 'content', id);
+const addText = (data: Text) => insert('texts', data);
+const updateText = (id: string, data: Partial<Text>) => update('texts', 'text_id', id, data);
+const deleteText = (id: string) => remove('texts', 'text_id', id);
+const getTexts = () => select<Text>('texts');
 
-  const addImage = (data: Image) => insert('images', data);
-  const updateImage = (id: string, data: Partial<Image>) =>
-    update('images', 'image_id', id, data);
-  const deleteImage = (id: string) => remove('images', 'image_id', id);
+const addWord = (data: Word) => insert('words', data);
+const updateWord = (id: string, data: Partial<Word>) => update('words', 'word_id', id, data);
+const deleteWord = (id: string) => remove('words', 'word_id', id);
+const getWords = () => select<Word>('words');
 
-  const addOutline = (data: Outline) => insert('outlines', data);
-  const updateOutline = (id: string, data: Partial<Outline>) =>
-    update('outlines', 'outline_id', id, data);
-  const deleteOutline = (id: string) => remove('outlines', 'outline_id', id);
-
-  const addText = (data: Text) => insert('texts', data);
-  const updateText = (id: string, data: Partial<Text>) =>
-    update('texts', 'text_id', id, data);
-  const deleteText = (id: string) => remove('texts', 'text_id', id);
-
-  const addWord = (data: Word) => insert('words', data);
-  const updateWord = (id: string, data: Partial<Word>) =>
-    update('words', 'word_id', id, data);
-  const deleteWord = (id: string) => remove('words', 'word_id', id);
 
   return (
     <EditorContext.Provider
       value={{
         state,
         refreshAll,
+        select,
         addContent,
         updateContent,
         deleteContent,
