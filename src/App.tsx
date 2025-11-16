@@ -15,7 +15,7 @@ import HomeScreenProduction from './screens/HomeScreen';
 import NotebookScreen from './screens/NotebookScreen';
 
 // ===== 開発フラグ =====
-const IS_DEV = true; // true: テスト用, false: 本番用
+const IS_DEV = false; // true: テスト用, false: 本番用
 
 // ===== スタックナビ =====
 const Stack = createNativeStackNavigator<any>();
