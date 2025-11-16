@@ -4,19 +4,89 @@ import { ScrollView, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { LibraryProvider } from './context/LibraryContext';
 import { EditorProvider, useEditor, Content } from './context/EditorContext';
+import { Provider as PaperProvider } from 'react-native-paper';
+import * as Font from 'expo-font';
+import AppLoading from 'expo-app-loading';
+import * as SplashScreen from 'expo-splash-screen';
+import { MESSAGES } from './constants/messages';
+import HomeScreenProduction from './screens/HomeScreen';
+import NotebookScreen from './screens/NotebookScreen';
 
-// スタックナビゲーション
-const Stack = createNativeStackNavigator<RootStackParamList>();
+// ===== 開発フラグ =====
+const IS_DEV = true; // true: テスト用, false: 本番用
 
-// ===== DBTestComponent: DB動作確認用 =====
+// ===== スタックナビ =====
+const Stack = createNativeStackNavigator<any>();
+
+SplashScreen.preventAutoHideAsync();
+
+export default function App() {
+  const [fontsLoaded] = Font.useFonts({
+    'MyFont': require('../assets/fonts/dartsfont.ttf'),
+  });
+
+  useEffect(() => {
+    const hideSplash = async () => {
+      await SplashScreen.hideAsync();
+    };
+    hideSplash();
+  }, []);
+
+  if (!fontsLoaded && !IS_DEV) return <AppLoading />;
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      {IS_DEV ? <TestApp /> : <ProductionApp />}
+    </GestureHandlerRootView>
+  );
+}
+
+// ==================== 本番用コンポーネント ====================
+function ProductionApp() {
+  return (
+    <LibraryProvider>
+      <PaperProvider>
+        <NavigationContainer>
+          <Stack.Navigator
+            initialRouteName="Home"
+            screenOptions={{
+              headerTitleStyle: { fontFamily: 'MyFont' },
+              gestureEnabled: true,
+              animation: 'slide_from_right',
+            }}
+          >
+            <Stack.Screen name="Home" component={HomeScreenProduction} options={{ headerShown: false }} />
+            <Stack.Screen name="Notebook" component={NotebookScreen} options={{ title: MESSAGES.NOTE_TITLE }} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </PaperProvider>
+    </LibraryProvider>
+  );
+}
+
+// ==================== テスト用コンポーネント ====================
+function TestApp() {
+  return (
+    <EditorProvider>
+      <NavigationContainer>
+        <Stack.Navigator initialRouteName="Home">
+          <Stack.Screen name="Home" component={HomeScreenTest} />
+          <Stack.Screen name="DBTest" component={DBTestComponent} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </EditorProvider>
+  );
+}
+
+// ===== DB動作確認用コンポーネント =====
 const DBTestComponent = () => {
   const { state, addContent, select } = useEditor();
 
   useEffect(() => {
     const testDB = async () => {
       try {
-        // 同じ内容を何度も追加しない
         const existing = await select<Content>('contents', 'content = ?', ['テストコンテンツ']);
         if (existing.length === 0) {
           const newContent: Content = {
@@ -29,7 +99,6 @@ const DBTestComponent = () => {
           };
           await addContent(newContent);
         }
-
         const allContents = await select<Content>('contents');
         console.log('Contents from DBTestComponent:', allContents);
       } catch (err) {
@@ -54,35 +123,20 @@ const DBTestComponent = () => {
   );
 };
 
-// ===== HomeScreen（仮の画面） =====
-const HomeScreen = ({ navigation }: any) => {
-  return (
-    <ScrollView style={{ padding: 20 }}>
-      <Text style={{ fontSize: 18, fontWeight: 'bold' }}>Home Screen</Text>
-      <Text onPress={() => navigation.navigate('DBTest')} style={{ marginTop: 20, color: 'blue' }}>
-        Go to DBTest
-      </Text>
-    </ScrollView>
-  );
-};
+// ===== テスト用 HomeScreen =====
+const HomeScreenTest = ({ navigation }: any) => (
+  <ScrollView style={{ padding: 20 }}>
+    <Text style={{ fontSize: 18, fontWeight: 'bold' }}>Home Screen</Text>
+    <Text
+      onPress={() => navigation.navigate('DBTest')}
+      style={{ marginTop: 20, color: 'blue' }}
+    >
+      Go to DBTest
+    </Text>
+  </ScrollView>
+);
 
-// ===== メイン App =====
-export default function App() {
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <EditorProvider>
-        <NavigationContainer>
-          <Stack.Navigator initialRouteName="Home">
-            <Stack.Screen name="Home" component={HomeScreen} />
-            <Stack.Screen name="DBTest" component={DBTestComponent} />
-          </Stack.Navigator>
-        </NavigationContainer>
-      </EditorProvider>
-    </GestureHandlerRootView>
-  );
-}
-
-// 画面遷移時のパラメータ型
+// ===== 画面遷移パラメータ型 =====
 export type RootStackParamList = {
   Home: undefined;
   DBTest: undefined;
