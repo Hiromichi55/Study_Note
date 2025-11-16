@@ -48,6 +48,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   const [editingLineIndex, setEditingLineIndex] = useState<number | null>(null);
 
+  const wordInputRef = useRef<TextInput>(null);
+  const definitionInputRef = useRef<TextInput>(null);
 
 
   // デバッグ用の背景色を返す関数
@@ -369,10 +371,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       activeOpacity={0.8}
                       onPress={() => {
                         setEditableText(pageContent); // ← 現在の内容を編集欄へ
-                        setEditing(true);             // ← 編集モード ON
-                        setTimeout(() => {
-                          editInputRef.current?.focus(); // ← キーボード
-                        }, 100);
+                        if (currentAttribute === '単語') {
+                          setTimeout(() => wordInputRef.current?.focus(), 150);
+                        } else {
+                          setTimeout(() => editInputRef.current?.focus(), 150);
+                        }
                       }}
                       style={{
                         position: 'absolute',
@@ -424,7 +427,21 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         {ATTRIBUTES.map((attr) => (
                           <TouchableOpacity
                             key={attr}
-                            onPress={() => setCurrentAttribute(attr)}
+                              onPress={() => {
+                                setCurrentAttribute(attr);
+
+                                // 単語は2つの入力欄なので、word の欄にフォーカスさせる
+                                if (attr === '単語') {
+                                  setTimeout(() => {
+                                    wordInputRef.current?.focus();
+                                  }, 50);
+                                } else {
+                                  // それ以外は通常編集欄へ
+                                  setTimeout(() => {
+                                    editInputRef.current?.focus();
+                                  }, 50);
+                                }
+                              }}
                             style={{
                               backgroundColor:
                                 currentAttribute === attr ? '#007AFF' : 'rgba(0,0,0,0.1)',
@@ -447,18 +464,40 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
                       {/* 入力欄 */}
                       <View style={{ marginTop: 10 }}>
-                        {/* 2. その他属性の TextInput（Always mounted） */}
-                        <View style={{ display: 'flex' }}>
-                          <TextInput
-                            ref={editInputRef}
-                            value={editableText}
-                            onChangeText={setEditableText}
-                            placeholder={`${currentAttribute}を入力`}
-                            style={[styles.inputSmallStyle, { height: 40 }]}
-                            multiline
-                          />
-                        </View>
 
+                        {/* 単語入力欄（2つの TextInput） */}
+                        {currentAttribute === '単語' ? (
+                          <View>
+                            <TextInput
+                              ref={wordInputRef}
+                              value={word}
+                              onChangeText={setWord}
+                              placeholder="単語を入力"
+                              style={[styles.inputSmallStyle, { height: 40, marginBottom: 6 }]}
+                            />
+
+                            <TextInput
+                              ref={definitionInputRef}
+                              value={definition}
+                              onChangeText={setDefinition}
+                              placeholder="説明を入力"
+                              style={[styles.inputSmallStyle, { height: 40 }]}
+                              multiline
+                            />
+                          </View>
+                        ) : (
+                          /* その他属性 */
+                          <View>
+                            <TextInput
+                              ref={editInputRef}
+                              value={editableText}
+                              onChangeText={setEditableText}
+                              placeholder={`${currentAttribute}を入力`}
+                              style={[styles.inputSmallStyle, { height: 40 }]}
+                              multiline
+                            />
+                          </View>
+                        )}
                         {/* 追加ボタン */}
                         <TouchableOpacity
                           style={{
