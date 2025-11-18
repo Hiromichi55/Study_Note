@@ -24,6 +24,9 @@ import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
 import { theme, styles, screenWidth, screenHeight } from '../styles/theme';
 import ScreenBackground from './ScreenBackground';
+import { useEditor } from '../context/EditorContext';
+import * as Crypto from 'expo-crypto';
+
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 interface Props {
@@ -31,6 +34,11 @@ interface Props {
 }
 
 const NotebookScreen: React.FC<Props> = ({ route }) => {
+  const { 
+    addContent, updateContent, deleteContent,
+    addText, addWord, addImage, addOutline
+  } = useEditor();
+
   const isTest = true; // 開発環境なら true、リリースは false
   const navigation = useNavigation();
   const { bookId } = route.params;
@@ -79,6 +87,102 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   // 単語用
   const [word, setWord] = useState('');
   const [definition, setDefinition] = useState('');
+
+  // 📌 ページ保存ロジック
+  const savePageToDB = async () => {
+    try {
+      const page = currentPage;
+      const lines = pageContent.split('\n').filter(l => l.trim() !== '');
+
+      // 📘 コンテンツID（ページ単位）
+      const contentId = await Crypto.randomUUID();
+
+      // ===== contents テーブルへ保存 =====
+      await addContent({
+        content: contentId,
+        order_index: page,
+        type: 'page',
+        book_Id: bookId,
+        page: page,
+        height: 0
+      });
+
+      // ===== 各行を解析して texts / words / outlines などに振り分け =====
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // 章／節／項
+        if (line.startsWith('【章】')) {
+          await addOutline({
+            outline_id: await Crypto.randomUUID(),
+            type: '章',
+            content: line.replace('【章】', '').trim(),
+            content_id: contentId
+          });
+          continue;
+        }
+
+        if (line.startsWith('【節】')) {
+          await addOutline({
+            outline_id: await Crypto.randomUUID(),
+            type: '節',
+            content: line.replace('【節】', '').trim(),
+            content_id: contentId
+          });
+          continue;
+        }
+
+        if (line.startsWith('【項】')) {
+          await addOutline({
+            outline_id: await Crypto.randomUUID(),
+            type: '項',
+            content: line.replace('【項】', '').trim(),
+            content_id: contentId
+          });
+          continue;
+        }
+
+        // 単語
+        if (line.startsWith('【単語】')) {
+          const word = line.replace('【単語】', '').trim();
+          const explanation = lines[i + 1] ?? '';
+          i++; // 説明行をスキップ
+
+          await addWord({
+            word_id: await Crypto.randomUUID(),
+            word,
+            explanation,
+            order_index: i,
+            content_id: contentId,
+          });
+          continue;
+        }
+
+        // 画像
+        if (line.startsWith('【画像】')) {
+          const img = line.replace('【画像】', '').trim();
+          await addImage({
+            image_id: await Crypto.randomUUID(),
+            image: img,
+            content_id: contentId
+          });
+          continue;
+        }
+
+        // 通常の文章
+        await addText({
+          text_id: await Crypto.randomUUID(),
+          content: line,
+          content_id: contentId
+        });
+      }
+
+      console.log("ページを DB に保存しました");
+    } catch (e) {
+      console.error("保存エラー:", e);
+    }
+  };
+
 
   useEffect(() => {
     // iOS: keyboardWillShow / WillHide を使うと表示前に高さ取得できる
@@ -607,7 +711,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   styles.floatingEditButton,
                   {bottom: !editing ? screenHeight*0.02 : screenHeight*0.15}
                 ]}
-                  onPress={() => {
+                  onPress={ async () => {
                     if (editing) {
                       // ✅ 編集中なら保存動作
                       const updatedPages = [...pages];
@@ -615,8 +719,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       updatedPages[currentPage] = editableText;
 
                       setPages(updatedPages);
+                      setPageContent(editableText);
                       setEditing(false);
                       Keyboard.dismiss();
+                      // ★★★ DBへ保存 ★★★
+                      await savePageToDB();
 
                           // Context（useLibrary）側も更新
                       // dispatch({
