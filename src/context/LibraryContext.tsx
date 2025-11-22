@@ -2,6 +2,9 @@
 import React, { createContext, useReducer, useContext, useEffect, useState } from 'react';
 import * as SQLite from 'expo-sqlite';
 import { initDB } from '../db/db';
+import { ENV } from '@config';
+
+const isDelete = ENV.INIT_DB; // trueにすると毎回初期化される
 
 export type Book = {
   id: string;
@@ -87,7 +90,6 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         );
         const tableExists = tableCheckResult.length > 0;
 
-        const isDelete = true; // trueにすると毎回初期化される
         if (isDelete) {
           // ✅ 一時的に DB を初期化して、正しいデータを挿入
           await database.execAsync(`DROP TABLE IF EXISTS books;`);

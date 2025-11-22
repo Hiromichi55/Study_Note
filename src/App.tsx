@@ -13,9 +13,26 @@ import * as SplashScreen from 'expo-splash-screen';
 import { MESSAGES } from './constants/messages';
 import HomeScreenProduction from './screens/HomeScreen';
 import NotebookScreen from './screens/NotebookScreen';
+import { ENV } from '@config';
 
 // ===== 開発フラグ =====
-const IS_DEV = false; // true: テスト用, false: 本番用
+const IS_DEV = ENV.IS_DEV; // true: テスト用, false: 本番用
+
+// ===== DB 全テーブル出力関数 =====
+async function dumpDatabase(editor: ReturnType<typeof useEditor>) {
+  const { select } = editor;
+  const tables = ['books', 'contents', 'texts', 'outlines', 'words', 'images'];
+
+  for (const table of tables) {
+    try {
+      const rows = await select(table);
+      console.log(`\n===== TABLE: ${table} =====`);
+      console.log(JSON.stringify(rows, null, 2));
+    } catch (err) {
+      console.error(`Error reading table ${table}:`, err);
+    }
+  }
+}
 
 // ===== スタックナビ =====
 const Stack = createNativeStackNavigator<any>();
@@ -57,8 +74,16 @@ function ProductionApp() {
               animation: 'slide_from_right',
             }}
           >
-            <Stack.Screen name="Home" component={HomeScreenProduction} options={{ headerShown: false }} />
-            <Stack.Screen name="Notebook" component={NotebookScreen} options={{ title: MESSAGES.NOTE_TITLE }} />
+            <Stack.Screen
+              name="Home"
+              component={HomeScreenProduction}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Notebook"
+              component={NotebookScreen}
+              options={{ title: MESSAGES.NOTE_TITLE }}
+            />
           </Stack.Navigator>
         </NavigationContainer>
       </PaperProvider>
@@ -70,6 +95,7 @@ function ProductionApp() {
 function TestApp() {
   return (
     <EditorProvider>
+      <StartupDBLogger />
       <NavigationContainer>
         <Stack.Navigator initialRouteName="Home">
           <Stack.Screen name="Home" component={HomeScreenTest} />
@@ -78,6 +104,19 @@ function TestApp() {
       </NavigationContainer>
     </EditorProvider>
   );
+}
+
+// ===== DB ロガー（テスト時のみ起動） =====
+function StartupDBLogger() {
+  const editor = useEditor();
+
+  useEffect(() => {
+    if (!editor.state.isLoading) {
+      dumpDatabase(editor);
+    }
+  }, [editor.state.isLoading]);
+
+  return null;
 }
 
 // ===== DB動作確認用コンポーネント =====

@@ -4,7 +4,7 @@ import { initDB } from '../db/db';
 
 // ===== 型定義 =====
 export type Content = {
-  content: string;
+  content_id: string;
   order_index: number;
   type: string;
   book_Id: string;
@@ -88,6 +88,13 @@ const EditorContext = createContext<{
   addWord: (data: Word) => Promise<void>;
   updateWord: (id: string, data: Partial<Word>) => Promise<void>;
   deleteWord: (id: string) => Promise<void>;
+
+  getContentsByBookId: (bookId: string) => Promise<Content[]>;
+  getTextsByContentId: (contentId: string) => Promise<Text[]>;
+  getOutlinesByContentId: (contentId: string) => Promise<Outline[]>;
+  getWordsByContentId: (contentId: string) => Promise<Word[]>;
+  getImagesByContentId: (contentId: string) => Promise<Image[]>;
+  
 }>({
   state: initialState,
   refreshAll: async () => {},
@@ -107,6 +114,11 @@ const EditorContext = createContext<{
   addWord: async () => {},
   updateWord: async () => {},
   deleteWord: async () => {},
+  getContentsByBookId: async () => [],
+  getTextsByContentId: async () => [],
+  getOutlinesByContentId: async () => [],
+  getWordsByContentId: async () => [],
+  getImagesByContentId: async () => [],
 });
 
 // ===== Reducer =====
@@ -297,6 +309,38 @@ const updateWord = (id: string, data: Partial<Word>) => update('words', 'word_id
 const deleteWord = (id: string) => remove('words', 'word_id', id);
 const getWords = () => select<Word>('words');
 
+// ===== ページ復元用の読み込み関数 =====
+
+// bookId + page で contents を取得
+const getContentsByBookId = async (bookId: string) => {
+  if (!db) {
+    console.warn("DB がまだ初期化されていません");
+    return [];
+  }
+  return await select<Content>('contents', 'book_Id = ?', [bookId]);
+};
+
+
+// content_id に紐づく texts
+const getTextsByContentId = async (contentId: string) => {
+  return await select<Text>('texts', 'content_id = ?', [contentId]);
+};
+
+// content_id に紐づく outlines
+const getOutlinesByContentId = async (contentId: string) => {
+  return await select<Outline>('outlines', 'content_id = ?', [contentId]);
+};
+
+// content_id に紐づく words
+const getWordsByContentId = async (contentId: string) => {
+  return await select<Word>('words', 'content_id = ?', [contentId]);
+};
+
+// content_id に紐づく images
+const getImagesByContentId = async (contentId: string) => {
+  return await select<Image>('images', 'content_id = ?', [contentId]);
+};
+
 
   return (
     <EditorContext.Provider
@@ -319,7 +363,12 @@ const getWords = () => select<Word>('words');
         addWord,
         updateWord,
         deleteWord,
-      }}
+        getContentsByBookId,
+        getTextsByContentId,
+        getOutlinesByContentId,
+        getWordsByContentId,
+        getImagesByContentId,
+        }}
     >
       {children}
     </EditorContext.Provider>

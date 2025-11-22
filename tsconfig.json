@@ -2,9 +2,14 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "jsx": "react-native"
+    "jsx": "react-native",
+    "baseUrl": ".",
+    "paths": {
+      "@config": ["config.ts"],
+      "@config/*": ["config.ts"]
+    }
   },
   "moduleResolution": "node",
   "esModuleInterop": true,
-  "allowSyntheticDefaultImports": true,
+  "allowSyntheticDefaultImports": true
 }

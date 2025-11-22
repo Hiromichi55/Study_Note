@@ -16,7 +16,7 @@ import { useLibrary } from '../context/LibraryContext';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../App';
 import { Book } from '../context/LibraryContext';
-
+import { ENV } from '@config';
 import bookImages from '../constants/bookImage';
 import { styles, theme } from '../styles/theme';
 
@@ -27,7 +27,7 @@ interface Props {
 }
 
 // ✅ 開発用フラグ
-const DEBUG_LAYOUT = false;
+const DEBUG_LAYOUT = ENV.IS_DEV; // true: レイアウトデバッグ用枠線表示
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { state, addBook, reorderBooks } = useLibrary();

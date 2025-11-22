@@ -26,7 +26,7 @@ import { theme, styles, screenWidth, screenHeight } from '../styles/theme';
 import ScreenBackground from './ScreenBackground';
 import { useEditor } from '../context/EditorContext';
 import * as Crypto from 'expo-crypto';
-
+import { ENV } from '@config';
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 interface Props {
@@ -36,10 +36,10 @@ interface Props {
 const NotebookScreen: React.FC<Props> = ({ route }) => {
   const { 
     addContent, updateContent, deleteContent,
-    addText, addWord, addImage, addOutline
+    addText, addWord, addImage, addOutline, getContentsByBookId, getTextsByContentId, getOutlinesByContentId, getWordsByContentId, getImagesByContentId,
   } = useEditor();
 
-  const isTest = true; // 開発環境なら true、リリースは false
+  const isTest = ENV.IS_DEV; // 開発環境なら true、リリースは false
   const navigation = useNavigation();
   const { bookId } = route.params;
   const { state, dispatch } = useLibrary();
@@ -64,9 +64,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const getDebugStyle = (color: string) =>
     isTest ? { backgroundColor: color } : {};
 
-  const [pages, setPages] = useState<string[]>(
-    Array.isArray(book?.content) ? book?.content : [book?.content ?? '']
-  );
+  const [pages, setPages] = useState<string[]>([]);
 
   const [pageContent, setPageContent] = useState(pages[currentPage] ?? '');
   const [showSearch, setShowSearch] = useState(false);
@@ -92,12 +90,19 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const savePageToDB = async () => {
     try {
       const page = currentPage;
-      const lines = pageContent.split('\n').filter(l => l.trim() !== '');
 
-      // 📘 コンテンツID（ページ単位）
+      // ⭐ 1) 既存 content を削除
+      const oldContents = await getContentsByBookId(bookId);
+      const oldPageContent = oldContents.find(c => c.page === page);
+
+      if (oldPageContent) {
+        // 子テーブルの削除
+        await deleteContent(oldPageContent.content);
+      }
+
+      // ⭐ 2) 新しい content を追加して保存
       const contentId = await Crypto.randomUUID();
 
-      // ===== contents テーブルへ保存 =====
       await addContent({
         content: contentId,
         order_index: page,
@@ -107,11 +112,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         height: 0
       });
 
-      // ===== 各行を解析して texts / words / outlines などに振り分け =====
+      const lines = pageContent.split('\n').filter(l => l.trim() !== '');
+
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
 
-        // 章／節／項
         if (line.startsWith('【章】')) {
           await addOutline({
             outline_id: await Crypto.randomUUID(),
@@ -142,23 +147,21 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           continue;
         }
 
-        // 単語
         if (line.startsWith('【単語】')) {
           const word = line.replace('【単語】', '').trim();
           const explanation = lines[i + 1] ?? '';
-          i++; // 説明行をスキップ
+          i++;
 
           await addWord({
             word_id: await Crypto.randomUUID(),
             word,
             explanation,
             order_index: i,
-            content_id: contentId,
+            content_id: contentId
           });
           continue;
         }
 
-        // 画像
         if (line.startsWith('【画像】')) {
           const img = line.replace('【画像】', '').trim();
           await addImage({
@@ -169,7 +172,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           continue;
         }
 
-        // 通常の文章
         await addText({
           text_id: await Crypto.randomUUID(),
           content: line,
@@ -177,11 +179,98 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         });
       }
 
-      console.log("ページを DB に保存しました");
+      console.log("ページを DB に保存しました（上書き完了）");
+
     } catch (e) {
       console.error("保存エラー:", e);
     }
   };
+
+
+  const loadPageFromDB = async (pageIndex: number, options?: { returnText?: boolean }) => {
+    try {
+      const contents = await getContentsByBookId(bookId);
+      const pageContentRow = contents.find(c => c.page === pageIndex);
+
+      if (!pageContentRow) {
+        if (!options?.returnText) setPageContent('');
+        return '';
+      }
+
+      const contentId = pageContentRow.content;
+
+      const texts = await getTextsByContentId(contentId);
+      const outlines = await getOutlinesByContentId(contentId);
+      const words = await getWordsByContentId(contentId);
+      const images = await getImagesByContentId(contentId);
+
+      let resultLines: string[] = [];
+
+      outlines.forEach(o => resultLines.push(`【${o.type}】${o.content}`));
+      texts.forEach(t => resultLines.push(t.content));
+      words.forEach(w => {
+        resultLines.push(`【単語】${w.word}`);
+        resultLines.push(w.explanation);
+      });
+      images.forEach(img => resultLines.push(`【画像】${img.image}`));
+
+      const finalText = resultLines.join('\n');
+
+      if (!options?.returnText) {
+        setPageContent(finalText);
+        setPages(prev => {
+          const updated = [...prev];
+          updated[pageIndex] = finalText;
+          return updated;
+        });
+      }
+
+      return finalText;
+
+    } catch (e) {
+      console.error('DB 読み込みエラー: ', e);
+      return '';
+    }
+  };
+
+  useEffect(() => {
+    const loadAllPages = async () => {
+      const contents = await getContentsByBookId(bookId);
+
+      // ページ数を最大ページに合わせる
+      const maxPage = Math.max(...contents.map(c => c.page), 0);
+
+      const loadedPages = [];
+
+      for (let p = 0; p <= maxPage; p++) {
+        const result = await loadPageFromDB(p, { returnText: true });
+        loadedPages[p] = result || '';
+      }
+
+      setPages(loadedPages);
+
+      // 最初のページのテキストをセット
+      setPageContent(loadedPages[currentPage] ?? '');
+    };
+
+    loadAllPages();
+  }, [bookId]);
+
+
+  useEffect(() => {
+    const loadContents = async () => {
+      if (!state.isLoading) {
+        const contents = await getContentsByBookId(bookId);
+        console.log(contents);
+      }
+    };
+    loadContents();
+  }, [state.isLoading, bookId]);
+
+
+  // useEffect(() => {
+  //   loadPageFromDB(currentPage);
+  // }, []);
 
 
   useEffect(() => {
@@ -448,9 +537,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                             minimumTrackTintColor="#000"
                             maximumTrackTintColor="#ccc"
                             thumbTintColor="#000"
-                            onValueChange={(v) => {
+                            onValueChange={ async(v) => {
                               setCurrentPage(v);
                               pagerRef.current?.setPage(v);
+                              // ★ ページ切り替え時に読み込み
+                              await loadPageFromDB(v);
                             }}
                           />
                         </View>
@@ -716,7 +807,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       // ✅ 編集中なら保存動作
                       const updatedPages = [...pages];
                       console.log('保存内容:', editableText);
-                      updatedPages[currentPage] = editableText;
+                      updatedPages[currentPage] = pageContent;
 
                       setPages(updatedPages);
                       setPageContent(editableText);
@@ -725,7 +816,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       // ★★★ DBへ保存 ★★★
                       await savePageToDB();
 
-                          // Context（useLibrary）側も更新
+                      // Context（useLibrary）側も更新
                       // dispatch({
                       //   type: 'UPDATE_BOOK_CONTENT',
                       //   bookId: book.id,
@@ -734,8 +825,14 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     } else {
                       // ✅ 編集開始：現在ページ内容をロード
                       const currentContent = pages[currentPage] ?? '';
-                      setEditableText(currentContent);
                       setPageContent(currentContent);
+
+                      // 入力欄は空にする
+                      setEditableText('');
+                      setWord('');
+                      setDefinition('');
+                      setEditingLineIndex(null);
+
                       setEditing(true);
                     }
                   }}
