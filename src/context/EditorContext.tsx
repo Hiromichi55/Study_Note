@@ -5,9 +5,9 @@ import { initDB } from '../db/db';
 // ===== 型定義 =====
 export type Content = {
   content_id: string;
-  order_index: number;
-  type: string;
-  book_Id: string;
+  content_order: number;
+  type: 'image' | 'outline' | 'text' | 'word';
+  book_id: string;
   page: number;
   height: number;
 };
@@ -20,14 +20,14 @@ export type Image = {
 
 export type Outline = {
   outline_id: string;
-  content: string;
-  type: string;
+  outline: string;
+  type: 'chapter' | 'section' | 'subsection' | 'title';
   content_id: string;
 };
 
 export type Text = {
   text_id: string;
-  content: string;
+  text: string;
   content_id: string;
 };
 
@@ -35,7 +35,7 @@ export type Word = {
   word_id: string;
   word: string;
   explanation: string;
-  order_index: number;
+  word_order: number;
   content_id: string;
 };
 
