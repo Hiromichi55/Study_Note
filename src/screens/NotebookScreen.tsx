@@ -97,14 +97,14 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
       if (oldPageContent) {
         // 子テーブルの削除
-        await deleteContent(oldPageContent.content);
+        await deleteContent(oldPageContent.content_id);
       }
 
       // ⭐ 2) 新しい content を追加して保存
       const contentId = await Crypto.randomUUID();
 
       await addContent({
-        content: contentId,
+        content_id: contentId,
         order_index: page,
         type: 'page',
         book_Id: bookId,

@@ -155,49 +155,49 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // ===== テーブル作成 =====
       await database.execAsync(`
-        CREATE TABLE contents (
-          content TEXT PRIMARY KEY NOT NULL,
-          order_index INTEGER,
+        CREATE TABLE IF NOT EXISTS contents (
+          content_id TEXT PRIMARY KEY NOT NULL,
+          content_order INTEGER,
           type TEXT,
-          book_Id TEXT,
+          book_id TEXT,
           page INTEGER,
           height REAL
-        )
+        );
       `);
 
       await database.execAsync(`
-        CREATE TABLE images (
+        CREATE TABLE IF NOT EXISTS images (
           image_id TEXT PRIMARY KEY NOT NULL,
           image TEXT,
           content_id TEXT
-        )
+        );
       `);
 
       await database.execAsync(`
-        CREATE TABLE outlines (
+        CREATE TABLE IF NOT EXISTS outlines (
           outline_id TEXT PRIMARY KEY NOT NULL,
-          content TEXT,
+          outline TEXT,
           type TEXT,
           content_id TEXT
-        )
+        );
       `);
 
       await database.execAsync(`
-        CREATE TABLE texts (
+        CREATE TABLE IF NOT EXISTS texts (
           text_id TEXT PRIMARY KEY NOT NULL,
-          content TEXT,
+          text TEXT,
           content_id TEXT
-        )
+        );
       `);
 
       await database.execAsync(`
-        CREATE TABLE words (
+        CREATE TABLE IF NOT EXISTS words (
           word_id TEXT PRIMARY KEY NOT NULL,
           word TEXT,
           explanation TEXT,
-          order_index INTEGER,
+          word_order INTEGER,
           content_id TEXT
-        )
+        );
       `);
 
       // ===== データ読み込み =====

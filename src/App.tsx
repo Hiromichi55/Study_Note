@@ -129,7 +129,7 @@ const DBTestComponent = () => {
         const existing = await select<Content>('contents', 'content = ?', ['テストコンテンツ']);
         if (existing.length === 0) {
           const newContent: Content = {
-            content: 'テストコンテンツ',
+            content_id: 'テストコンテンツ',
             order_index: 1,
             type: 'note',
             book_Id: 'book1',
@@ -156,7 +156,7 @@ const DBTestComponent = () => {
       <Text>Hello from EditorContext!</Text>
       <Text>isLoading: {state.isLoading ? 'true' : 'false'}</Text>
       {state.contents.map((c, idx) => (
-        <Text key={idx}>{`${c.order_index}: ${c.content} (Book: ${c.book_Id})`}</Text>
+        <Text key={idx}>{`${c.order_index}: ${c.content_id} (Book: ${c.book_Id})`}</Text>
       ))}
     </ScrollView>
   );
