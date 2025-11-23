@@ -1,4 +1,4 @@
-import ScreenBackground from './ScreenBackground';
+import ScreenBackground from './TitleBackground';
 import React, { useState, useRef, useEffect } from 'react';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import Animated from 'react-native-reanimated';

@@ -34,7 +34,6 @@ const ScreenBackground: React.FC<{ children?: React.ReactNode }> = ({ children }
 
     const surface = Skia.Surface.MakeOffscreen(width, height);
     if (!surface) throw new Error('Skia.Surface.MakeOffscreen が null');
-
     const canvas = surface.getCanvas();
 
     // 背景塗り
@@ -175,3 +174,10 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   background: { flex: 1 },
 });
+
+// #B26260
+// #B25F87
+// #BBA859
+// #6DA055
+// #4B8ABA
+// #55A99F

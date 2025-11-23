@@ -23,7 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
 import { theme, styles, screenWidth, screenHeight } from '../styles/theme';
-import ScreenBackground from './ScreenBackground';
+import NoteContent from './NoteContent';
 import { useEditor } from '../context/EditorContext';
 import * as Crypto from 'expo-crypto';
 import { ENV } from '@config';
@@ -120,8 +120,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         if (line.startsWith('【章】')) {
           await addOutline({
             outline_id: await Crypto.randomUUID(),
-            type: '章',
-            content: line.replace('【章】', '').trim(),
+            type: 'chapter',
+            outline: line.replace('【章】', '').trim(),
             content_id: contentId
           });
           continue;
@@ -130,8 +130,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         if (line.startsWith('【節】')) {
           await addOutline({
             outline_id: await Crypto.randomUUID(),
-            type: '節',
-            content: line.replace('【節】', '').trim(),
+            type: 'section',
+            outline: line.replace('【節】', '').trim(),
             content_id: contentId
           });
           continue;
@@ -140,8 +140,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         if (line.startsWith('【項】')) {
           await addOutline({
             outline_id: await Crypto.randomUUID(),
-            type: '項',
-            content: line.replace('【項】', '').trim(),
+            type: 'subsection',
+            outline: line.replace('【項】', '').trim(),
             content_id: contentId
           });
           continue;
@@ -156,7 +156,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             word_id: await Crypto.randomUUID(),
             word,
             explanation,
-            order_index: i,
+            word_order: i,
             content_id: contentId
           });
           continue;
@@ -433,7 +433,21 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           {/* <View style={styles.backgroundWrapper}> */}
-          <ScreenBackground>
+          <NoteContent backgroundColor={book.color}>
+            <View style={{ 
+              position: 'absolute', 
+              top: 0, 
+              left: 0, 
+              right: 0, 
+              bottom: 0, 
+              padding: 16,
+              justifyContent: 'center',  // 中央揃え
+              alignItems: 'center'       // 横中央
+            }}>
+              <Text style={{ fontSize: 16, lineHeight: 24, textAlign: 'center' }}>
+                こんにちは
+              </Text>
+            </View>
               {/* ノート全体をタップで切り替え */}
               <TouchableOpacity
                 disabled={editing}
@@ -547,6 +561,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         </View>
                       </View>
                     )}
+
                 </Animated.View>
 
                 {/* 編集モード中のテキスト入力フィールド */}
@@ -849,7 +864,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 <Ionicons name="search" size={screenWidth/12} color="white" />
               </TouchableOpacity>
             )}
-          </ScreenBackground>
+          </NoteContent>
         </KeyboardAvoidingView>
       </View>
     </TouchableWithoutFeedback>
