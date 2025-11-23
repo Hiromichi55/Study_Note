@@ -62,7 +62,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements }) =
   // 💛 背景生成（ここに枠線＆影＆白ノートを追加）
   // ===============================================
   const generateAndSaveBackground = async (): Promise<string> => {
-    console.log('背景生成開始');
 
     const surface = Skia.Surface.MakeOffscreen(width, height);
     if (!surface) throw new Error('Skia.Surface.MakeOffscreen が null');
@@ -149,7 +148,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements }) =
       encoding: FileSystem.EncodingType.Base64,
     });
 
-    console.log('背景生成完了');
+    console.log('NoteContent生成完了');
     return CACHE_FILE;
   };
 
@@ -195,18 +194,18 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements }) =
         {elements?.map((el, idx) => {
           switch (el.type) {
             case 'chapter':
-              return <Text key={idx} style={{ fontSize: 24, fontWeight: 'bold', marginVertical: 8 }}>{el.text}</Text>;
+              return <Text key={idx} style={{ fontSize: 24, fontWeight: 'bold', marginVertical: 8, fontFamily: 'HiraMinProN-W3' }}>{el.text}</Text>;
             case 'section':
-              return <Text key={idx} style={{ fontSize: 20, fontWeight: '600', marginVertical: 6 }}>{el.text}</Text>;
+              return <Text key={idx} style={{ fontSize: 20, fontWeight: '600', marginVertical: 6, fontFamily: 'HiraMinProN-W3' }}>{el.text}</Text>;
             case 'subsection':
-              return <Text key={idx} style={{ fontSize: 16, fontWeight: '500', marginVertical: 4 }}>{el.text}</Text>;
+              return <Text key={idx} style={{ fontSize: 16, fontWeight: '500', marginVertical: 4, fontFamily: 'HiraMinProN-W3' }}>{el.text}</Text>;
             case 'text':
-              return <Text key={idx} style={{ fontSize: 14, lineHeight: 20, marginVertical: 2 }}>{el.text}</Text>;
+              return <Text key={idx} style={{ fontSize: 14, lineHeight: 20, marginVertical: 2, fontFamily: 'HiraMinProN-W3' }}>{el.text}</Text>;
             case 'word':
               return (
                 <View key={idx} style={{ marginVertical: 2 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '600' }}>{el.word}</Text>
-                  <Text style={{ fontSize: 14, color: '#555' }}>{el.meaning}</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '600', fontFamily: 'HiraMinProN-W3' }}>{el.word}</Text>
+                  <Text style={{ fontSize: 14, color: '#555', fontFamily: 'HiraMinProN-W3' }}>{el.meaning}</Text>
                 </View>
               );
             case 'image':

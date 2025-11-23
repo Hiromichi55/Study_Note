@@ -41,7 +41,9 @@ SplashScreen.preventAutoHideAsync();
 
 export default function App() {
   const [fontsLoaded] = Font.useFonts({
-    'MyFont': require('../assets/fonts/dartsfont.ttf'),
+    'dartsfont': require('../assets/fonts/dartsfont.ttf'),
+    'HiraMinProN-W3': require('../assets/fonts/HiraMinProN-W3-AlphaNum-01.otf'),
+    'HiraMinProN-W6': require('../assets/fonts/HiraMinProN-W6-AlphaNum-03.otf'),
   });
 
   useEffect(() => {
