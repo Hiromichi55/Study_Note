@@ -27,6 +27,7 @@ import NoteContent from './NoteContent';
 import { useEditor } from '../context/EditorContext';
 import * as Crypto from 'expo-crypto';
 import { ENV } from '@config';
+import { NoteElement } from './NoteContent';
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 interface Props {
@@ -85,6 +86,16 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   // 単語用
   const [word, setWord] = useState('');
   const [definition, setDefinition] = useState('');
+
+  const noteData: NoteElement[] = [
+    { type: 'chapter', text: '第1章 React入門' },
+    { type: 'section', text: '1.1 コンポーネントとは' },
+    { type: 'text', text: 'ReactのコンポーネントはUIを構築するための部品です。' },
+    { type: 'word', word: 'props', meaning: '親コンポーネントから渡される値' },
+    //{ type: 'image', uri: 'https://example.com/sample.png' },
+    { type: 'subsection', text: '1.1.1 関数コンポーネント' },
+    { type: 'text', text: '関数コンポーネントはJavaScript関数で定義されます。' }
+  ];
 
   // 📌 ページ保存ロジック
   const savePageToDB = async () => {
@@ -433,7 +444,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           {/* <View style={styles.backgroundWrapper}> */}
-          <NoteContent backgroundColor={book.color}>
+          <NoteContent 
+            backgroundColor={book.color}
+            elements={noteData}>
             <View style={{ 
               position: 'absolute', 
               top: 0, 
@@ -444,9 +457,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               justifyContent: 'center',  // 中央揃え
               alignItems: 'center'       // 横中央
             }}>
-              <Text style={{ fontSize: 16, lineHeight: 24, textAlign: 'center' }}>
-                こんにちは
-              </Text>
             </View>
               {/* ノート全体をタップで切り替え */}
               <TouchableOpacity
@@ -455,15 +465,14 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 activeOpacity={1}
                 onPress={() => setIsVisible(!isVisible)} // ← ここで表示切り替え！
               >
-                <Text style={styles.title}>{book.title}</Text>
               </TouchableOpacity>
-                            {/* 👇 Animated.View でフェード */}
+                {/* 👇 Animated.View でフェード */}
                 <Animated.View
                   style={[
                     {
                     opacity: showSearch ? 1: fadeAnim, // ← アニメーション制御
                     // position: 'absolute',
-                    position: 'relative',
+                    position: 'absolute',
                     // bottom: showSearch ? keyboardHeight : 150, // ← 検索バーがあるときは上に
                     width: theme.screenWidth,
                     height: theme.screenHeight,

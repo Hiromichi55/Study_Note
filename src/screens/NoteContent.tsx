@@ -3,15 +3,26 @@
 // ==========================================
 
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, Dimensions, StyleSheet, ImageBackground } from 'react-native';
+import { View, Text, Image, ActivityIndicator, Dimensions, StyleSheet, ImageBackground } from 'react-native';
 import { Skia, PaintStyle } from '@shopify/react-native-skia';
 import * as FileSystem from 'expo-file-system/legacy';
 import { theme, styles, screenWidth, screenHeight } from '../styles/theme';
 import { useHeaderHeight } from '@react-navigation/elements';
 
+// NoteContent に渡す個々の要素の型
+export type NoteElement =
+  | { type: 'chapter'; text: string }                 // 章：大きい文字
+  | { type: 'section'; text: string }                 // 節：中くらいの文字
+  | { type: 'subsection'; text: string }              // 項：小さい文字
+  | { type: 'text'; text: string }                    // 一般文章
+  | { type: 'word'; word: string; meaning: string }   // 単語＋意味
+  | { type: 'image'; uri: string };                   // 画像
+
+
 type Props = {
   children?: React.ReactNode;
   backgroundColor?: keyof typeof COLOR_MAP;
+  elements?: NoteElement[];
 };
 
 const COLOR_MAP = {
@@ -32,7 +43,7 @@ const space = 0.03;
 const interval = 30;
 const upperSpace = 4;
 
-const ScreenBackground: React.FC<Props> = ({ children, backgroundColor }) => {
+const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements }) => {
   const bgColor = COLOR_MAP[backgroundColor ?? 'red'];
   const [bgUri, setBgUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -180,12 +191,36 @@ const ScreenBackground: React.FC<Props> = ({ children, backgroundColor }) => {
 
   return (
     <ImageBackground source={{ uri: bgUri }} style={style.background} resizeMode="cover">
-      {children}
+      <View style={{ flex: 1, padding: 16 }}>
+        {elements?.map((el, idx) => {
+          switch (el.type) {
+            case 'chapter':
+              return <Text key={idx} style={{ fontSize: 24, fontWeight: 'bold', marginVertical: 8 }}>{el.text}</Text>;
+            case 'section':
+              return <Text key={idx} style={{ fontSize: 20, fontWeight: '600', marginVertical: 6 }}>{el.text}</Text>;
+            case 'subsection':
+              return <Text key={idx} style={{ fontSize: 16, fontWeight: '500', marginVertical: 4 }}>{el.text}</Text>;
+            case 'text':
+              return <Text key={idx} style={{ fontSize: 14, lineHeight: 20, marginVertical: 2 }}>{el.text}</Text>;
+            case 'word':
+              return (
+                <View key={idx} style={{ marginVertical: 2 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600' }}>{el.word}</Text>
+                  <Text style={{ fontSize: 14, color: '#555' }}>{el.meaning}</Text>
+                </View>
+              );
+            case 'image':
+              return <Image key={idx} source={{ uri: el.uri }} style={{ width: '100%', height: 200, marginVertical: 8 }} resizeMode="contain" />;
+          }
+        })}
+        {children}
+      </View>
     </ImageBackground>
-  );
+);
+
 };
 
-export default ScreenBackground;
+export default NoteContent;
 
 const style = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
