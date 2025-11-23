@@ -130,9 +130,9 @@ const DBTestComponent = () => {
         if (existing.length === 0) {
           const newContent: Content = {
             content_id: 'テストコンテンツ',
-            order_index: 1,
-            type: 'note',
-            book_Id: 'book1',
+            content_order: 1,
+            type: 'text',
+            book_id: 'book1',
             page: 1,
             height: 100,
           };
@@ -156,7 +156,7 @@ const DBTestComponent = () => {
       <Text>Hello from EditorContext!</Text>
       <Text>isLoading: {state.isLoading ? 'true' : 'false'}</Text>
       {state.contents.map((c, idx) => (
-        <Text key={idx}>{`${c.order_index}: ${c.content_id} (Book: ${c.book_Id})`}</Text>
+        <Text key={idx}>{`${c.content_order}: ${c.content_id} (Book: ${c.book_id})`}</Text>
       ))}
     </ScrollView>
   );
