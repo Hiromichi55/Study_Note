@@ -3,5 +3,5 @@
 
 export const ENV = {
   INIT_DB: false,      // trueにすると毎回DBを初期化
-  IS_DEV: false,         // true: テストモード、false: 本番
+  IS_DEV: false        // true: テストモード、false: 本番
 };

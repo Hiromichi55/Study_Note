@@ -147,11 +147,15 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setDb(database);
 
       // ===== 古いテーブルを削除 =====
+      // NOTE: テーブルを毎回 DROP するとデータが消えるため、開発時以外は実行しないでください。
+      // If you need to reset schema during development, enable this block temporarily.
+      /*
       await database.execAsync(`DROP TABLE IF EXISTS contents;`);
       await database.execAsync(`DROP TABLE IF EXISTS images;`);
       await database.execAsync(`DROP TABLE IF EXISTS outlines;`);
       await database.execAsync(`DROP TABLE IF EXISTS texts;`);
       await database.execAsync(`DROP TABLE IF EXISTS words;`);
+      */
 
       // ===== テーブル作成 =====
       await database.execAsync(`
@@ -240,16 +244,23 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // ===== 共通CRUDヘルパー =====
   const insert = async (table: string, data: any) => {
-    if (!db) return;
+    console.log('insert called for table=', table);
+    if (!db) {
+      console.warn('DB is null - cannot insert');
+      return;
+    }
     const keys = Object.keys(data);
     const placeholders = keys.map(() => '?').join(',');
     const values = Object.values(data);
-
-    await db.runAsync(
-      `INSERT INTO ${table} (${keys.join(',')}) VALUES (${placeholders});`,
-      values as SQLite.SQLiteBindParams
-    );
-    await refreshAll();
+    const sql = `INSERT INTO ${table} (${keys.join(',')}) VALUES (${placeholders});`;
+    console.log('SQL:', sql, 'VALUES:', values);
+    try {
+      await db.runAsync(sql, values as SQLite.SQLiteBindParams);
+      await refreshAll();
+    } catch (err) {
+      console.error('INSERT error:', err, { table, data, sql, values });
+      throw err;
+    }
   };
 
   const update = async (table: string, idField: string, id: string, data: any) => {
@@ -283,63 +294,64 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+
   // ===== CRUD =====
-const addContent = (data: Content) => insert('contents', data);
-const updateContent = (id: string, data: Partial<Content>) => update('contents', 'content', id, data);
-const deleteContent = (id: string) => remove('contents', 'content', id);
-const getContents = () => select<Content>('contents');
+  const addContent = (data: Content) => insert('contents', data);
+  const updateContent = (id: string, data: Partial<Content>) => update('contents', 'content_id', id, data);
+  const deleteContent = (id: string) => remove('contents', 'content_id', id);
+  const getContents = () => select<Content>('contents');
 
-const addImage = (data: Image) => insert('images', data);
-const updateImage = (id: string, data: Partial<Image>) => update('images', 'image_id', id, data);
-const deleteImage = (id: string) => remove('images', 'image_id', id);
-const getImages = () => select<Image>('images');
+  const addImage = (data: Image) => insert('images', data);
+  const updateImage = (id: string, data: Partial<Image>) => update('images', 'image_id', id, data);
+  const deleteImage = (id: string) => remove('images', 'image_id', id);
+  const getImages = () => select<Image>('images');
 
-const addOutline = (data: Outline) => insert('outlines', data);
-const updateOutline = (id: string, data: Partial<Outline>) => update('outlines', 'outline_id', id, data);
-const deleteOutline = (id: string) => remove('outlines', 'outline_id', id);
-const getOutlines = () => select<Outline>('outlines');
+  const addOutline = (data: Outline) => insert('outlines', data);
+  const updateOutline = (id: string, data: Partial<Outline>) => update('outlines', 'outline_id', id, data);
+  const deleteOutline = (id: string) => remove('outlines', 'outline_id', id);
+  const getOutlines = () => select<Outline>('outlines');
 
-const addText = (data: Text) => insert('texts', data);
-const updateText = (id: string, data: Partial<Text>) => update('texts', 'text_id', id, data);
-const deleteText = (id: string) => remove('texts', 'text_id', id);
-const getTexts = () => select<Text>('texts');
+  const addText = (data: Text) => insert('texts', data);
+  const updateText = (id: string, data: Partial<Text>) => update('texts', 'text_id', id, data);
+  const deleteText = (id: string) => remove('texts', 'text_id', id);
+  const getTexts = () => select<Text>('texts');
 
-const addWord = (data: Word) => insert('words', data);
-const updateWord = (id: string, data: Partial<Word>) => update('words', 'word_id', id, data);
-const deleteWord = (id: string) => remove('words', 'word_id', id);
-const getWords = () => select<Word>('words');
+  const addWord = (data: Word) => insert('words', data);
+  const updateWord = (id: string, data: Partial<Word>) => update('words', 'word_id', id, data);
+  const deleteWord = (id: string) => remove('words', 'word_id', id);
+  const getWords = () => select<Word>('words');
 
-// ===== ページ復元用の読み込み関数 =====
+  // ===== ページ復元用の読み込み関数 =====
 
-// bookId + page で contents を取得
-const getContentsByBookId = async (bookId: string) => {
-  if (!db) {
-    console.warn("DB がまだ初期化されていません");
-    return [];
-  }
-  return await select<Content>('contents', 'book_Id = ?', [bookId]);
-};
+  // bookId + page で contents を取得
+  const getContentsByBookId = async (bookId: string) => {
+    if (!db) {
+      console.warn("DB がまだ初期化されていません");
+      return [];
+    }
+    return await select<Content>('contents', 'book_id = ?', [bookId]);
+  };
 
 
-// content_id に紐づく texts
-const getTextsByContentId = async (contentId: string) => {
-  return await select<Text>('texts', 'content_id = ?', [contentId]);
-};
+  // content_id に紐づく texts
+  const getTextsByContentId = async (contentId: string) => {
+    return await select<Text>('texts', 'content_id = ?', [contentId]);
+  };
 
-// content_id に紐づく outlines
-const getOutlinesByContentId = async (contentId: string) => {
-  return await select<Outline>('outlines', 'content_id = ?', [contentId]);
-};
+  // content_id に紐づく outlines
+  const getOutlinesByContentId = async (contentId: string) => {
+    return await select<Outline>('outlines', 'content_id = ?', [contentId]);
+  };
 
-// content_id に紐づく words
-const getWordsByContentId = async (contentId: string) => {
-  return await select<Word>('words', 'content_id = ?', [contentId]);
-};
+  // content_id に紐づく words
+  const getWordsByContentId = async (contentId: string) => {
+    return await select<Word>('words', 'content_id = ?', [contentId]);
+  };
 
-// content_id に紐づく images
-const getImagesByContentId = async (contentId: string) => {
-  return await select<Image>('images', 'content_id = ?', [contentId]);
-};
+  // content_id に紐づく images
+  const getImagesByContentId = async (contentId: string) => {
+    return await select<Image>('images', 'content_id = ?', [contentId]);
+  };
 
 
   return (
@@ -367,7 +379,7 @@ const getImagesByContentId = async (contentId: string) => {
         getTextsByContentId,
         getOutlinesByContentId,
         getWordsByContentId,
-        getImagesByContentId,
+        getImagesByContentId
         }}
     >
       {children}
