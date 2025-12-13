@@ -25,8 +25,10 @@ import { RootStackParamList } from '../App';
 import { theme, styles, screenWidth, screenHeight } from '../styles/theme';
 import ScreenBackground from './ScreenBackground';
 import { useEditor, Content } from '../context/EditorContext';
+import NoteContent from './NoteContent';
 import * as Crypto from 'expo-crypto';
 import { ENV } from '@config';
+import { NoteElement } from './NoteContent';
 
 
 
@@ -89,6 +91,16 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   // 単語用
   const [word, setWord] = useState('');
   const [definition, setDefinition] = useState('');
+
+  const noteData: NoteElement[] = [
+    { type: 'chapter', text: '第1章 React入門' },
+    { type: 'section', text: '1.1 コンポーネントとは' },
+    { type: 'text', text: 'ReactのコンポーネントはUIを構築するための部品です。' },
+    { type: 'word', word: 'props', meaning: '親コンポーネントから渡される値' },
+    //{ type: 'image', uri: 'https://example.com/sample.png' },
+    { type: 'subsection', text: '1.1.1 関数コンポーネント' },
+    { type: 'text', text: '関数コンポーネントはJavaScript関数で定義されます。' }
+  ];
 
   // 📌 ページ保存ロジック
   const savePageToDB = async () => {
@@ -436,7 +448,20 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           {/* <View style={styles.backgroundWrapper}> */}
-          <ScreenBackground>
+          <NoteContent 
+            backgroundColor={book.color}
+            elements={noteData}>
+            <View style={{ 
+              position: 'absolute', 
+              top: 0, 
+              left: 0, 
+              right: 0, 
+              bottom: 0, 
+              padding: 16,
+              justifyContent: 'center',  // 中央揃え
+              alignItems: 'center'       // 横中央
+            }}>
+            </View>
               {/* ノート全体をタップで切り替え */}
               <TouchableOpacity
                 disabled={editing}
@@ -444,15 +469,14 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 activeOpacity={1}
                 onPress={() => setIsVisible(!isVisible)} // ← ここで表示切り替え！
               >
-                <Text style={styles.title}>{book.title}</Text>
               </TouchableOpacity>
-                            {/* 👇 Animated.View でフェード */}
+                {/* 👇 Animated.View でフェード */}
                 <Animated.View
                   style={[
                     {
                     opacity: showSearch ? 1: fadeAnim, // ← アニメーション制御
                     // position: 'absolute',
-                    position: 'relative',
+                    position: 'absolute',
                     // bottom: showSearch ? keyboardHeight : 150, // ← 検索バーがあるときは上に
                     width: theme.screenWidth,
                     height: theme.screenHeight,
@@ -550,6 +574,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         </View>
                       </View>
                     )}
+
                 </Animated.View>
 
                 {/* 編集モード中のテキスト入力フィールド */}
@@ -852,7 +877,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 <Ionicons name="search" size={screenWidth/12} color="white" />
               </TouchableOpacity>
             )}
-          </ScreenBackground>
+          </NoteContent>
         </KeyboardAvoidingView>
       </View>
     </TouchableWithoutFeedback>
