@@ -55,7 +55,9 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      {IS_DEV ? <TestApp /> : <ProductionApp />}
+      <EditorProvider>
+        {IS_DEV ? <TestApp /> : <ProductionApp />}
+      </EditorProvider>
     </GestureHandlerRootView>
   );
 }
@@ -94,7 +96,7 @@ function ProductionApp() {
 // ==================== テスト用コンポーネント ====================
 function TestApp() {
   return (
-    <EditorProvider>
+    <>
       <StartupDBLogger />
       <NavigationContainer>
         <Stack.Navigator initialRouteName="Home">
@@ -102,7 +104,7 @@ function TestApp() {
           <Stack.Screen name="DBTest" component={DBTestComponent} />
         </Stack.Navigator>
       </NavigationContainer>
-    </EditorProvider>
+    </>
   );
 }
 
@@ -126,16 +128,18 @@ const DBTestComponent = () => {
   useEffect(() => {
     const testDB = async () => {
       try {
-        const existing = await select<Content>('contents', 'content = ?', ['テストコンテンツ']);
+        const existing = await select<Content>('contents', 'content_id = ?', [1]);
         if (existing.length === 0) {
           const newContent: Content = {
-            content_id: 'テストコンテンツ',
-            order_index: 1,
-            type: 'note',
-            book_Id: 'book1',
+            content_id: '1',
+            content_order: 1,
+            type: 'image',
+            book_id: 'book1',
             page: 1,
             height: 100,
           };
+          //console.log(newContent);
+          console.log('before add content');
           await addContent(newContent);
         }
         const allContents = await select<Content>('contents');
@@ -156,7 +160,7 @@ const DBTestComponent = () => {
       <Text>Hello from EditorContext!</Text>
       <Text>isLoading: {state.isLoading ? 'true' : 'false'}</Text>
       {state.contents.map((c, idx) => (
-        <Text key={idx}>{`${c.order_index}: ${c.content_id} (Book: ${c.book_Id})`}</Text>
+        <Text key={idx}>{`${c.content_order}: ${c.content_id} (Book: ${c.book_id})`}</Text>
       ))}
     </ScrollView>
   );
@@ -178,5 +182,6 @@ const HomeScreenTest = ({ navigation }: any) => (
 // ===== 画面遷移パラメータ型 =====
 export type RootStackParamList = {
   Home: undefined;
-  DBTest: undefined;
+  Notebook: { bookId: string };
+  Edit: { bookId: string }; 
 };

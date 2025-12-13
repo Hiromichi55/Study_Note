@@ -24,9 +24,11 @@ import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
 import { theme, styles, screenWidth, screenHeight } from '../styles/theme';
 import ScreenBackground from './ScreenBackground';
-import { useEditor } from '../context/EditorContext';
+import { useEditor, Content } from '../context/EditorContext';
 import * as Crypto from 'expo-crypto';
 import { ENV } from '@config';
+
+
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 interface Props {
@@ -35,9 +37,11 @@ interface Props {
 
 const NotebookScreen: React.FC<Props> = ({ route }) => {
   const { 
-    addContent, updateContent, deleteContent,
-    addText, addWord, addImage, addOutline, getContentsByBookId, getTextsByContentId, getOutlinesByContentId, getWordsByContentId, getImagesByContentId,
-  } = useEditor();
+  addContent, updateContent, deleteContent,
+  addText, addWord, addImage, addOutline, getContentsByBookId, 
+  getTextsByContentId, getOutlinesByContentId, getWordsByContentId, getImagesByContentId,
+  select
+} = useEditor();
 
   const isTest = ENV.IS_DEV; // 開発環境なら true、リリースは false
   const navigation = useNavigation();
@@ -94,23 +98,22 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       // ⭐ 1) 既存 content を削除
       const oldContents = await getContentsByBookId(bookId);
       const oldPageContent = oldContents.find(c => c.page === page);
-
-      if (oldPageContent) {
-        // 子テーブルの削除
-        await deleteContent(oldPageContent.content_id);
-      }
-
       // ⭐ 2) 新しい content を追加して保存
       const contentId = await Crypto.randomUUID();
-
-      await addContent({
+      
+      const newContent: Content = {
         content_id: contentId,
-        order_index: page,
-        type: 'page',
-        book_Id: bookId,
-        page: page,
+        content_order: page,
+        type: 'text',
+        book_id: bookId,
+        page,
         height: 0
-      });
+      };
+      
+      await addContent(newContent);
+      const Contents = await select<Content>('contents');
+      console.log(pageContent);
+      console.log('Contents from DBTestComponent:', Contents);
 
       const lines = pageContent.split('\n').filter(l => l.trim() !== '');
 
@@ -120,8 +123,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         if (line.startsWith('【章】')) {
           await addOutline({
             outline_id: await Crypto.randomUUID(),
-            type: '章',
-            content: line.replace('【章】', '').trim(),
+            type: 'chapter',
+            outline: line.replace('【章】', '').trim(),
             content_id: contentId
           });
           continue;
@@ -130,8 +133,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         if (line.startsWith('【節】')) {
           await addOutline({
             outline_id: await Crypto.randomUUID(),
-            type: '節',
-            content: line.replace('【節】', '').trim(),
+            type: 'section',
+            outline: line.replace('【節】', '').trim(),
             content_id: contentId
           });
           continue;
@@ -140,8 +143,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         if (line.startsWith('【項】')) {
           await addOutline({
             outline_id: await Crypto.randomUUID(),
-            type: '項',
-            content: line.replace('【項】', '').trim(),
+            type: 'subsection',
+            outline: line.replace('【項】', '').trim(),
             content_id: contentId
           });
           continue;
@@ -156,7 +159,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             word_id: await Crypto.randomUUID(),
             word,
             explanation,
-            order_index: i,
+            word_order: i,
             content_id: contentId
           });
           continue;
@@ -174,18 +177,18 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
         await addText({
           text_id: await Crypto.randomUUID(),
-          content: line,
+          text: line,
           content_id: contentId
         });
       }
 
       console.log("ページを DB に保存しました（上書き完了）");
-
+      const allContents = await select<Content>('contents');
+      console.log('Contents from DBTestComponent:', allContents);
     } catch (e) {
       console.error("保存エラー:", e);
     }
   };
-
 
   const loadPageFromDB = async (pageIndex: number, options?: { returnText?: boolean }) => {
     try {
@@ -197,7 +200,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         return '';
       }
 
-      const contentId = pageContentRow.content;
+      const contentId = pageContentRow.content_id;
 
       const texts = await getTextsByContentId(contentId);
       const outlines = await getOutlinesByContentId(contentId);
@@ -206,8 +209,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
       let resultLines: string[] = [];
 
-      outlines.forEach(o => resultLines.push(`【${o.type}】${o.content}`));
-      texts.forEach(t => resultLines.push(t.content));
+      outlines.forEach(o => resultLines.push(`【${o.type}】${o.outline}`));
+      texts.forEach(t => resultLines.push(t.text));
       words.forEach(w => {
         resultLines.push(`【単語】${w.word}`);
         resultLines.push(w.explanation);
@@ -265,7 +268,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       }
     };
     loadContents();
-  }, [state.isLoading, bookId]);
+  }, [bookId]);
 
 
   // useEffect(() => {
