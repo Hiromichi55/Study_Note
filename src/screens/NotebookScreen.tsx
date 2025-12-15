@@ -10,7 +10,7 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
-  Animated, 
+  Animated,
   Easing,
   ScrollView
 } from 'react-native';
@@ -23,9 +23,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
 import { theme, styles, screenWidth, screenHeight } from '../styles/theme';
-import ScreenBackground from './ScreenBackground';
-import { useEditor, Content } from '../context/EditorContext';
 import NoteContent from './NoteContent';
+import { useEditor, Content } from '../context/EditorContext';
 import * as Crypto from 'expo-crypto';
 import { ENV } from '@config';
 import { NoteElement } from './NoteContent';
@@ -45,7 +44,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   select
 } = useEditor();
 
-  const isTest = ENV.IS_DEV; // 開発環境なら true、リリースは false
+  const isTest = ENV.SCREEN_DEV; // 開発環境なら true、リリースは false
   const navigation = useNavigation();
   const { bookId } = route.params;
   const { state, dispatch } = useLibrary();
@@ -62,6 +61,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   const [editingLineIndex, setEditingLineIndex] = useState<number | null>(null);
 
+  // NoteContent から受け取るノート領域情報
+  const [noteBounds, setNoteBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+
   const wordInputRef = useRef<TextInput>(null);
   const definitionInputRef = useRef<TextInput>(null);
 
@@ -71,6 +73,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     isTest ? { backgroundColor: color } : {};
 
   const [pages, setPages] = useState<string[]>([]);
+  // elements ベースのページデータ（文字列ではなく NoteElement の配列を保持）
+  const [pagesElements, setPagesElements] = useState<NoteElement[][]>([]);
 
   const [pageContent, setPageContent] = useState(pages[currentPage] ?? '');
   const [showSearch, setShowSearch] = useState(false);
@@ -95,12 +99,67 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const noteData: NoteElement[] = [
     { type: 'chapter', text: '第1章 React入門' },
     { type: 'section', text: '1.1 コンポーネントとは' },
-    { type: 'text', text: 'ReactのコンポーネントはUIを構築するための部品です。' },
-    { type: 'word', word: 'props', meaning: '親コンポーネントから渡される値' },
+    { type: 'text', text: 'ReactのコンポーネントはUIを構築するための部品です。あいうえおあいうえお' },
+    { type: 'section', text: '1.2 コンポーネントとは' },
+    // { type: 'word', word: 'props', meaning: '親コンポーネントから渡される値' },
     //{ type: 'image', uri: 'https://example.com/sample.png' },
     { type: 'subsection', text: '1.1.1 関数コンポーネント' },
-    { type: 'text', text: '関数コンポーネントはJavaScript関数で定義されます。' }
+    { type: 'text', text: '関数コンポーネントはJavaScript関数で定義されます。' },
+
   ];
+
+  // 編集画面で要素ごとの背景色を返すヘルパー
+  const getBgColorForType = (type: NoteElement['type'] | string) => {
+    switch (type) {
+      case 'chapter':
+        return 'rgba(255, 243, 205, 0.9)'; // light yellow
+      case 'section':
+        return 'rgba(210, 235, 255, 0.9)'; // light blue
+      case 'subsection':
+        return 'rgba(224, 255, 224, 0.9)'; // light green
+      case 'word':
+        return 'rgba(255, 230, 240, 0.95)'; // light pink
+      case 'image':
+        return 'rgba(240,240,240,0.95)'; // light gray
+      default:
+        return 'transparent';
+    }
+  };
+
+  // テキスト（旧フォーマット）を簡易に NoteElement[] に変換する（UI用フォールバック）
+  const parseTextToElements = (text: string): NoteElement[] => {
+    const lines = text.split('\n');
+    const out: NoteElement[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      if (line.startsWith('【章】')) {
+        out.push({ type: 'chapter', text: line.replace('【章】', '').trim() });
+        continue;
+      }
+      if (line.startsWith('【節】')) {
+        out.push({ type: 'section', text: line.replace('【節】', '').trim() });
+        continue;
+      }
+      if (line.startsWith('【項】')) {
+        out.push({ type: 'subsection', text: line.replace('【項】', '').trim() });
+        continue;
+      }
+      if (line.startsWith('【単語】')) {
+        const word = line.replace('【単語】', '').trim();
+        const meaning = (lines[i + 1] || '').trim();
+        out.push({ type: 'word', word, meaning });
+        i++;
+        continue;
+      }
+      if (line.startsWith('【画像】')) {
+        out.push({ type: 'image', uri: line.replace('【画像】', '').trim() });
+        continue;
+      }
+      out.push({ type: 'text', text: line });
+    }
+    return out;
+  };
 
   // 📌 ページ保存ロジック
   const savePageToDB = async () => {
@@ -127,71 +186,110 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       console.log(pageContent);
       console.log('Contents from DBTestComponent:', Contents);
 
-      const lines = pageContent.split('\n').filter(l => l.trim() !== '');
+      // NoteElement 配列があればそれを使って保存（文字列パースに依存しない）
+      const elems = pagesElements[page];
+      if (Array.isArray(elems) && elems.length > 0) {
+        for (let i = 0; i < elems.length; i++) {
+          const el = elems[i];
+          if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
+            await addOutline({
+              outline_id: await Crypto.randomUUID(),
+              type: el.type === 'chapter' ? 'chapter' : el.type === 'section' ? 'section' : 'subsection',
+              outline: (el as any).text,
+              content_id: contentId,
+            });
+            continue;
+          }
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
+          if (el.type === 'word') {
+            await addWord({
+              word_id: await Crypto.randomUUID(),
+              word: (el as any).word,
+              explanation: (el as any).meaning || '',
+              word_order: i,
+              content_id: contentId,
+            });
+            continue;
+          }
 
-        if (line.startsWith('【章】')) {
-          await addOutline({
-            outline_id: await Crypto.randomUUID(),
-            type: 'chapter',
-            outline: line.replace('【章】', '').trim(),
-            content_id: contentId
-          });
-          continue;
+          if (el.type === 'image') {
+            await addImage({
+              image_id: await Crypto.randomUUID(),
+              image: (el as any).uri,
+              content_id: contentId,
+            });
+            continue;
+          }
+
+          // default: text
+          if (el.type === 'text') {
+            await addText({
+              text_id: await Crypto.randomUUID(),
+              text: (el as any).text,
+              content_id: contentId,
+            });
+          }
         }
-
-        if (line.startsWith('【節】')) {
-          await addOutline({
-            outline_id: await Crypto.randomUUID(),
-            type: 'section',
-            outline: line.replace('【節】', '').trim(),
-            content_id: contentId
+      } else {
+        // フォールバック：従来のテキストパース（互換性保持）
+        const lines = pageContent.split('\n').filter(l => l.trim() !== '');
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.startsWith('【章】')) {
+            await addOutline({
+              outline_id: await Crypto.randomUUID(),
+              type: 'chapter',
+              outline: line.replace('【章】', '').trim(),
+              content_id: contentId,
+            });
+            continue;
+          }
+          if (line.startsWith('【節】')) {
+            await addOutline({
+              outline_id: await Crypto.randomUUID(),
+              type: 'section',
+              outline: line.replace('【節】', '').trim(),
+              content_id: contentId,
+            });
+            continue;
+          }
+          if (line.startsWith('【項】')) {
+            await addOutline({
+              outline_id: await Crypto.randomUUID(),
+              type: 'subsection',
+              outline: line.replace('【項】', '').trim(),
+              content_id: contentId,
+            });
+            continue;
+          }
+          if (line.startsWith('【単語】')) {
+            const word = line.replace('【単語】', '').trim();
+            const explanation = lines[i + 1] ?? '';
+            i++;
+            await addWord({
+              word_id: await Crypto.randomUUID(),
+              word,
+              explanation,
+              word_order: i,
+              content_id: contentId,
+            });
+            continue;
+          }
+          if (line.startsWith('【画像】')) {
+            const img = line.replace('【画像】', '').trim();
+            await addImage({
+              image_id: await Crypto.randomUUID(),
+              image: img,
+              content_id: contentId,
+            });
+            continue;
+          }
+          await addText({
+            text_id: await Crypto.randomUUID(),
+            text: line,
+            content_id: contentId,
           });
-          continue;
         }
-
-        if (line.startsWith('【項】')) {
-          await addOutline({
-            outline_id: await Crypto.randomUUID(),
-            type: 'subsection',
-            outline: line.replace('【項】', '').trim(),
-            content_id: contentId
-          });
-          continue;
-        }
-
-        if (line.startsWith('【単語】')) {
-          const word = line.replace('【単語】', '').trim();
-          const explanation = lines[i + 1] ?? '';
-          i++;
-
-          await addWord({
-            word_id: await Crypto.randomUUID(),
-            word,
-            explanation,
-            word_order: i,
-            content_id: contentId
-          });
-          continue;
-        }
-
-        if (line.startsWith('【画像】')) {
-          const img = line.replace('【画像】', '').trim();
-          await addImage({
-            image_id: await Crypto.randomUUID(),
-            image: img,
-            content_id: contentId
-          });
-          continue;
-        }
-
-        await addText({
-          text_id: await Crypto.randomUUID(),
-          text: line,
-          content_id: contentId
-        });
       }
 
       console.log("ページを DB に保存しました（上書き完了）");
@@ -219,17 +317,34 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       const words = await getWordsByContentId(contentId);
       const images = await getImagesByContentId(contentId);
 
-      let resultLines: string[] = [];
-
-      outlines.forEach(o => resultLines.push(`【${o.type}】${o.outline}`));
-      texts.forEach(t => resultLines.push(t.text));
-      words.forEach(w => {
-        resultLines.push(`【単語】${w.word}`);
-        resultLines.push(w.explanation);
+      // DB から NoteElement[] を組み立てる（文字列マーカーに依存しない）
+      const elements: NoteElement[] = [];
+      outlines.forEach(o => {
+        if (o.type === 'chapter') elements.push({ type: 'chapter', text: o.outline });
+        else if (o.type === 'section') elements.push({ type: 'section', text: o.outline });
+        else if (o.type === 'subsection') elements.push({ type: 'subsection', text: o.outline });
       });
-      images.forEach(img => resultLines.push(`【画像】${img.image}`));
+      texts.forEach(t => elements.push({ type: 'text', text: t.text }));
+      words.forEach(w => elements.push({ type: 'word', word: w.word, meaning: w.explanation }));
+      images.forEach(img => elements.push({ type: 'image', uri: img.image }));
 
-      const finalText = resultLines.join('\n');
+      const finalText = elements
+        .map(el => {
+          if (el.type === 'chapter') return `【章】${el.text}`;
+          if (el.type === 'section') return `【節】${el.text}`;
+          if (el.type === 'subsection') return `【項】${el.text}`;
+          if (el.type === 'word') return `【単語】${el.word}\n${el.meaning}`;
+          if (el.type === 'image') return `【画像】${el.uri}`;
+          return el.type === 'text' ? el.text : '';
+        })
+        .join('\n');
+
+      // pagesElements を更新して UI が NoteElement を使えるようにする
+      setPagesElements(prev => {
+        const next = [...prev];
+        next[pageIndex] = elements;
+        return next;
+      });
 
       if (!options?.returnText) {
         setPageContent(finalText);
@@ -450,14 +565,16 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           {/* <View style={styles.backgroundWrapper}> */}
           <NoteContent 
             backgroundColor={book.color}
-            elements={noteData}>
+            elements={noteData}
+            onNoteLayout={setNoteBounds}
+          >
             <View style={{ 
               position: 'absolute', 
-              top: 0, 
-              left: 0, 
-              right: 0, 
-              bottom: 0, 
-              padding: 16,
+              top: noteBounds ? noteBounds.y : 0,
+              left: noteBounds ? noteBounds.x : 0,
+              width: noteBounds ? noteBounds.width : screenWidth,
+              height: noteBounds ? noteBounds.height : screenHeight,
+              padding: noteBounds ? 0 : 16,
               justifyContent: 'center',  // 中央揃え
               alignItems: 'center'       // 横中央
             }}>
@@ -602,10 +719,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       }}
                       style={{
                         position: 'absolute',
-                        top: 10,
-                        left: screenWidth * 0.05,
-                        width: screenWidth * 0.9,
-                        height: (screenHeight - keyboardHeight)*0.5,
+                        top: noteBounds ? noteBounds.y + 10 : 10,
+                        left: noteBounds ? noteBounds.x + noteBounds.width * 0.05 : screenWidth * 0.05,
+                        width: noteBounds ? noteBounds.width * 0.9 : screenWidth * 0.9,
+                        height: (noteBounds ? noteBounds.height - keyboardHeight : screenHeight - keyboardHeight) * 0.5,
                         backgroundColor: 'rgba(255,255,255,0.9)',
                         borderRadius: 12,
                         padding: 12,
@@ -615,19 +732,43 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     >
                       <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>メモ内容：</Text>
                       <ScrollView>
-                        {pageContent.split('\n').map((line, i) => (
-                          <TouchableOpacity
-                            key={i}
-                            onPress={() => {
-                              setEditableText(line);       // タップした行を編集欄に反映
-                              setEditing(true);
-                              setEditingLineIndex(i);      // この行を編集中として記録
-                              setTimeout(() => editInputRef.current?.focus(), 100);
-                            }}
-                          >
-                            <Text>{line}</Text>
-                          </TouchableOpacity>
-                        ))}
+                        {(() => {
+                          const elems = pagesElements[currentPage] ?? (pageContent ? parseTextToElements(pageContent) : []);
+                          // DEBUG: 確認用ログ（実行時にコンソールで要素があるか確認してください）
+                          console.log('NotebookScreen: render elems', { currentPage, elemsLength: elems.length, sample: elems[0] });
+                          return elems.map((el, i) => (
+                            <TouchableOpacity
+                              key={i}
+                              onPress={() => {
+                                // 要素タイプごとに編集フィールドを反映
+                                if (el.type === 'word') {
+                                  setWord((el as any).word);
+                                  setDefinition((el as any).meaning);
+                                  setEditableText('');
+                                } else if (el.type === 'image') {
+                                  setEditableText((el as any).uri);
+                                } else if ('text' in el) {
+                                  setEditableText((el as any).text);
+                                }
+                                setEditing(true);
+                                setEditingLineIndex(i);
+                                setTimeout(() => editInputRef.current?.focus(), 100);
+                              }}
+                            
+                              style={{
+                                backgroundColor: getBgColorForType(el.type),
+                                paddingHorizontal: 8,
+                                paddingVertical: 6,
+                                borderRadius: 6,
+                                marginBottom: 6,
+                              }}
+                            >
+                              <Text>
+                                {el.type === 'word' ? `${(el as any).word} — ${(el as any).meaning}` : el.type === 'image' ? `［画像］ ${(el as any).uri}` : 'text' in el ? (el as any).text : ''}
+                              </Text>
+                            </TouchableOpacity>
+                          ));
+                        })()}
                       </ScrollView>
                     </TouchableOpacity>
 
@@ -636,8 +777,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       style={{
                         position: 'absolute',
                         bottom: 100,
-                        left: screenWidth * 0.05,
-                        width: screenWidth * 0.9,
+                        left: noteBounds ? noteBounds.x + noteBounds.width * 0.05 : screenWidth * 0.05,
+                        width: noteBounds ? noteBounds.width * 0.9 : screenWidth * 0.9,
                         backgroundColor: 'white',
                         borderRadius: 12,
                         padding: 10,
@@ -734,36 +875,64 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                             alignSelf: 'center'
                           }}
                           onPress={() => {
-                            let newItem = '';
-
+                            // NoteElement ベースで追加／更新する
+                            let newEl: NoteElement | null = null;
                             if (currentAttribute === '単語') {
-                              newItem = `【単語】${word}\n${definition}`;
+                              newEl = { type: 'word', word: word, meaning: definition };
                               setWord('');
                               setDefinition('');
+                            } else if (currentAttribute === '画像') {
+                              newEl = { type: 'image', uri: editableText } as NoteElement;
+                              if (editingLineIndex === null) setEditableText('');
+                            } else if (currentAttribute === '章') {
+                              newEl = { type: 'chapter', text: editableText };
+                              if (editingLineIndex === null) setEditableText('');
+                            } else if (currentAttribute === '節') {
+                              newEl = { type: 'section', text: editableText };
+                              if (editingLineIndex === null) setEditableText('');
+                            } else if (currentAttribute === '項') {
+                              newEl = { type: 'subsection', text: editableText };
+                              if (editingLineIndex === null) setEditableText('');
                             } else {
-                              // 編集中は属性名を追加せず、新規追加時のみ付与
-                              if (editingLineIndex !== null) {
-                                newItem = editableText; // ←更新時は属性なし
-                              } else {
-                                newItem = `【${currentAttribute}】${editableText}`; // ←新規追加時は属性付き
-                                setEditableText('');
-                              }
+                              // 文章
+                              newEl = { type: 'text', text: editableText };
+                              if (editingLineIndex === null) setEditableText('');
                             }
 
-                            setPageContent(prev => {
-                              const lines = prev.split('\n');
-
+                            setPagesElements(prev => {
+                              const next = [...prev];
+                              const idx = currentPage;
+                              if (!next[idx]) next[idx] = [];
                               if (editingLineIndex !== null) {
-                                // 編集中の行を置き換える
-                                setEditableText('');
-                                lines[editingLineIndex] = newItem;
-                                setEditingLineIndex(null); // 編集終了
+                                next[idx][editingLineIndex] = newEl!;
                               } else {
-                                // 新規追加
-                                lines.push(newItem);
+                                next[idx].push(newEl!);
                               }
+                              return next;
+                            });
 
-                              return lines.join('\n');
+                            // pageContent を pagesElements から再生成して同期
+                            setPagesElements(prev => {
+                              const elems = prev[currentPage] || [];
+                              const final = elems
+                                .map(el => {
+                                  if (el.type === 'chapter') return `【章】${el.text}`;
+                                  if (el.type === 'section') return `【節】${el.text}`;
+                                  if (el.type === 'subsection') return `【項】${el.text}`;
+                                  if (el.type === 'word') return `【単語】${el.word}\n${el.meaning}`;
+                                  if (el.type === 'image') return `【画像】${el.uri}`;
+                                  return el.type === 'text' ? el.text : '';
+                                })
+                                .join('\n');
+
+                              setPageContent(final);
+                              setPages(prev => {
+                                const p = [...prev];
+                                p[currentPage] = final;
+                                return p;
+                              });
+
+                              return prev;
                             });
                           }}
                         >
@@ -835,6 +1004,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       // ✅ 編集中なら保存動作
                       const updatedPages = [...pages];
                       console.log('保存内容:', editableText);
+                      console.log('保存内容:', pageContent);
+                      console.log('保存内容:', pageContent);
                       updatedPages[currentPage] = pageContent;
 
                       setPages(updatedPages);

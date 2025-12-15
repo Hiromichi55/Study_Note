@@ -3,9 +3,10 @@ import { View, ActivityIndicator, Dimensions, StyleSheet, ImageBackground,PixelR
 import { Skia, PaintStyle } from '@shopify/react-native-skia';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Asset } from 'expo-asset';
+import { ENV } from '@config';
 
 const CACHE_FILE = FileSystem.cacheDirectory + 'background.png';
-const DEV_FORCE_REGENERATE = true;
+const DEV_FORCE_REGENERATE = ENV.IMAGE_REGENERATE;
 const { width, height } = Dimensions.get('window');
 
 // 背景のパラメータ

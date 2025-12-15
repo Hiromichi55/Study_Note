@@ -14,7 +14,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.MyApp"
+      "bundleIdentifier": "com.anonymous.MyApp",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -32,6 +35,11 @@
       "expo-font",
       "expo-sqlite",
       "expo-asset"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1bb5f121-ec2d-4c47-85e2-8044a17d5b79"
+      }
+    }
   }
 }
