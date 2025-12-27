@@ -365,12 +365,49 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   useEffect(() => {
     const loadAllPages = async () => {
-      const contents = await getContentsByBookId(bookId);
+      let contents = await getContentsByBookId(bookId);
+
+      // DB が空なら、noteData をシードして最初のページを作成
+      if (!contents || contents.length === 0) {
+        const contentId = await Crypto.randomUUID();
+        await addContent({
+          content_id: contentId,
+          content_order: 0,
+          type: 'text',
+          book_id: bookId,
+          page: 0,
+          height: 0,
+        });
+
+        // noteData を DB に書き込む
+        for (let i = 0; i < noteData.length; i++) {
+          const el = noteData[i];
+          if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
+            await addOutline({ outline_id: await Crypto.randomUUID(), type: el.type === 'chapter' ? 'chapter' : el.type === 'section' ? 'section' : 'subsection', outline: (el as any).text || '', content_id: contentId });
+            continue;
+          }
+          if (el.type === 'word') {
+            await addWord({ word_id: await Crypto.randomUUID(), word: (el as any).word || '', explanation: (el as any).meaning || '', word_order: i, content_id: contentId });
+            continue;
+          }
+          if (el.type === 'image') {
+            await addImage({ image_id: await Crypto.randomUUID(), image: (el as any).uri || '', content_id: contentId });
+            continue;
+          }
+          // text
+          if (el.type === 'text') {
+            await addText({ text_id: await Crypto.randomUUID(), text: (el as any).text || '', content_id: contentId });
+          }
+        }
+
+        // 再取得
+        contents = await getContentsByBookId(bookId);
+      }
 
       // ページ数を最大ページに合わせる
-      const maxPage = Math.max(...contents.map(c => c.page), 0);
+      const maxPage = contents.length > 0 ? Math.max(...contents.map(c => c.page), 0) : 0;
 
-      const loadedPages = [];
+      const loadedPages: string[] = [];
 
       for (let p = 0; p <= maxPage; p++) {
         const result = await loadPageFromDB(p, { returnText: true });
@@ -563,9 +600,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           {/* <View style={styles.backgroundWrapper}> */}
+          {/* currentElems: pagesElements があればそれを優先、なければ pageContent をパースしてフォールバック */}
           <NoteContent 
             backgroundColor={book.color}
-            elements={noteData}
+            elements={pagesElements[currentPage] ?? (pageContent ? parseTextToElements(pageContent) : noteData)}
             onNoteLayout={setNoteBounds}
           >
             <View style={{ 
@@ -1003,24 +1041,31 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     if (editing) {
                       // ✅ 編集中なら保存動作
                       const updatedPages = [...pages];
-                      console.log('保存内容:', editableText);
-                      console.log('保存内容:', pageContent);
-                      console.log('保存内容:', pageContent);
-                      updatedPages[currentPage] = pageContent;
 
+                      // pagesElements があればそれを優先して pageContent を再生成
+                      const elemsForSave = pagesElements[currentPage] ?? (pageContent ? parseTextToElements(pageContent) : []);
+                      const finalText = elemsForSave
+                        .map(el => {
+                          if (el.type === 'chapter') return `【章】${(el as any).text}`;
+                          if (el.type === 'section') return `【節】${(el as any).text}`;
+                          if (el.type === 'subsection') return `【項】${(el as any).text}`;
+                          if (el.type === 'word') return `【単語】${(el as any).word}\n${(el as any).meaning}`;
+                          if (el.type === 'image') return `【画像】${(el as any).uri}`;
+                          return el.type === 'text' ? (el as any).text : '';
+                        })
+                        .join('\n');
+
+                      updatedPages[currentPage] = finalText;
+
+                      // state を更新して画面に反映
                       setPages(updatedPages);
-                      setPageContent(editableText);
+                      setPageContent(finalText);
                       setEditing(false);
                       Keyboard.dismiss();
-                      // ★★★ DBへ保存 ★★★
+
+                      // DBへ保存
                       await savePageToDB();
 
-                      // Context（useLibrary）側も更新
-                      // dispatch({
-                      //   type: 'UPDATE_BOOK_CONTENT',
-                      //   bookId: book.id,
-                      //   content: updatedPages,
-                      // });
                     } else {
                       // ✅ 編集開始：現在ページ内容をロード
                       const currentContent = pages[currentPage] ?? '';
