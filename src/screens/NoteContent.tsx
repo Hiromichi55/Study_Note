@@ -20,6 +20,7 @@ const { width, height } = Dimensions.get('window');
 const space = 0.03;
 const interval = 30;
 const upperSpace = 2;
+const RULE_COLOR = 'rgba(196, 204, 218, 1)';
 
 export type NoteElement =
   | { type: 'chapter'; text: string }
@@ -130,8 +131,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
     canvas.drawLine(x1, y1, x2, y2, linePaint);
     console.log('Skia second line y=', y1);
 
-    // 罫線
-    linePaint.setColor(Skia.Color('rgba(196, 204, 218, 1)'));
+  // 罫線
+  linePaint.setColor(Skia.Color(RULE_COLOR));
     linePaint.setStrokeWidth(1);
     const limit_y = height - screenHeight * 0.02
     const row = Math.trunc(noteHeight / interval) + 2;
@@ -192,18 +193,37 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
 
     return elements.map((el, idx) => {
       const font = FONT_MAP[el.type];
-      let estHeight = font.lineHeight;
+      // estimate raw height in pixels
+      let rawHeight = font.lineHeight;
+      if (el.type === 'image') {
+        rawHeight = 200;
+      } else if ('text' in el) {
+        // estimate based on full note width
+        const approxCharsPerLine = Math.max(10, Math.floor((noteWidth * 0.8) / Math.max(1, font.size)));
+        const lines = Math.ceil(el.text.length / approxCharsPerLine);
+        rawHeight = lines * font.lineHeight;
+      } else if ('word' in el) {
+        // for word elements estimate per-column wrap using actual column widths
+        const colLeftRatio = 0.25; // keep in sync with rendering
+        const leftWidth = (elRight - elLeft) * colLeftRatio - 12; // subtract paddingHorizontal*2
+        const rightWidth = (elRight - elLeft) - (elRight - elLeft) * colLeftRatio - 12;
+        const approxCharsPerLineLeft = Math.max(6, Math.floor(leftWidth / Math.max(1, font.size)));
+        const approxCharsPerLineRight = Math.max(6, Math.floor(rightWidth / Math.max(1, font.size)));
 
-      if (el.type === 'image') estHeight = 200;
-      else if ('text' in el)
-        estHeight = Math.ceil(el.text.length * font.size / (noteWidth * 0.8)) * font.lineHeight;
-      else if ('word' in el)
-        estHeight = Math.ceil(el.word.length * font.size / (noteWidth * 0.8)) * font.lineHeight;
+        const leftLines = Math.ceil((el.word || '').length / approxCharsPerLineLeft);
+        const meaningText = (el as any).meaning || '';
+        const rightLines = Math.ceil(meaningText.length / approxCharsPerLineRight);
+
+        rawHeight = Math.max(leftLines, rightLines) * font.lineHeight + 8; // add small vertical padding
+      }
+
+  // round height up to nearest multiple of font.lineHeight so height matches actual text lines
+  const estHeight = Math.max(font.lineHeight, Math.ceil(rawHeight / font.lineHeight) * font.lineHeight);
 
       const top = currentY;
-      // 次の要素位置はこの要素の高さ分だけ進める（最小 interval）
-      const step = Math.max(estHeight, interval);
-      currentY += step;
+  // 次の要素位置はこの要素の高さ分だけ進める
+  const step = estHeight;
+  currentY += step;
 
       console.log(`Element ${idx} (${el.type}) top=`, top);
 
@@ -237,7 +257,39 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
           </View>
         );
       }
+      // render word as two-column table aligned to ruled lines
+      if (el.type === 'word') {
+        const colLeftRatio = 0.25; // 左列幅比率
+        const leftWidth = (elRight - elLeft) * colLeftRatio;
+        const rightWidth = (elRight - elLeft) - leftWidth;
 
+        return (
+          <View
+            key={idx}
+            style={{
+              position: 'absolute',
+              top,
+              left: elLeft,
+              width: elRight - elLeft,
+              height: estHeight,
+              flexDirection: 'row',
+              borderBottomWidth: 1,
+              borderColor: RULE_COLOR,
+              alignItems: 'stretch',
+              ...debugStyle,
+            }}
+          >
+            <View style={{ width: leftWidth, height: '100%', paddingHorizontal: 6, paddingVertical: 4, borderRightWidth: 1, borderRightColor: RULE_COLOR }}>
+              <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}>{el.word}</Text>
+            </View>
+            <View style={{ width: rightWidth, height: '100%', paddingHorizontal: 6, paddingVertical: 4, justifyContent: 'flex-start' }}>
+              <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}>{(el as any).meaning}</Text>
+            </View>
+          </View>
+        );
+      }
+
+      // default: text-like element; ensure container height aligns to lines
       return (
         <View
           key={idx}
@@ -246,6 +298,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
             top,
             left: elLeft,
             width: elRight - elLeft,
+            height: estHeight,
+            justifyContent: 'center',
             ...debugStyle,
           }}
         >
@@ -253,9 +307,11 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
             style={{
               fontSize: font.size,
               lineHeight: font.lineHeight,
+              flexWrap: 'wrap',
+              width: '100%',
             }}
           >
-            {'text' in el ? el.text : el.word}
+            {'text' in el ? el.text : (el as any).text || ''}
           </Text>
         </View>
       );
