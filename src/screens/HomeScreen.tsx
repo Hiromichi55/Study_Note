@@ -27,7 +27,7 @@ interface Props {
 }
 
 // ✅ 開発用フラグ
-const DEBUG_LAYOUT = ENV.IS_DEV; // true: レイアウトデバッグ用枠線表示
+const DEBUG_LAYOUT = ENV.SCREEN_DEV; // true: レイアウトデバッグ用枠線表示
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { state, addBook, reorderBooks } = useLibrary();

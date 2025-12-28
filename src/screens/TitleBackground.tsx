@@ -3,9 +3,10 @@ import { View, ActivityIndicator, Dimensions, StyleSheet, ImageBackground,PixelR
 import { Skia, PaintStyle } from '@shopify/react-native-skia';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Asset } from 'expo-asset';
+import { ENV } from '@config';
 
 const CACHE_FILE = FileSystem.cacheDirectory + 'background.png';
-const DEV_FORCE_REGENERATE = true;
+const DEV_FORCE_REGENERATE = ENV.IMAGE_REGENERATE;
 const { width, height } = Dimensions.get('window');
 
 // 背景のパラメータ
@@ -30,7 +31,6 @@ const ScreenBackground: React.FC<{ children?: React.ReactNode }> = ({ children }
 
   /** 背景を生成してファイルに保存 */
   const generateAndSaveBackground = async (): Promise<string> => {
-    console.log('背景生成開始');
 
     const surface = Skia.Surface.MakeOffscreen(width, height);
     if (!surface) throw new Error('Skia.Surface.MakeOffscreen が null');
@@ -69,45 +69,6 @@ const ScreenBackground: React.FC<{ children?: React.ReactNode }> = ({ children }
       canvas.drawLine(x1, y1, x2, y2, linePaint);
     }
 
-    // ======== ここから文字描画 =========
-  //  try {
-  //     // フォントファイルを Expo Asset から取得
-  //     const asset = Asset.fromModule(require('../../assets/fonts/dartsfont.ttf'));
-  //     await asset.downloadAsync();
-  //     const localUri = asset.localUri || asset.uri;
-
-  //     const fontBase64 = await FileSystem.readAsStringAsync(localUri, {
-  //       encoding: FileSystem.EncodingType.Base64,
-  //     });
-  //     const binary = global.atob ? global.atob(fontBase64) : Buffer.from(fontBase64, 'base64').toString('binary');
-  //     const bytes = new Uint8Array(binary.length);
-  //     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-  //     const skData = Skia.Data.fromBytes(bytes);
-  //     const typeface = Skia.Typeface.MakeFreeTypeFaceFromData(skData);
-  //     if (!typeface) throw new Error('フォントの読み込みに失敗しました');
-
-  //     const font = Skia.Font(typeface, 80); // フォントサイズ
-  //     const text = "美ノート";
-
-  //     const textPaint = Skia.Paint();
-  //     textPaint.setColor(Skia.Color('rgba(0, 0, 0, 1)'));
-  //     textPaint.setStyle(PaintStyle.Fill);       // 塗りつぶし
-  //     textPaint.setAntiAlias(true);              // 滑らかに描画
-
-  //     const textBlob = font.measureText(text);
-  //     // 文字幅を計算して中央に配置
-  //     const textWidth = typeof textBlob === 'number'
-  //       ? textBlob
-  //       : (textBlob?.width ?? 0);
-  //     const x = (width - textWidth) / 2;
-  //     const y = height * 0.25;
-
-  //     canvas.drawText(text, x, y, textPaint, font);
-  //   } catch (err) {
-  //     console.warn('⚠️ フォント読み込みに失敗しました:', err);
-  //   }
-
     // ======== 文字描画ここまで =========
 
     const image = surface.makeImageSnapshot();
@@ -116,7 +77,7 @@ const ScreenBackground: React.FC<{ children?: React.ReactNode }> = ({ children }
 
     await FileSystem.writeAsStringAsync(CACHE_FILE, base64, { encoding: FileSystem.EncodingType.Base64 });
 
-    console.log('背景生成完了');
+    console.log('TitileBackground生成完了');
     return CACHE_FILE;
   };
 
@@ -174,10 +135,3 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   background: { flex: 1 },
 });
-
-// #B26260
-// #B25F87
-// #BBA859
-// #6DA055
-// #4B8ABA
-// #55A99F
