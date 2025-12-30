@@ -7,9 +7,6 @@ import {
   Text,
   Image,
   TouchableOpacity,
-  ImageBackground,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 
 import { useLibrary } from '../context/LibraryContext';
@@ -17,9 +14,9 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../App';
 import { Book } from '../context/LibraryContext';
 import { ENV } from '@config';
-import bookImages from '../constants/bookImage';
+import bookImgs from '../constants/bookImage';
 import { homeStyles } from '../styles/homeStyle';
-import * as commonStyle from '../styles/commonStyle';
+import * as homeStyle from '../styles/homeStyle';
 
 type HomeScreenNavProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -33,7 +30,7 @@ const DEBUG_LAYOUT = ENV.SCREEN_DEV; // true: レイアウトデバッグ用枠�
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { state, addBook, reorderBooks } = useLibrary();
   const [bookData, setBookData] = useState<Book[]>([]);
-  const [imageLoaded, setImageLoaded] = useState(false); // 画像ロード完了フラグ
+  const [BOOK_ImgLoaded, setBOOK_ImgLoaded] = useState(false); // 画像ロード完了フラグ
   const flatListRef = useRef<any>(null);
 
   const colorOptions: Book['color'][] = ['red', 'pink', 'yellow', 'green', 'cyan', 'blue'];
@@ -75,24 +72,24 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         disabled={isActive}
         onPress={() => navigation.navigate('Notebook', { bookId: item.id })}
         style={[
-          homeStyles.bookItem,
+          homeStyles.bookBtn,
           DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'red' }, // デバッグ用枠線
         ]}
       >
         <Image
-          source={bookImages[item.color]}
-          style={homeStyles.bookImage}
+          source={bookImgs[item.color]}
+          style={homeStyles.bookBtnImg}
           resizeMode="contain"
-          onLoadEnd={() => setImageLoaded(true)}
+          onLoadEnd={() => setBOOK_ImgLoaded(true)}
         />
-        {imageLoaded && (
+        {BOOK_ImgLoaded && (
           <Text
             style={[
-              homeStyles.bookTitleOverlay,
+              homeStyles.bookTitle,
               {
                 transform: [
-                  { translateX: -commonStyle.IMAGE_WIDTH * 0.5 },
-                  { translateY: -commonStyle.IMAGE_HEIGHT * 0.4 },
+                  { translateX: -homeStyle.BOOK_IMG_WIDTH * 0.5 },
+                  { translateY: -homeStyle.BOOK_IMG_HEIGHT * 0.4 },
                 ],
               },
               DEBUG_LAYOUT && { backgroundColor: 'rgba(255,0,0,0.2)' } // 見やすくする
@@ -106,92 +103,82 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   return (
-    <KeyboardAvoidingView
-      style={homeStyles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScreenBackground>
-        <View style={[
-          homeStyles.titleHome,
-          DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'green' }, // タイトル全体の枠
-          ]}>
-          <Text style={homeStyles.titleText}>美ノート</Text>
-        </View>
-        <View style={[
-          homeStyles.bookListWrapper,
-          DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'orange' },
+    <ScreenBackground>
+      <View style={[
+        homeStyles.titleContainer,
+        DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'green' }, // タイトル全体の枠
         ]}>
-          <DraggableFlatList
-            ref={flatListRef}
-            data={bookData}
-            keyExtractor={(item) => item.id}
-            horizontal
-            renderItem={renderItem}
-            onDragEnd={({ data }) => {
-              setBookData(data);
-              reorderBooks(data);
+        <Text style={homeStyles.titleText}>美ノート</Text>
+      </View>
+      <View style={[
+        homeStyles.homeScreenContainer,
+        DEBUG_LAYOUT && { borderWidth: 3, borderColor: 'orange' },
+      ]}>
+        <DraggableFlatList
+          ref={flatListRef}
+          data={bookData}
+          keyExtractor={(item) => item.id}
+          horizontal
+          renderItem={renderItem}
+          onDragEnd={({ data }) => {
+            setBookData(data);
+            reorderBooks(data);
+          }}
+          extraData={bookData} // ← 状態更新に合わせて再レンダリング
+          contentContainerStyle={homeStyles.horizontalScrollContainer}
+          getItemLayout={(data, index) => ({
+            length: homeStyle.BOOK_IMG_WIDTH,           // アイテムの幅
+            offset: homeStyle.BOOK_IMG_WIDTH * index,   // オフセット計算
+            index,
+          })}
+            onScrollToIndexFailed={(info) => {
+              // 失敗した場合に少し待って再スクロール
+              setTimeout(() => {
+                flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
+              }, 100);
             }}
-            extraData={bookData} // ← 状態更新に合わせて再レンダリング
-            contentContainerStyle={homeStyles.horizontalScrollContainer}
-            getItemLayout={(data, index) => ({
-              length: commonStyle.IMAGE_WIDTH,           // アイテムの幅
-              offset: commonStyle.IMAGE_WIDTH * index,   // オフセット計算
-              index,
-            })}
-              onScrollToIndexFailed={(info) => {
-                // 失敗した場合に少し待って再スクロール
-                setTimeout(() => {
-                  flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
-                }, 100);
-              }}
-          />
-        </View>
+        />
+      </View>
 
+      <View style={[
+        homeStyles.menuBtnContainer,
+        DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'purple' },
+        ]}>
+        <TouchableOpacity
+          onPress={() => setShowBookOptions(prev => !prev)}
+          style={homeStyles.menuBtn}
+        >
+          <Text style={homeStyles.menuBtnText}>・本を追加</Text>
+        </TouchableOpacity>
+
+        {/* 常にマウントしておく。表示／非表示はスタイルで制御 */}
         <View style={[
-          homeStyles.addBookSection,
-          DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'purple' },
-          ]}>
-          <TouchableOpacity
-            onPress={() => setShowBookOptions(prev => !prev)}
-            style={homeStyles.addButton}
-          >
-            <Text style={homeStyles.addButtonText}>・本を追加</Text>
-          </TouchableOpacity>
-
-          {/* 常にマウントしておく。表示／非表示はスタイルで制御 */}
-          <View style={{
-            backgroundColor: 'white',
-            borderWidth: 1,               // 枠の太さ
-            borderRadius: 8,              // 角丸
-            padding: 8,                   // 内側の余白
-            flexDirection: 'row',         // 横並び
+          homeStyles.newBooksContainer,
+          {
             opacity: showBookOptions ? 1 : 0,
             height: showBookOptions ? 'auto' : 0,
-            overflow: 'hidden',
-            ...(DEBUG_LAYOUT && { borderColor: 'brown' }),
-          }}>
-            {colorOptions.map(color => (
-              <TouchableOpacity
-                key={color}
-                onPress={() => handleAddBookWithColor(color)}
-                style={homeStyles.colorButton}
-              >
-                <Image source={bookImages[color]} style={homeStyles.colorImage} resizeMode="contain" />
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <TouchableOpacity
-            onPress={() => console.log('使い方')}
-            style={homeStyles.addButton}
-          >
-            <Text style={homeStyles.addButtonText}>・使い方　</Text>
-          </TouchableOpacity>
+            ...(DEBUG_LAYOUT && { borderColor: 'green' })
+          }
+        ]}>
+          {colorOptions.map(color => (
+            <TouchableOpacity
+              key={color}
+              onPress={() => handleAddBookWithColor(color)}
+              style={[homeStyles.newBookBtn, {...(DEBUG_LAYOUT && {borderWidth: 1,  borderColor: 'blue' })}]}
+            >
+              <Image source={bookImgs[color]} style={homeStyles.newBookBtnImg} resizeMode="contain" />
+            </TouchableOpacity>
+          ))}
         </View>
-      {/* </ImageBackground> */}
-      </ScreenBackground>
-      {/* </View> */}
-    </KeyboardAvoidingView>
+
+        <TouchableOpacity
+          onPress={() => console.log('使い方')}
+          style={homeStyles.menuBtn}
+        >
+          <Text style={homeStyles.menuBtnText}>・使い方　</Text>
+        </TouchableOpacity>
+      </View>
+    </ScreenBackground>
   );
 };
 
