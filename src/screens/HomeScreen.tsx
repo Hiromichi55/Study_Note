@@ -18,7 +18,8 @@ import { RootStackParamList } from '../App';
 import { Book } from '../context/LibraryContext';
 import { ENV } from '@config';
 import bookImages from '../constants/bookImage';
-import { styles, theme } from '../styles/theme';
+import { homeStyles } from '../styles/homeStyle';
+import * as commonStyle from '../styles/commonStyle';
 
 type HomeScreenNavProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -74,24 +75,24 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         disabled={isActive}
         onPress={() => navigation.navigate('Notebook', { bookId: item.id })}
         style={[
-          styles.bookItem,
+          homeStyles.bookItem,
           DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'red' }, // デバッグ用枠線
         ]}
       >
         <Image
           source={bookImages[item.color]}
-          style={styles.bookImage}
+          style={homeStyles.bookImage}
           resizeMode="contain"
           onLoadEnd={() => setImageLoaded(true)}
         />
         {imageLoaded && (
           <Text
             style={[
-              styles.bookTitleOverlay,
+              homeStyles.bookTitleOverlay,
               {
                 transform: [
-                  { translateX: -theme.IMAGE_WIDTH * 0.5 },
-                  { translateY: -theme.IMAGE_HEIGHT * 0.4 },
+                  { translateX: -commonStyle.IMAGE_WIDTH * 0.5 },
+                  { translateY: -commonStyle.IMAGE_HEIGHT * 0.4 },
                 ],
               },
               DEBUG_LAYOUT && { backgroundColor: 'rgba(255,0,0,0.2)' } // 見やすくする
@@ -106,24 +107,18 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={homeStyles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-    {/* <View style={styles.backgroundWrapper}> */}
-      {/* <ImageBackground
-        source={require('../../assets/images/title.png')}
-        style={styles.background}
-        resizeMode="contain"
-      > */}
       <ScreenBackground>
         <View style={[
-          styles.titleHome,
+          homeStyles.titleHome,
           DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'green' }, // タイトル全体の枠
           ]}>
-          <Text style={styles.titleText}>美ノート</Text>
+          <Text style={homeStyles.titleText}>美ノート</Text>
         </View>
         <View style={[
-          styles.bookListWrapper,
+          homeStyles.bookListWrapper,
           DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'orange' },
         ]}>
           <DraggableFlatList
@@ -137,10 +132,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               reorderBooks(data);
             }}
             extraData={bookData} // ← 状態更新に合わせて再レンダリング
-            contentContainerStyle={styles.horizontalScrollContainer}
+            contentContainerStyle={homeStyles.horizontalScrollContainer}
             getItemLayout={(data, index) => ({
-              length: theme.IMAGE_WIDTH,           // アイテムの幅
-              offset: theme.IMAGE_WIDTH * index,   // オフセット計算
+              length: commonStyle.IMAGE_WIDTH,           // アイテムの幅
+              offset: commonStyle.IMAGE_WIDTH * index,   // オフセット計算
               index,
             })}
               onScrollToIndexFailed={(info) => {
@@ -153,24 +148,22 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         </View>
 
         <View style={[
-          styles.addBookSection,
+          homeStyles.addBookSection,
           DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'purple' },
           ]}>
           <TouchableOpacity
             onPress={() => setShowBookOptions(prev => !prev)}
-            style={styles.addButton}
+            style={homeStyles.addButton}
           >
-            <Text style={styles.addButtonText}>・本を追加</Text>
+            <Text style={homeStyles.addButtonText}>・本を追加</Text>
           </TouchableOpacity>
 
           {/* 常にマウントしておく。表示／非表示はスタイルで制御 */}
           <View style={{
             backgroundColor: 'white',
             borderWidth: 1,               // 枠の太さ
-            // borderColor: '#ccc',          // 枠の色
             borderRadius: 8,              // 角丸
             padding: 8,                   // 内側の余白
-            // marginVertical: 8,            // 上下の余白
             flexDirection: 'row',         // 横並び
             opacity: showBookOptions ? 1 : 0,
             height: showBookOptions ? 'auto' : 0,
@@ -181,18 +174,18 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               <TouchableOpacity
                 key={color}
                 onPress={() => handleAddBookWithColor(color)}
-                style={styles.colorButton}
+                style={homeStyles.colorButton}
               >
-                <Image source={bookImages[color]} style={styles.colorImage} resizeMode="contain" />
+                <Image source={bookImages[color]} style={homeStyles.colorImage} resizeMode="contain" />
               </TouchableOpacity>
             ))}
           </View>
 
           <TouchableOpacity
             onPress={() => console.log('使い方')}
-            style={styles.addButton}
+            style={homeStyles.addButton}
           >
-            <Text style={styles.addButtonText}>・使い方　</Text>
+            <Text style={homeStyles.addButtonText}>・使い方　</Text>
           </TouchableOpacity>
         </View>
       {/* </ImageBackground> */}

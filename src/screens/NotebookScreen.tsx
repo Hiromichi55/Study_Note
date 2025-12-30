@@ -22,8 +22,8 @@ import { MESSAGES } from '../constants/messages';
 import { Ionicons } from '@expo/vector-icons';
 import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
-import { styles } from '../styles/notebookTheme';
-import * as commonTheme from '../styles/commonTheme';
+import { styles } from '../styles/notebookStyle';
+import * as commonStyle from '../styles/commonStyle';
 import NoteContent from './NoteContent';
 import { useEditor, Content } from '../context/EditorContext';
 import * as Crypto from 'expo-crypto';
@@ -516,8 +516,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               position: 'absolute', 
               top: noteBounds ? noteBounds.y : 0,
               left: noteBounds ? noteBounds.x : 0,
-              width: noteBounds ? noteBounds.width : commonTheme.screenWidth,
-              height: noteBounds ? noteBounds.height : commonTheme.screenHeight,
+              width: noteBounds ? noteBounds.width : commonStyle.screenWidth,
+              height: noteBounds ? noteBounds.height : commonStyle.screenHeight,
               padding: noteBounds ? 0 : 16,
               justifyContent: 'center',  // 中央揃え
               alignItems: 'center'       // 横中央
@@ -539,8 +539,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     // position: 'absolute',
                     position: 'absolute',
                     // bottom: showSearch ? keyboardHeight : 150, // ← 検索バーがあるときは上に
-                    width: commonTheme.screenWidth,
-                    height: commonTheme.screenHeight,
+                    width: commonStyle.screenWidth,
+                    height: commonStyle.screenHeight,
                     justifyContent: 'center',
                     alignContent: 'center',
                     flexDirection: 'row',
@@ -565,9 +565,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       style={[
                         {
                           position: 'absolute',
-                          height: commonTheme.screenHeight/15,
-                          width: commonTheme.screenWidth*0.8,
-                          bottom: !showSearch ? commonTheme.screenHeight*0.25 : commonTheme.screenHeight*0.3,
+                          height: commonStyle.screenHeight/15,
+                          width: commonStyle.screenWidth*0.8,
+                          bottom: !showSearch ? commonStyle.screenHeight*0.25 : commonStyle.screenHeight*0.3,
                           flexDirection: 'row', // ← 横並び
                           borderRadius: 16,
                           borderWidth: 1,
@@ -591,8 +591,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                           onPress={() => console.log('ページ一覧を表示')}
                           style={[
                             {
-                              width: commonTheme.screenWidth/10,
-                              height: commonTheme.screenWidth/10,
+                              width: commonStyle.screenWidth/10,
+                              height: commonStyle.screenWidth/10,
                               borderRadius: 15,
                               backgroundColor: 'rgba(0,0,0,0.6)',
                               alignItems: 'center',
@@ -604,7 +604,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                             getDebugStyle('rgba(0, 0, 0, 0.4)'), // ボタン：グレー
                           ]}
                         >
-                              <Ionicons name="albums-outline" size={commonTheme.screenWidth/15} color="white" />
+                              <Ionicons name="albums-outline" size={commonStyle.screenWidth/15} color="white" />
                         </TouchableOpacity>
                     </View>
 
@@ -664,9 +664,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       style={{
                         position: 'absolute',
                         top: noteBounds ? noteBounds.y + 10 : 10,
-                        left: noteBounds ? noteBounds.x + noteBounds.width * 0.05 : commonTheme.screenWidth * 0.05,
-                        width: noteBounds ? noteBounds.width * 0.9 : commonTheme.screenWidth * 0.9,
-                        height: (noteBounds ? noteBounds.height - keyboardHeight : commonTheme.screenHeight - keyboardHeight) * 0.5,
+                        left: noteBounds ? noteBounds.x + noteBounds.width * 0.05 : commonStyle.screenWidth * 0.05,
+                        width: noteBounds ? noteBounds.width * 0.9 : commonStyle.screenWidth * 0.9,
+                        height: (noteBounds ? noteBounds.height - keyboardHeight : commonStyle.screenHeight - keyboardHeight) * 0.5,
                         backgroundColor: 'rgba(255,255,255,0.9)',
                         borderRadius: 12,
                         padding: 12,
@@ -846,8 +846,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         display: 'none',
                         position: 'absolute',
                         bottom: 100,
-                        left: noteBounds ? noteBounds.x + noteBounds.width * 0.05 : commonTheme.screenWidth * 0.05,
-                        width: noteBounds ? noteBounds.width * 0.9 : commonTheme.screenWidth * 0.9,
+                        left: noteBounds ? noteBounds.x + noteBounds.width * 0.05 : commonStyle.screenWidth * 0.05,
+                        width: noteBounds ? noteBounds.width * 0.9 : commonStyle.screenWidth * 0.9,
                         backgroundColor: 'white',
                         borderRadius: 12,
                         padding: 10,
@@ -1038,7 +1038,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   getDebugStyle('rgba(255, 0, 0, 0.2)'), // 検索バー：薄い赤
                 ]}
               >
-                <Ionicons name="search" size={commonTheme.screenWidth/12} color="gray" />
+                <Ionicons name="search" size={commonStyle.screenWidth/12} color="gray" />
                 <TextInput
                   style={{
                     flex: 1,
@@ -1057,7 +1057,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   keyboardAppearance="default"
                 />
                 <TouchableOpacity onPress={() => setShowSearch(false)}>
-                  <Ionicons name="close" size={commonTheme.screenWidth/12} color="gray" />
+                  <Ionicons name="close" size={commonStyle.screenWidth/12} color="gray" />
                 </TouchableOpacity>
               </View>
             )}
@@ -1066,7 +1066,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               <TouchableOpacity
                 style={[
                   styles.floatingEditButton,
-                  {bottom: !editing ? commonTheme.screenHeight*0.02 : commonTheme.screenHeight*0.15}
+                  {bottom: !editing ? commonStyle.screenHeight*0.02 : commonStyle.screenHeight*0.15}
                 ]}
                   onPress={ async () => {
                     if (editing) {
@@ -1120,7 +1120,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     }
                   }}
               >
-              <Ionicons name={editing ? 'checkmark' : 'create'} size={commonTheme.screenWidth/12} color="white" />
+              <Ionicons name={editing ? 'checkmark' : 'create'} size={commonStyle.screenWidth/12} color="white" />
             </TouchableOpacity>
 
             {/* 虫眼鏡ボタン（左下） */}
@@ -1129,7 +1129,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 style={styles.floatingSearchButton}
                 onPress={() => setShowSearch(!showSearch)}
               >
-                <Ionicons name="search" size={commonTheme.screenWidth/12} color="white" />
+                <Ionicons name="search" size={commonStyle.screenWidth/12} color="white" />
               </TouchableOpacity>
             )}
           </NoteContent>
