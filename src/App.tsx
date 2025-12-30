@@ -145,7 +145,7 @@ const DBTestComponent = () => {
           await addContent(newContent);
         }
         const allContents = await select<Content>('contents');
-        console.log('Contents from DBTestComponent:', allContents);
+        // console.log('Contents from DBTestComponent:', allContents);
       } catch (err) {
         console.error('DBTestComponent error:', err);
       }
