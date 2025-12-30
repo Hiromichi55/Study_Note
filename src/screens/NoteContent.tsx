@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Image, ActivityIndicator, Dimensions, StyleSheet, ImageBackground } from 'react-native';
 import { Skia, PaintStyle } from '@shopify/react-native-skia';
 import * as FileSystem from 'expo-file-system/legacy';
-import { screenHeight } from '../styles/theme';
+import * as commonStyle from '../styles/commonStyle';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { ENV } from '@config';
 
@@ -134,7 +134,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
   // 罫線
   linePaint.setColor(Skia.Color(RULE_COLOR));
     linePaint.setStrokeWidth(1);
-    const limit_y = height - screenHeight * 0.02
+    const limit_y = height - commonStyle.screenHeight * 0.02
     const row = Math.trunc(noteHeight / interval) + 2;
     console.log('row count=', row);
     for (let i = upperSpace + 1; i < row - 1; i++) {
