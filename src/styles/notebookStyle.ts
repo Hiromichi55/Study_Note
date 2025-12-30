@@ -1,6 +1,6 @@
 import { Dimensions, StyleSheet, Image } from 'react-native';
 import bookImages from '../constants/bookImage';
-import * as CommonTheme from './commonTheme';
+import * as commonStyle from './commonStyle';
 
 // NotebookScreen用スタイル
 export const styles = StyleSheet.create({
