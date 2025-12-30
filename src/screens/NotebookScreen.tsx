@@ -22,8 +22,9 @@ import { MESSAGES } from '../constants/messages';
 import { Ionicons } from '@expo/vector-icons';
 import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
-import { styles } from '../styles/notebookStyle';
+import { notebookStyles } from '../styles/notebookStyle';
 import * as commonStyle from '../styles/commonStyle';
+import * as notebookStyle from '../styles/notebookStyle';
 import NoteContent from './NoteContent';
 import { useEditor, Content } from '../context/EditorContext';
 import * as Crypto from 'expo-crypto';
@@ -337,12 +338,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     loadContents();
   }, [bookId]);
 
-
-  // useEffect(() => {
-  //   loadPageFromDB(currentPage);
-  // }, []);
-
-
   useEffect(() => {
     // iOS: keyboardWillShow / WillHide を使うと表示前に高さ取得できる
     const showSubWill = Keyboard.addListener('keyboardWillShow', (e) => {
@@ -404,7 +399,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       headerTitle: () => (
         <TouchableOpacity onPress={() => console.log('目次を開く')}>
           <Text
-            style={{
+            style=
+            {{
               fontSize: 20,
               color: 'black',
             }}
@@ -421,9 +417,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           anchor={
             <TouchableOpacity onPress={openMenu} 
               style={[
-                styles.menuIconWrapper,
+                notebookStyles.menuIconWrapper,
                 getDebugStyle('rgba(0, 255, 0, 0.15)')]}>
-              <View style={styles.menuButton}>
+              <View style={notebookStyles.menuButton}>
                 <Ionicons name="ellipsis-horizontal" size={20} color="black" />
               </View>
             </TouchableOpacity>
@@ -500,12 +496,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       <View style={{ flex: 1 }}>
         <KeyboardAvoidingView
           style={[
-            styles.container,
+            notebookStyles.container,
             getDebugStyle('rgba(0, 255, 0, 0.15)'),
           ]}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          {/* <View style={styles.backgroundWrapper}> */}
+          {/* <View style={notebookStyles.backgroundWrapper}> */}
           {/* currentElems: pagesElements があればそれを優先、なければ pageContent をパースしてフォールバック */}
           <NoteContent 
             backgroundColor={book.color}
@@ -526,7 +522,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               {/* ノート全体をタップで切り替え */}
               <TouchableOpacity
                 disabled={editing}
-                style={[styles.container, { backgroundColor: 'transparent', flex: 1 }, getDebugStyle('rgba(0, 0, 255, 0.15)')]}
+                style={[notebookStyles.container, { backgroundColor: 'transparent', flex: 1 }, getDebugStyle('rgba(0, 0, 255, 0.15)')]}
                 activeOpacity={1}
                 onPress={() => setIsVisible(!isVisible)} // ← ここで表示切り替え！
               >
@@ -787,7 +783,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                                           });
                                         }}
                                         placeholder="単語"
-                                        style={[styles.inputSmallStyle, { height: 40, marginBottom: 6 }]}
+                                        style={[notebookStyles.inputSmallStyle, { height: 40, marginBottom: 6 }]}
                                       />
                                       <TextInput
                                         ref={definitionInputRef}
@@ -802,7 +798,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                                           });
                                         }}
                                         placeholder="説明"
-                                        style={[styles.inputSmallStyle, { height: 40 }]}
+                                        style={[notebookStyles.inputSmallStyle, { height: 40 }]}
                                         multiline
                                       />
                                     </View>
@@ -823,7 +819,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                                         });
                                       }}
                                       placeholder="内容を入力"
-                                      style={[styles.inputSmallStyle, { height: 40 }]}
+                                      style={[notebookStyles.inputSmallStyle, { height: 40 }]}
                                       multiline
                                     />
                                   )
@@ -906,7 +902,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                               value={word}
                               onChangeText={setWord}
                               placeholder="単語を入力"
-                              style={[styles.inputSmallStyle, { height: 40, marginBottom: 6 }]}
+                              style={[notebookStyles.inputSmallStyle, { height: 40, marginBottom: 6 }]}
                             />
 
                             <TextInput
@@ -914,7 +910,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                               value={definition}
                               onChangeText={setDefinition}
                               placeholder="説明を入力"
-                              style={[styles.inputSmallStyle, { height: 40 }]}
+                              style={[notebookStyles.inputSmallStyle, { height: 40 }]}
                               multiline
                             />
                           </View>
@@ -926,7 +922,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                               value={editableText}
                               onChangeText={setEditableText}
                               placeholder={`${currentAttribute}を入力`}
-                              style={[styles.inputSmallStyle, { height: 40 }]}
+                              style={[notebookStyles.inputSmallStyle, { height: 40 }]}
                               multiline
                             />
                           </View>
@@ -1065,7 +1061,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               {/* 編集ボタン（右下） */}
               <TouchableOpacity
                 style={[
-                  styles.floatingEditButton,
+                  notebookStyles.floatingEditButton,
                   {bottom: !editing ? commonStyle.screenHeight*0.02 : commonStyle.screenHeight*0.15}
                 ]}
                   onPress={ async () => {
@@ -1126,7 +1122,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             {/* 虫眼鏡ボタン（左下） */}
             {!editing && (
               <TouchableOpacity
-                style={styles.floatingSearchButton}
+                style={notebookStyles.floatingSearchButton}
                 onPress={() => setShowSearch(!showSearch)}
               >
                 <Ionicons name="search" size={commonStyle.screenWidth/12} color="white" />
