@@ -22,14 +22,13 @@ import { MESSAGES } from '../constants/messages';
 import { Ionicons } from '@expo/vector-icons';
 import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
-import { theme, styles, screenWidth, screenHeight } from '../styles/theme';
+import { styles } from '../styles/notebookTheme';
+import * as commonTheme from '../styles/commonTheme';
 import NoteContent from './NoteContent';
 import { useEditor, Content } from '../context/EditorContext';
 import * as Crypto from 'expo-crypto';
 import { ENV } from '@config';
 import { NoteElement } from './NoteContent';
-
-
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 interface Props {
@@ -38,8 +37,7 @@ interface Props {
 
 const NotebookScreen: React.FC<Props> = ({ route }) => {
   const { 
-  addContent, updateContent, deleteContent,
-  addText, addWord, addImage, addOutline, getContentsByBookId, 
+  addContent, addText, addWord, addImage, addOutline, getContentsByBookId, 
   getTextsByContentId, getOutlinesByContentId, getWordsByContentId, getImagesByContentId,
   select
 } = useEditor();
@@ -149,7 +147,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       await addContent(newContent);
       const Contents = await select<Content>('contents');
       console.log(pageContent);
-      console.log('Contents from DBTestComponent:', Contents);
+      // console.log('Contents from DBTestComponent:', Contents);
 
       // NoteElement 配列があればそれを使って保存（文字列パースに依存しない）
       const elems = pagesElements[page];
@@ -199,7 +197,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
       console.log("ページを DB に保存しました（上書き完了）");
       const allContents = await select<Content>('contents');
-      console.log('Contents from DBTestComponent:', allContents);
+      // console.log('Contents from DBTestComponent:', allContents);
     } catch (e) {
       console.error("保存エラー:", e);
     }
@@ -421,7 +419,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           visible={menuVisible}
           onDismiss={closeMenu}
           anchor={
-            <TouchableOpacity onPress={openMenu} style={styles.menuIconWrapper}>
+            <TouchableOpacity onPress={openMenu} 
+              style={[
+                styles.menuIconWrapper,
+                getDebugStyle('rgba(0, 255, 0, 0.15)')]}>
               <View style={styles.menuButton}>
                 <Ionicons name="ellipsis-horizontal" size={20} color="black" />
               </View>
@@ -515,8 +516,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               position: 'absolute', 
               top: noteBounds ? noteBounds.y : 0,
               left: noteBounds ? noteBounds.x : 0,
-              width: noteBounds ? noteBounds.width : screenWidth,
-              height: noteBounds ? noteBounds.height : screenHeight,
+              width: noteBounds ? noteBounds.width : commonTheme.screenWidth,
+              height: noteBounds ? noteBounds.height : commonTheme.screenHeight,
               padding: noteBounds ? 0 : 16,
               justifyContent: 'center',  // 中央揃え
               alignItems: 'center'       // 横中央
@@ -538,8 +539,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     // position: 'absolute',
                     position: 'absolute',
                     // bottom: showSearch ? keyboardHeight : 150, // ← 検索バーがあるときは上に
-                    width: theme.screenWidth,
-                    height: theme.screenHeight,
+                    width: commonTheme.screenWidth,
+                    height: commonTheme.screenHeight,
                     justifyContent: 'center',
                     alignContent: 'center',
                     flexDirection: 'row',
@@ -564,9 +565,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       style={[
                         {
                           position: 'absolute',
-                          height: theme.screenHeight/15,
-                          width: theme.screenWidth*0.8,
-                          bottom: !showSearch ? theme.screenHeight*0.25 : theme.screenHeight*0.3,
+                          height: commonTheme.screenHeight/15,
+                          width: commonTheme.screenWidth*0.8,
+                          bottom: !showSearch ? commonTheme.screenHeight*0.25 : commonTheme.screenHeight*0.3,
                           flexDirection: 'row', // ← 横並び
                           borderRadius: 16,
                           borderWidth: 1,
@@ -590,8 +591,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                           onPress={() => console.log('ページ一覧を表示')}
                           style={[
                             {
-                              width: screenWidth/10,
-                              height: screenWidth/10,
+                              width: commonTheme.screenWidth/10,
+                              height: commonTheme.screenWidth/10,
                               borderRadius: 15,
                               backgroundColor: 'rgba(0,0,0,0.6)',
                               alignItems: 'center',
@@ -603,7 +604,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                             getDebugStyle('rgba(0, 0, 0, 0.4)'), // ボタン：グレー
                           ]}
                         >
-                              <Ionicons name="albums-outline" size={screenWidth/15} color="white" />
+                              <Ionicons name="albums-outline" size={commonTheme.screenWidth/15} color="white" />
                         </TouchableOpacity>
                     </View>
 
@@ -663,9 +664,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       style={{
                         position: 'absolute',
                         top: noteBounds ? noteBounds.y + 10 : 10,
-                        left: noteBounds ? noteBounds.x + noteBounds.width * 0.05 : screenWidth * 0.05,
-                        width: noteBounds ? noteBounds.width * 0.9 : screenWidth * 0.9,
-                        height: (noteBounds ? noteBounds.height - keyboardHeight : screenHeight - keyboardHeight) * 0.5,
+                        left: noteBounds ? noteBounds.x + noteBounds.width * 0.05 : commonTheme.screenWidth * 0.05,
+                        width: noteBounds ? noteBounds.width * 0.9 : commonTheme.screenWidth * 0.9,
+                        height: (noteBounds ? noteBounds.height - keyboardHeight : commonTheme.screenHeight - keyboardHeight) * 0.5,
                         backgroundColor: 'rgba(255,255,255,0.9)',
                         borderRadius: 12,
                         padding: 12,
@@ -845,8 +846,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         display: 'none',
                         position: 'absolute',
                         bottom: 100,
-                        left: noteBounds ? noteBounds.x + noteBounds.width * 0.05 : screenWidth * 0.05,
-                        width: noteBounds ? noteBounds.width * 0.9 : screenWidth * 0.9,
+                        left: noteBounds ? noteBounds.x + noteBounds.width * 0.05 : commonTheme.screenWidth * 0.05,
+                        width: noteBounds ? noteBounds.width * 0.9 : commonTheme.screenWidth * 0.9,
                         backgroundColor: 'white',
                         borderRadius: 12,
                         padding: 10,
@@ -1037,7 +1038,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   getDebugStyle('rgba(255, 0, 0, 0.2)'), // 検索バー：薄い赤
                 ]}
               >
-                <Ionicons name="search" size={screenWidth/12} color="gray" />
+                <Ionicons name="search" size={commonTheme.screenWidth/12} color="gray" />
                 <TextInput
                   style={{
                     flex: 1,
@@ -1056,7 +1057,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   keyboardAppearance="default"
                 />
                 <TouchableOpacity onPress={() => setShowSearch(false)}>
-                  <Ionicons name="close" size={screenWidth/12} color="gray" />
+                  <Ionicons name="close" size={commonTheme.screenWidth/12} color="gray" />
                 </TouchableOpacity>
               </View>
             )}
@@ -1065,11 +1066,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               <TouchableOpacity
                 style={[
                   styles.floatingEditButton,
-                  {bottom: !editing ? screenHeight*0.02 : screenHeight*0.15}
+                  {bottom: !editing ? commonTheme.screenHeight*0.02 : commonTheme.screenHeight*0.15}
                 ]}
                   onPress={ async () => {
                     if (editing) {
                       // ✅ 編集中なら保存動作
+                      console.log('編集→保存！！！！！！！！！');
                       const updatedPages = [...pages];
 
                       // pagesElements があればそれを優先して pageContent を再生成
@@ -1086,6 +1088,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         .join('\n');
 
                       updatedPages[currentPage] = finalText;
+                      console.log('updatePages:', { updatedPages });
+                      console.log('updatePages[currentPage]:', updatedPages[currentPage] );
+                      console.log('finalText:', finalText);
+                      console.log('currentPage:', { currentPage });
+                      console.log('aiueo', updatedPages["updatePages"])
+            
 
                       // state を更新して画面に反映
                       setPages(updatedPages);
@@ -1099,6 +1107,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     } else {
                       // ✅ 編集開始：現在ページ内容をロード
                       const currentContent = pages[currentPage] ?? '';
+                      console.log('Pages!!!!!!!!!!', { pages });
                       setPageContent(currentContent);
 
                       // 入力欄は空にする
@@ -1111,7 +1120,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     }
                   }}
               >
-              <Ionicons name={editing ? 'checkmark' : 'create'} size={screenWidth/12} color="white" />
+              <Ionicons name={editing ? 'checkmark' : 'create'} size={commonTheme.screenWidth/12} color="white" />
             </TouchableOpacity>
 
             {/* 虫眼鏡ボタン（左下） */}
@@ -1120,7 +1129,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 style={styles.floatingSearchButton}
                 onPress={() => setShowSearch(!showSearch)}
               >
-                <Ionicons name="search" size={screenWidth/12} color="white" />
+                <Ionicons name="search" size={commonTheme.screenWidth/12} color="white" />
               </TouchableOpacity>
             )}
           </NoteContent>
