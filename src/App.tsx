@@ -161,8 +161,8 @@ const DBTestComponent = () => {
       <Text style={{ fontSize: 18, fontWeight: 'bold' }}>EditorContext + DB Test</Text>
       <Text>Hello from EditorContext!</Text>
       <Text>isLoading: {state.isLoading ? 'true' : 'false'}</Text>
-      {state.contents.map((c, idx) => (
-        <Text key={idx}>{`${c.content_order}: ${c.content_id} (Book: ${c.book_id})`}</Text>
+      {state.contents.map((c) => (
+        <Text key={c.content_id}>{`${c.content_order}: ${c.content_id} (Book: ${c.book_id})`}</Text>
       ))}
     </ScrollView>
   );

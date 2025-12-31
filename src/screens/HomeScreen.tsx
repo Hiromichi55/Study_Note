@@ -44,7 +44,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const handleAddBookWithColor = async (color: Book['color']) => {
     const newId = Date.now().toString();
     const newBook: Book = {
-      id: newId,
+      book_id: newId,
       title: 'NEW',
       color,
       order_index: state.books.length,
@@ -58,7 +58,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     setShowBookOptions(false);
 
     setTimeout(() => {
-      const newIndex = updatedBooks.findIndex((b) => b.id === newId);
+      const newIndex = updatedBooks.findIndex((b) => b.book_id === newId);
       if (flatListRef.current && newIndex >= 0) {
         flatListRef.current.scrollToIndex({ index: newIndex, animated: true });
       }
@@ -70,7 +70,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       <TouchableOpacity
         onLongPress={drag}
         disabled={isActive}
-        onPress={() => navigation.navigate('Notebook', { bookId: item.id })}
+        onPress={() => {
+          console.log(`本を選択:bookId = ${item.book_id}`);
+          navigation.navigate('Notebook', { bookId: item.book_id })
+        }}
         style={[
           homeStyles.bookBtn,
           DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'red' }, // デバッグ用枠線
@@ -117,7 +120,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         <DraggableFlatList
           ref={flatListRef}
           data={bookData}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item.book_id}
           horizontal
           renderItem={renderItem}
           onDragEnd={({ data }) => {
@@ -131,12 +134,12 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             offset: homeStyle.BOOK_IMG_WIDTH * index,   // オフセット計算
             index,
           })}
-            onScrollToIndexFailed={(info) => {
-              // 失敗した場合に少し待って再スクロール
-              setTimeout(() => {
-                flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
-              }, 100);
-            }}
+          onScrollToIndexFailed={(info) => {
+            // 失敗した場合に少し待って再スクロール
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
+            }, 100);
+          }}
         />
       </View>
 
@@ -145,7 +148,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'purple' },
         ]}>
         <TouchableOpacity
-          onPress={() => setShowBookOptions(prev => !prev)}
+          onPress={() => {
+            console.log('本を追加ボタン押下');
+            setShowBookOptions(prev => !prev)
+          }}
           style={homeStyles.menuBtn}
         >
           <Text style={homeStyles.menuBtnText}>・本を追加</Text>
@@ -163,7 +169,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           {colorOptions.map(color => (
             <TouchableOpacity
               key={color}
-              onPress={() => handleAddBookWithColor(color)}
+              onPress={() => {
+                console.log(`本を追加:color = ${color}`);
+                handleAddBookWithColor(color)
+              }}
               style={[homeStyles.newBookBtn, {...(DEBUG_LAYOUT && {borderWidth: 1,  borderColor: 'blue' })}]}
             >
               <Image source={bookImgs[color]} style={homeStyles.newBookBtnImg} resizeMode="contain" />
@@ -172,7 +181,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         </View>
 
         <TouchableOpacity
-          onPress={() => console.log('使い方')}
+          onPress={() => console.log('使い方ボタン押下')}
           style={homeStyles.menuBtn}
         >
           <Text style={homeStyles.menuBtnText}>・使い方　</Text>

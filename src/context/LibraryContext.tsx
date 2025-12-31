@@ -3,11 +3,12 @@ import React, { createContext, useReducer, useContext, useEffect, useState } fro
 import * as SQLite from 'expo-sqlite';
 import { initDB } from '../db/db';
 import { ENV } from '@config';
+import { logTable } from '../utils/logTable';
 
 const isDelete = ENV.INIT_DB; // trueにすると毎回初期化される
 
 export type Book = {
-  id: string;
+  book_id: string;
   title: string;
   color: 'blue' | 'cyan' | 'green' | 'pink' | 'red' | 'yellow'; // 本の色
   order_index: number; // 並び順を管理するためのフィールド
@@ -23,14 +24,12 @@ type Action =
   | { type: 'SET_BOOKS'; books: Book[] }
   | { type: 'ADD_BOOK'; book: Book }
   | { type: 'SET_LOADING'; isLoading: boolean };
-  // | { type: 'UPDATE_BOOK_CONTENT'; bookId: string; content: string[] };
 
 const initialBooks: Book[] = [
-  { id: '1', title: '国語', color: 'red', order_index: 0 },
-  { id: '2', title: '英語', color: 'yellow', order_index: 1 },
-  { id: '3', title: '理科', color: 'green', order_index: 2 },
-  { id: '4', title: '数学', color: 'blue', order_index: 3 },
-  // { id: '5', title: '社会', color: 'cyan', order_index: 4 },
+  { book_id: '1', title: '国語', color: 'red', order_index: 0 },
+  { book_id: '2', title: '英語', color: 'yellow', order_index: 1 },
+  { book_id: '3', title: '理科', color: 'green', order_index: 2 },
+  { book_id: '4', title: '数学', color: 'blue', order_index: 3 },
 ];
 
 const initialState: State = { 
@@ -58,13 +57,6 @@ function libraryReducer(state: State, action: Action): State {
       return { ...state, books: [...state.books, action.book] };
     case 'SET_LOADING':
       return { ...state, isLoading: action.isLoading };
-    // case 'UPDATE_BOOK_CONTENT':
-    //   return {
-    //     ...state,
-    //     books: state.books.map((b) =>
-    //       b.id === action.bookId ? { ...b, content: action.content } : b
-    //     ),
-    //   };
     default:
       return state;
   }
@@ -96,31 +88,34 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
 
         if (!tableExists || isDelete) {
-          // テーブル作成
+          await database.execAsync('BEGIN;');
+
+          await database.execAsync(`DROP TABLE IF EXISTS books;`);
           await database.execAsync(`
             CREATE TABLE books (
-              id TEXT PRIMARY KEY NOT NULL, 
-              title TEXT NOT NULL, 
+              id TEXT PRIMARY KEY NOT NULL,
+              title TEXT NOT NULL,
               color TEXT NOT NULL,
               order_index INTEGER DEFAULT 0
             );
           `);
 
-          // 初期データ挿入
           for (const book of initialBooks) {
             await database.runAsync(
               'INSERT INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
-              [book.id, book.title, book.color, book.order_index]
+              [book.book_id, book.title, book.color, book.order_index]
             );
           }
+
+          await database.execAsync('COMMIT;');
         }
 
         // データ読み込み
         const result = await database.getAllAsync('SELECT * FROM books;');
-        console.log('📘 現在のbooksテーブル:', result);
+        logTable('Booksテーブル読込', result as Record<string, any>[]);
 
         let books: Book[] = result.map((row: any) => ({
-          id: String(row.id),
+          book_id: String(row.id),
           title: String(row.title),
           color: (row.color || 'blue') as Book['color'],  // ✅ 明示的に型を指定
           order_index: Number(row.order_index || 0), // order_index フィールドを追加
@@ -131,7 +126,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           for (const book of initialBooks) {
             await database.runAsync(
               'INSERT INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
-              [book.id, book.title, book.color, book.order_index]
+              [book.book_id, book.title, book.color, book.order_index]
             );
           }
           books = initialBooks; // 上書き
@@ -140,7 +135,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         dispatch({ type: 'SET_BOOKS', books });
         dispatch({ type: 'SET_LOADING', isLoading: false });
       } catch (error) {
-        console.error('DB初期化エラー:', error);
+        console.error('DB初期化エラー(LibraryContext):', error);
         dispatch({ type: 'SET_LOADING', isLoading: false });
       }
     };
@@ -158,7 +153,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await db.runAsync(
         'INSERT OR REPLACE INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
-        [book.id, book.title || '', book.color, book.order_index]
+        [book.book_id, book.title || '', book.color, book.order_index]
       );
       dispatch({ type: 'ADD_BOOK', book });
     } catch (error) {
@@ -180,7 +175,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const book = newBooks[i];
         await db.runAsync(
           'UPDATE books SET order_index = ? WHERE id = ?',
-          [i, book.id]
+          [i, book.book_id]
         );
       }
 
@@ -188,7 +183,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 更新後のDB内容を取得してログ出力
       const result = await db.getAllAsync('SELECT * FROM books ORDER BY order_index ASC;');
-      console.log('🔄 並び替え後のbooksテーブル:', JSON.stringify(result, null, 2)); // テーブルチェック
+      logTable('Booksテーブル読込(並び替え後):', result as Record<string, any>[]);
 
       // state側も更新。order_indexを修正した状態でセット
       const updatedBooks = newBooks.map((book, index) => ({

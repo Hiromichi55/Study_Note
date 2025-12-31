@@ -129,14 +129,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
     const x2 = width * (1 - space);
     const y2 = y1;
     canvas.drawLine(x1, y1, x2, y2, linePaint);
-    console.log('Skia second line y=', y1);
 
   // 罫線
   linePaint.setColor(Skia.Color(RULE_COLOR));
     linePaint.setStrokeWidth(1);
     const limit_y = height - commonStyle.screenHeight * 0.02
     const row = Math.trunc(noteHeight / interval) + 2;
-    console.log('row count=', row);
     for (let i = upperSpace + 1; i < row - 1; i++) {
       const x1 = width * space;
       const y1 = i * interval;
@@ -151,7 +149,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
     const base64 = uint8ToBase64(pngBytes);
 
     await FileSystem.writeAsStringAsync(CACHE_FILE, base64, { encoding: FileSystem.EncodingType.Base64 });
-    console.log('NoteContent生成完了');
     return CACHE_FILE;
   };
 
@@ -181,7 +178,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
   
   // 要素描画の開始 Y はノートの上端（noteY）を基準にする
   const startY = noteY + upperSpace * interval;
-  console.log('draw line at startY=', startY);
 
   const renderElements = () => {
     if (!elements) return null;
@@ -224,8 +220,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
   // 次の要素位置はこの要素の高さ分だけ進める
   const step = estHeight;
   currentY += step;
-
-      console.log(`Element ${idx} (${el.type}) top=`, top);
 
       // ======== デバッグ用背景 ============
       const debugStyle = IS_DEV
@@ -333,7 +327,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
         style={{ flex: 1, position: 'relative', padding: 0, margin: 0 }}
         onLayout={(e) => {
           const parentY = e.nativeEvent.layout.y;
-          console.log('Parent View absolute top =', parentY);
 
           // React Native 要素の絶対座標 = parentY + top
           // estimate each element top using same logic as renderElements
@@ -348,7 +341,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
               estHeight = Math.ceil(el.word.length * font.size / (noteWidth * 0.8)) * font.lineHeight;
 
             const top = accY;
-            console.log(`Element ${idx} (${el.type}) absolute top =`, parentY + top);
             accY += Math.max(estHeight, interval);
           });
         }}

@@ -77,7 +77,7 @@ const ScreenBackground: React.FC<{ children?: React.ReactNode }> = ({ children }
 
     await FileSystem.writeAsStringAsync(CACHE_FILE, base64, { encoding: FileSystem.EncodingType.Base64 });
 
-    console.log('TitileBackground生成完了');
+    console.log('ノート画像生成');
     return CACHE_FILE;
   };
 
@@ -91,12 +91,11 @@ const ScreenBackground: React.FC<{ children?: React.ReactNode }> = ({ children }
       const fileInfo = await FileSystem.getInfoAsync(CACHE_FILE);
 
       if (fileInfo.exists) {
-        console.log('キャッシュあり → 使う');
         setBgUri(fileInfo.uri);
       } else {
-        console.log('キャッシュなし → 新規生成');
         const uri = await generateAndSaveBackground();
         setBgUri(uri);
+        console.log('背景の新規生成');
       }
     } catch (err) {
       console.error('背景ロードエラー:', err);

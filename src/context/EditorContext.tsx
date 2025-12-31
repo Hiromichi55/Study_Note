@@ -207,7 +207,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // ===== データ読み込み =====
       await refreshAll(database);
     } catch (e) {
-      console.error('DB初期化エラー:', e);
+      console.error('DB初期化エラー(EditorContext):', e);
     } finally {
       dispatch({ type: 'SET_LOADING', isLoading: false });
     }
@@ -244,7 +244,6 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // ===== 共通CRUDヘルパー =====
   const insert = async (table: string, data: any) => {
-    console.log('insert called for table=', table);
     if (!db) {
       console.warn('DB is null - cannot insert');
       return;
@@ -253,7 +252,6 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const placeholders = keys.map(() => '?').join(',');
     const values = Object.values(data);
     const sql = `INSERT INTO ${table} (${keys.join(',')}) VALUES (${placeholders});`;
-    console.log('SQL:', sql, 'VALUES:', values);
     try {
       await db.runAsync(sql, values as SQLite.SQLiteBindParams);
       await refreshAll();
