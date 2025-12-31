@@ -146,17 +146,6 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const database = await initDB();
       setDb(database);
 
-      // ===== 古いテーブルを削除 =====
-      // NOTE: テーブルを毎回 DROP するとデータが消えるため、開発時以外は実行しないでください。
-      // If you need to reset schema during development, enable this block temporarily.
-      /*
-      await database.execAsync(`DROP TABLE IF EXISTS contents;`);
-      await database.execAsync(`DROP TABLE IF EXISTS images;`);
-      await database.execAsync(`DROP TABLE IF EXISTS outlines;`);
-      await database.execAsync(`DROP TABLE IF EXISTS texts;`);
-      await database.execAsync(`DROP TABLE IF EXISTS words;`);
-      */
-
       // ===== テーブル作成 =====
       await database.execAsync(`
         CREATE TABLE IF NOT EXISTS contents (

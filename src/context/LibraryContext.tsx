@@ -82,33 +82,31 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         );
         const tableExists = tableCheckResult.length > 0;
 
-        if (isDelete) {
-          // ✅ 一時的に DB を初期化して、正しいデータを挿入
-          await database.execAsync(`DROP TABLE IF EXISTS books;`);
-        }
-
         if (!tableExists || isDelete) {
-          await database.execAsync('BEGIN;');
-
-          await database.execAsync(`DROP TABLE IF EXISTS books;`);
           await database.execAsync(`
+            BEGIN;
+
+            DROP TABLE IF EXISTS books;
+
             CREATE TABLE books (
               id TEXT PRIMARY KEY NOT NULL,
               title TEXT NOT NULL,
               color TEXT NOT NULL,
               order_index INTEGER DEFAULT 0
             );
+
+            COMMIT;
           `);
 
+          // 👇 INSERT はトランザクション外
           for (const book of initialBooks) {
             await database.runAsync(
               'INSERT INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
               [book.book_id, book.title, book.color, book.order_index]
             );
           }
-
-          await database.execAsync('COMMIT;');
         }
+
 
         // データ読み込み
         const result = await database.getAllAsync('SELECT * FROM books;');
