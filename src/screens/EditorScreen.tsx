@@ -1,12 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, TouchableOpacity, ScrollView, Text, TextInput } from 'react-native';
 import { NoteElement } from './NoteContent';
 import { notebookStyles } from '../styles/notebookStyle';
 import * as commonStyle from '../styles/commonStyle';
 
 type Props = {
-  pageContent: string;
-  setEditableText: (t: string) => void;
   currentAttribute: '章' | '節' | '項' | '単語' | '画像' | '文章';
   setCurrentAttribute: (a: any) => void;
   wordInputRef: React.RefObject<TextInput | null>;
@@ -24,8 +22,6 @@ type Props = {
   pagesElements: NoteElement[][];
   noteBounds: { x: number; y: number; width: number; height: number } | null;
   keyboardHeight: number;
-  setPageContent: (s: string) => void;
-  setPages: React.Dispatch<React.SetStateAction<string[]>>;
 };
 
 const ATTRIBUTES = ['章', '節', '項', '単語', '画像', '文章'] as const;
@@ -49,8 +45,6 @@ const getBgColorForType = (type: any) => {
 
 export default function EditorScreen(props: Props) {
   const {
-    setEditableText,
-    pageContent,
     currentAttribute,
     setCurrentAttribute,
     wordInputRef,
@@ -68,9 +62,10 @@ export default function EditorScreen(props: Props) {
     pagesElements,
     noteBounds,
     keyboardHeight,
-    setPageContent,
-    setPages,
   } = props;
+
+  // local state for generic text/image/chapter/section input
+  const [textValue, setTextValue] = useState('');
 
   return (
     <View 
@@ -86,7 +81,8 @@ export default function EditorScreen(props: Props) {
       <TouchableOpacity
         activeOpacity={0.8}
         onPress={() => {
-          setEditableText(pageContent);
+          // open editor: reset local text input and focus appropriate field
+          setTextValue('');
           if (currentAttribute === '単語') {
             setTimeout(() => wordInputRef.current?.focus(), 150);
           } else {
@@ -112,8 +108,8 @@ export default function EditorScreen(props: Props) {
           {ATTRIBUTES.map((attr) => (
             <TouchableOpacity
               key={attr}
-              onPress={() => {
-                setCurrentAttribute(attr as any);
+                      onPress={() => {
+                        setCurrentAttribute(attr as any);
                 const type = attr === '章' ? 'chapter' : attr === '節' ? 'section' : attr === '項' ? 'subsection' : attr === '単語' ? 'word' : attr === '画像' ? 'image' : 'text';
                 const idx = currentPage;
 
@@ -171,13 +167,14 @@ export default function EditorScreen(props: Props) {
                 <TouchableOpacity
                   key={i}
                   onPress={() => {
+                    // populate inputs from selected element
                     if (el.type === 'word') {
                       setWord((el as any).word || '');
                       setDefinition((el as any).meaning || '');
                     } else if (el.type === 'image') {
-                      setEditableText((el as any).uri || '');
+                      setTextValue((el as any).uri || '');
                     } else {
-                      setEditableText((el as any).text || '');
+                      setTextValue((el as any).text || '');
                     }
                     setEditing(true);
                     setEditingLineIndex(i);
@@ -195,7 +192,7 @@ export default function EditorScreen(props: Props) {
                   }}
                 >
                   {isSelected ? (
-                    el.type === 'word' ? (
+                        el.type === 'word' ? (
                       <View>
                         <TextInput
                           ref={wordInputRef}
@@ -244,6 +241,7 @@ export default function EditorScreen(props: Props) {
                             next[currentPage] = arr;
                             return next;
                           });
+                          setTextValue(t);
                         }}
                         placeholder="内容を入力"
                         style={[notebookStyles.inputSmallStyle, { height: 40 }]}
@@ -335,8 +333,8 @@ export default function EditorScreen(props: Props) {
             <View>
               <TextInput
                 ref={editInputRef}
-                value={pageContent}
-                onChangeText={setEditableText}
+                value={textValue}
+                onChangeText={setTextValue}
                 placeholder={`${currentAttribute}を入力`}
                 style={[notebookStyles.inputSmallStyle, { height: 40 }]}
                 multiline
@@ -362,15 +360,20 @@ export default function EditorScreen(props: Props) {
                 setWord('');
                 setDefinition('');
               } else if (currentAttribute === '画像') {
-                newEl = { type: 'image', uri: pageContent } as NoteElement;
+                newEl = { type: 'image', uri: textValue } as NoteElement;
+                setTextValue('');
               } else if (currentAttribute === '章') {
-                newEl = { type: 'chapter', text: pageContent } as NoteElement;
+                newEl = { type: 'chapter', text: textValue } as NoteElement;
+                setTextValue('');
               } else if (currentAttribute === '節') {
-                newEl = { type: 'section', text: pageContent } as NoteElement;
+                newEl = { type: 'section', text: textValue } as NoteElement;
+                setTextValue('');
               } else if (currentAttribute === '項') {
-                newEl = { type: 'subsection', text: pageContent } as NoteElement;
+                newEl = { type: 'subsection', text: textValue } as NoteElement;
+                setTextValue('');
               } else {
-                newEl = { type: 'text', text: pageContent } as NoteElement;
+                newEl = { type: 'text', text: textValue } as NoteElement;
+                setTextValue('');
               }
 
               setPagesElements(prev => {
@@ -383,29 +386,6 @@ export default function EditorScreen(props: Props) {
                   next[idx].push(newEl!);
                 }
                 return next;
-              });
-
-              setPagesElements(prev => {
-                const elems = prev[currentPage] || [];
-                const final = elems
-                  .map(el => {
-                    if (el.type === 'chapter') return `【章】${el.text}`;
-                    if (el.type === 'section') return `【節】${el.text}`;
-                    if (el.type === 'subsection') return `【項】${el.text}`;
-                    if (el.type === 'word') return `【単語】${el.word}\n${el.meaning}`;
-                    if (el.type === 'image') return `【画像】${el.uri}`;
-                    return el.type === 'text' ? el.text : '';
-                  })
-                  .join('\n');
-
-                setPageContent(final);
-                setPages(prev => {
-                  const p = [...prev];
-                  p[currentPage] = final;
-                  return p;
-                });
-
-                return prev;
               });
             }}
           >

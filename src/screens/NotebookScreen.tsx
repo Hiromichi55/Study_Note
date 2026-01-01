@@ -65,11 +65,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const getDebugStyle = (color: string) =>
     isTest ? { backgroundColor: color } : {};
 
-  const [pages, setPages] = useState<string[]>([]);
   // elements ベースのページデータ（文字列ではなく NoteElement の配列を保持）
   const [pagesElements, setPagesElements] = useState<NoteElement[][]>([]);
 
-  const [pageContent, setPageContent] = useState(pages[currentPage] ?? '');
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -194,10 +192,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       const contents = await getContentsByBookId(bookId);
       const pageContentRow = contents.find(c => c.page === pageIndex);
 
-      if (!pageContentRow) {
-        if (!options?.returnText) setPageContent('');
-        return '';
-      }
+      if (!pageContentRow) return;
 
       const contentId = pageContentRow.content_id;
 
@@ -216,17 +211,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       texts.forEach(t => elements.push({ type: 'text', text: t.text }));
       words.forEach(w => elements.push({ type: 'word', word: w.word, meaning: w.explanation }));
       images.forEach(img => elements.push({ type: 'image', uri: img.image }));
-
-      const finalText = elements
-        .map(el => {
-          if (el.type === 'chapter') return `【章】${el.text}`;
-          if (el.type === 'section') return `【節】${el.text}`;
-          if (el.type === 'subsection') return `【項】${el.text}`;
-          if (el.type === 'word') return `【単語】${el.word}\n${el.meaning}`;
-          if (el.type === 'image') return `【画像】${el.uri}`;
-          return el.type === 'text' ? el.text : '';
-        })
-        .join('\n');
+      console.log('elements:', elements);
 
       // pagesElements を更新して UI が NoteElement を使えるようにする
       setPagesElements(prev => {
@@ -234,17 +219,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         next[pageIndex] = elements;
         return next;
       });
-
-      if (!options?.returnText) {
-        setPageContent(finalText);
-        setPages(prev => {
-          const updated = [...prev];
-          updated[pageIndex] = finalText;
-          return updated;
-        });
-      }
-
-      return finalText;
 
     } catch (e) {
       console.error('DB 読み込みエラー: ', e);
@@ -296,17 +270,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       // ページ数を最大ページに合わせる
       const maxPage = contents.length > 0 ? Math.max(...contents.map(c => c.page), 0) : 0;
 
-      const loadedPages: string[] = [];
-
       for (let p = 0; p <= maxPage; p++) {
-        const result = await loadPageFromDB(p, { returnText: true });
-        loadedPages[p] = result || '';
+        await loadPageFromDB(p);
       }
-
-      setPages(loadedPages);
-
-      // 最初のページのテキストをセット
-      setPageContent(loadedPages[currentPage] ?? '');
     };
 
     loadAllPages();
@@ -381,7 +347,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   useLayoutEffect(() => {
     navigation.setOptions({
       headerTitle: () => (
-        <TouchableOpacity onPress={() => {}}>
+        <TouchableOpacity onPress={() => {console.log('目次ボタン押下')}}>
           <Text style={notebookStyles.outlineBtn}>目次</Text>
         </TouchableOpacity>
       ),
@@ -391,7 +357,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           visible={menuVisible}
           onDismiss={closeMenu}
           anchor={
-            <TouchableOpacity onPress={openMenu} 
+            <TouchableOpacity 
+            onPress={() => {
+              console.log('メニューボタン押下');
+              openMenu();}}
               style={[
                 notebookStyles.menuBtn,
                 getDebugStyle('rgba(0, 255, 0, 0.15)')]}>
@@ -404,8 +373,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         >
           <Menu.Item
             onPress={() => {
+              console.log('メニュー/ページ追加ボタン押下');
               closeMenu();
-              setPages((prev) => [...prev, '']);
+              setPagesElements(prev => [...prev, []]);
             }}
             title="ページ追加"
             rippleColor="rgba(0, 122, 255, 0.3)"
@@ -413,6 +383,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           />
           <Menu.Item
             onPress={() => {
+                  console.log('メニュー/ページ編集ボタン押下');
                   closeMenu();
                   navigation.navigate('Edit', { bookId: book.book_id }); // ← 編集画面へ遷移
                 }}
@@ -421,6 +392,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           />
           <Menu.Item
             onPress={() => {
+              console.log('メニュー/ページ削除ボタン押下');
               closeMenu();
               dispatch({ type: 'DELETE_BOOK', bookId: book!.book_id });
             }}
@@ -429,6 +401,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           />
           <Menu.Item
             onPress={() => {
+              console.log('メニュー/本削除ボタン押下');
               closeMenu();
               dispatch({ type: 'DELETE_BOOK', bookId: book!.book_id });
             }}
@@ -447,6 +420,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     <TouchableWithoutFeedback 
       disabled={editing}
       onPress={() => {
+        console.log('ノート画面タップ(スライダー表示時)');
         if (showSearch) {
           // 検索中は検索バー閉じてスライダー表示
           setShowSearch(false);
@@ -478,7 +452,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             disabled={editing}
             style={[notebookStyles.container, { backgroundColor: 'transparent', flex: 1 }, getDebugStyle('rgba(0, 0, 255, 0.15)')]}
             activeOpacity={1}
-            onPress={() => setIsVisible(!isVisible)} // ← ここで表示切り替え！
+            onPress={() => {
+              console.log('ノート画面タップ(スライダー非表示時)');
+              setIsVisible(!isVisible)
+            }} // ← ここで表示切り替え！
           >
           </TouchableOpacity>
             {/* 👇 Animated.View でフェード */}
@@ -518,7 +495,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                     {/*  📚 ページ一覧ボタン */}
                     <TouchableOpacity
                       disabled={editing}
-                      onPress={() => {}}
+                      onPress={() => {
+                        console.log('全ページ表示ボタン押下');
+                      }}
                       style={[
                         notebookStyles.allPagesBtn,
                         getDebugStyle('rgba(0, 0, 0, 0.4)'),
@@ -533,7 +512,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       <Slider
                         style={notebookStyles.slider}
                         minimumValue={0}
-                        maximumValue={pages.length - 1}
+                        maximumValue={Math.max(pagesElements.length - 1, 0)}
                         step={1}
                         value={currentPage}
                         minimumTrackTintColor="#000"
@@ -554,8 +533,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
             {editing && (
               <EditorScreen
-                pageContent={pageContent}
-                setEditableText={setEditableText}
                 currentAttribute={currentAttribute}
                 setCurrentAttribute={setCurrentAttribute}
                 wordInputRef={wordInputRef}
@@ -573,8 +550,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 pagesElements={pagesElements}
                 noteBounds={noteBounds}
                 keyboardHeight={keyboardHeight}
-                setPageContent={setPageContent}
-                setPages={setPages}
               />
             )}
 
@@ -601,7 +576,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 textContentType="none"
                 keyboardAppearance="default"
               />
-              <TouchableOpacity onPress={() => setShowSearch(false)}>
+              <TouchableOpacity onPress={() => {
+                console.log('検索欄閉じるボタン押下');
+                setShowSearch(false);}}>
                 <Ionicons name="close" size={commonStyle.screenWidth/12} color="gray" />
               </TouchableOpacity>
             </View>
@@ -614,44 +591,18 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 {bottom: !editing ? commonStyle.screenHeight*0.02 : commonStyle.screenHeight*0.15}
               ]}
                 onPress={ async () => {
-                  if (editing) {
-                    // ✅ 編集中なら保存動作
-                    const updatedPages = [...pages];
+                  console.log('編集ボタン押下:', { editing });
+                  if (editing) { // ✅ 編集中なら保存動作
 
                     // pagesElements があればそれを優先して pageContent を再生成
                     const elemsForSave = pagesElements[currentPage];
-                    const finalText = elemsForSave
-                      .map(el => {
-                        if (el.type === 'chapter') return `【章】${(el as any).text}`;
-                        if (el.type === 'section') return `【節】${(el as any).text}`;
-                        if (el.type === 'subsection') return `【項】${(el as any).text}`;
-                        if (el.type === 'word') return `【単語】${(el as any).word}\n${(el as any).meaning}`;
-                        if (el.type === 'image') return `【画像】${(el as any).uri}`;
-                        return el.type === 'text' ? (el as any).text : '';
-                      })
-                      .join('\n');
-
-                    updatedPages[currentPage] = finalText;
-                    console.log('updatePages:', { updatedPages });
-                    console.log('updatePages[currentPage]:', updatedPages[currentPage] );
-                    console.log('finalText:', finalText);
-                    console.log('currentPage:', { currentPage });
-                    // removed debug log
-          
-                    // state を更新して画面に反映
-                    setPages(updatedPages);
-                    setPageContent(finalText);
                     setEditing(false);
                     Keyboard.dismiss();
 
                     // DBへ保存
                     await savePageToDB();
 
-                  } else {
-                    // ✅ 編集開始：現在ページ内容をロード
-                    const currentContent = pages[currentPage] ?? '';
-                    setPageContent(currentContent);
-
+                  } else { // ✅ 編集開始：現在ページ内容をロード
                     // 入力欄は空にする
                     setEditableText('');
                     setWord('');
@@ -668,7 +619,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           {!editing && (
             <TouchableOpacity
               style={notebookStyles.searchBtn}
-              onPress={() => setShowSearch(!showSearch)}
+              onPress={() => {
+                console.log('虫眼鏡ボタン押下');
+                setShowSearch(!showSearch)}}
             >
               <Ionicons name="search" size={commonStyle.screenWidth/12} color="white" />
             </TouchableOpacity>
