@@ -83,8 +83,15 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const tableExists = tableCheckResult.length > 0;
 
         if (!tableExists || isDelete) {
+          const insertValues = initialBooks
+            .map(
+              (b) =>
+                `('${b.book_id}', '${b.title}', '${b.color}', ${b.order_index})`
+            )
+            .join(',');
+
           await database.execAsync(`
-            BEGIN;
+            BEGIN TRANSACTION;
 
             DROP TABLE IF EXISTS books;
 
@@ -95,17 +102,13 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
               order_index INTEGER DEFAULT 0
             );
 
+            INSERT INTO books (id, title, color, order_index)
+            VALUES ${insertValues};
+
             COMMIT;
           `);
-
-          // 👇 INSERT はトランザクション外
-          for (const book of initialBooks) {
-            await database.runAsync(
-              'INSERT INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
-              [book.book_id, book.title, book.color, book.order_index]
-            );
-          }
         }
+
 
 
         // データ読み込み

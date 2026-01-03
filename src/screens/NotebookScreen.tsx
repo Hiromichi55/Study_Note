@@ -211,7 +211,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       texts.forEach(t => elements.push({ type: 'text', text: t.text }));
       words.forEach(w => elements.push({ type: 'word', word: w.word, meaning: w.explanation }));
       images.forEach(img => elements.push({ type: 'image', uri: img.image }));
-      console.log('elements:', elements);
 
       // pagesElements を更新して UI が NoteElement を使えるようにする
       setPagesElements(prev => {
