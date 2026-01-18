@@ -144,7 +144,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setupDatabase();
   }, []);
 
-  // 本を追加する関数
+  // 本を追加する関数 Bookテーブル
   const addBook = async (book: Book) => {
     if (!db) {
       console.error('Database not initialized');

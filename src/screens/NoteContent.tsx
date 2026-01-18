@@ -9,10 +9,11 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as commonStyle from '../styles/commonStyle';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { ENV } from '@config';
+import { logTable } from 'src/utils/logTable';
 
 const IS_DEV = ENV.SCREEN_DEV;
 
-const CACHE_FILE = FileSystem.cacheDirectory + 'background.png';
+const CACHE_FILE = FileSystem.cacheDirectory + 'background.webp';
 const DEV_FORCE_REGENERATE = true;
 const { width, height } = Dimensions.get('window');
 
@@ -51,13 +52,16 @@ const COLOR_MAP = {
 } as const;
 
 type Props = {
+  onPress?: () => void;
   children?: React.ReactNode;
   backgroundColor?: keyof typeof COLOR_MAP;
   elements?: NoteElement[];
   onNoteLayout?: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  /** called when a background image file is generated and saved; receives the file URI */
+  onBackgroundGenerated?: (uri: string) => void | Promise<void>;
 };
 
-const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onNoteLayout }) => {
+const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onNoteLayout, onBackgroundGenerated }) => {
   const bgColor = COLOR_MAP[backgroundColor ?? 'red'];
   const [bgUri, setBgUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,7 +83,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
   };
 
   // ===============================================
-  // 💛 背景生成（ここに枠線＆影＆白ノートを追加）
+  //  背景生成（ここに枠線＆影＆白ノートを追加）
   // ===============================================
   const generateAndSaveBackground = async (): Promise<string> => {
     const surface = Skia.Surface.MakeOffscreen(width, height);
@@ -94,14 +98,14 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
   // noteX/noteY/noteWidth/noteHeight は上で計算したものを使う
   const radius = 0;
 
-    // 💛 影用（薄い影）
+    //  影用（薄い影）
     const shadowPaint = Skia.Paint();
     shadowPaint.setColor(Skia.Color('rgba(0,0,0,0.12)'));
     shadowPaint.setStyle(PaintStyle.Fill);
     const shadowRect = Skia.RRectXY(Skia.XYWHRect(noteX + 6, noteY + 6, noteWidth, noteHeight), radius, radius);
     canvas.drawRRect(shadowRect, shadowPaint);
 
-    // 💛 白いノート本体
+    // 白いノート本体
     const whitePaint = Skia.Paint();
     whitePaint.setColor(Skia.Color('white'));
     whitePaint.setStyle(PaintStyle.Fill);
@@ -143,14 +147,32 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
       canvas.drawLine(x1, y1, x2, y2, linePaint);
     }
 
-    // ========= PNG保存 ==========
+    // ========= 画像保存（webp で保存） ==========
     const image = surface.makeImageSnapshot();
-    const pngBytes = image.encodeToBytes();
-    const base64 = uint8ToBase64(pngBytes);
+    let bytes: Uint8Array;
+    try {
+      // try to encode as webp if supported by Skia
+      // some Skia builds accept a format string; if not, fallback to default
+      // @ts-ignore
+      bytes = image.encodeToBytes('webp');
+    } catch (err) {
+      // fallback to default encoding (PNG)
+      bytes = image.encodeToBytes();
+    }
+    const base64 = uint8ToBase64(bytes);
 
     await FileSystem.writeAsStringAsync(CACHE_FILE, base64, { encoding: FileSystem.EncodingType.Base64 });
+    // notify parent that a new background image was generated
+    try {
+      await Promise.resolve(onBackgroundGenerated?.(CACHE_FILE));
+    } catch (cbErr) {
+      console.warn('onBackgroundGenerated handler failed:', cbErr);
+    }
+    logTable('背景画像生成完了', [{ file: CACHE_FILE }]);
     return CACHE_FILE;
   };
+
+
 
   const loadBackground = async () => {
     try {
@@ -359,3 +381,87 @@ const style = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   background: { flex: 1 },
 });
+
+// --- Module-level exported generator (placed after component)
+export const generateDefaultBackground = async (
+  outPath: string,
+  headerH: number = 0,
+  bgColorKey: keyof typeof COLOR_MAP = 'red'
+): Promise<string> => {
+  const uint8ToBase64_local = (u8Arr: Uint8Array): string => {
+    let binary = '';
+    for (let i = 0; i < u8Arr.length; i++) {
+      binary += String.fromCharCode(u8Arr[i]);
+    }
+    return global.btoa(binary);
+  };
+
+  const bgColorLocal = COLOR_MAP[bgColorKey];
+  const surface = Skia.Surface.MakeOffscreen(width, height);
+  if (!surface) throw new Error('Skia.Surface.MakeOffscreen が null');
+
+  const canvas = surface.getCanvas();
+  const basePaint = Skia.Paint();
+  basePaint.setColor(Skia.Color(bgColorLocal));
+  canvas.drawRect(Skia.XYWHRect(0, 0, width, height), basePaint);
+
+  const noteX_local = width * 0.01;
+  const noteY_local = height * 0;
+  const noteWidth_local = width * 0.98;
+  const noteHeight_local = (height - headerH) * 0.87;
+
+  const radius = 0;
+
+  const shadowPaint = Skia.Paint();
+  shadowPaint.setColor(Skia.Color('rgba(0,0,0,0.12)'));
+  shadowPaint.setStyle(PaintStyle.Fill);
+  const shadowRect = Skia.RRectXY(Skia.XYWHRect(noteX_local + 6, noteY_local + 6, noteWidth_local, noteHeight_local), radius, radius);
+  canvas.drawRRect(shadowRect, shadowPaint);
+
+  const whitePaint = Skia.Paint();
+  whitePaint.setColor(Skia.Color('white'));
+  whitePaint.setStyle(PaintStyle.Fill);
+  const whiteRect = Skia.RRectXY(Skia.XYWHRect(noteX_local, noteY_local, noteWidth_local, noteHeight_local), radius, radius);
+  canvas.drawRRect(whiteRect, whitePaint);
+
+  const linePaint = Skia.Paint();
+  linePaint.setStrokeWidth(1.5);
+  linePaint.setColor(Skia.Color('rgba(152, 173, 211, 1)'));
+  linePaint.setStrokeWidth(1.5);
+
+  const x1_title = width * space;
+  const y1_title = (upperSpace - 1) * interval;
+  const x2_title = width * (1 - space);
+  const y2_title = y1_title;
+  canvas.drawLine(x1_title, y1_title, x2_title, y2_title, linePaint);
+
+  const x1 = width * space;
+  const y1 = upperSpace * interval;
+  const x2 = width * (1 - space);
+  const y2 = y1;
+  canvas.drawLine(x1, y1, x2, y2, linePaint);
+
+  linePaint.setColor(Skia.Color(RULE_COLOR));
+  linePaint.setStrokeWidth(1);
+  const row = Math.trunc(noteHeight_local / interval) + 2;
+  for (let i = upperSpace + 1; i < row - 1; i++) {
+    const x1 = width * space;
+    const y1 = i * interval;
+    const x2 = width * (1 - space);
+    const y2 = y1;
+    canvas.drawLine(x1, y1, x2, y2, linePaint);
+  }
+
+  const image = surface.makeImageSnapshot();
+  let bytes: Uint8Array;
+  try {
+    // try webp
+    // @ts-ignore
+    bytes = image.encodeToBytes('webp');
+  } catch (err) {
+    bytes = image.encodeToBytes();
+  }
+  const base64 = uint8ToBase64_local(bytes);
+  await FileSystem.writeAsStringAsync(outPath, base64, { encoding: FileSystem.EncodingType.Base64 });
+  return outPath;
+};

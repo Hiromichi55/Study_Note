@@ -30,15 +30,21 @@ export const notebookStyles = StyleSheet.create({
     backgroundColor: 'white',
     marginTop: 40,
   },
+  deleteOption: {
+    color: 'red',
+  },
 
   /* ノート全体（スライダー出し入れ） */
   notebookScreenWrapper: {
     flex: 1,
+    backgroundColor: 'black',
   },
 
   /* ノートコンテンツ部分 */
   notebookContentsContainer: {
     flex: 1,
+    alignItems: 'center',
+    // justifyContent: 'center',
   },
 
   inputSmallStyle: {
@@ -56,11 +62,13 @@ export const notebookStyles = StyleSheet.create({
   },
 
   /* スライダー, ページ一覧部分 */
-  sliderContainer: {
-    position: 'absolute',
+  pageListBtnAndSliderContainer: {
+    // 自身の座標
+    position: 'absolute', // 親要素の基準を基準に
+    top: '75%',
+    // 自身の形
     height: commonStyle.screenHeight/15,
     width: commonStyle.screenWidth*0.8,
-    flexDirection: 'row', // ← 横並び
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'transparent',
@@ -69,26 +77,25 @@ export const notebookStyles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowOffset: { width: 0, height: 3 },
     elevation: 5,
+    // 子の座標
+    flexDirection: 'row', // ← 横並び
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  slider: {
-    width: '100%',
-    height: 50,
-    alignSelf: 'flex-end',
-    marginRight: 20,
-    marginLeft: 20,
-  },
-  allPagesBtn: {
-    width: commonStyle.screenWidth/10,
-    height: commonStyle.screenWidth/10,
+  pageListBtn: {
+    width: '15%',
+    aspectRatio: 1,
     borderRadius: 15,
     backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    alignContent: 'center',
+    alignItems: 'center', //アイコン画像の位置
     justifyContent: 'center',
     marginRight: 10,
     marginLeft: 10,
+  },
+  slider: {
+    width: '70%',
+    // alignSelf: 'flex-end',
+    marginRight: 20,
   },
 
   /* 検索ボックス */

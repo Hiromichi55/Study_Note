@@ -1,11 +1,5 @@
 import React, { createContext, useState, useContext, ReactNode } from 'react';
-
-export type PageImage = {
-  page_image_id: string;
-  image: 'png' | 'jpg' | 'jpeg';
-  page_order: number;
-};
-
+import { load}
 
 interface Note {
   id: string;

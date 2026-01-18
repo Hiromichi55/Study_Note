@@ -39,6 +39,13 @@ export type Word = {
   content_id: string;
 };
 
+export type PageImage = {
+  page_image_id: string;
+  image_path: string;
+  page_order: number;
+  book_id: string;
+};
+
 // ===== 状態定義 =====
 type State = {
   contents: Content[];
@@ -46,6 +53,7 @@ type State = {
   outlines: Outline[];
   texts: Text[];
   words: Word[];
+  pageImages: PageImage[];
   isLoading: boolean;
 };
 
@@ -60,6 +68,7 @@ const initialState: State = {
   outlines: [],
   texts: [],
   words: [],
+  pageImages: [],
   isLoading: true,
 };
 
@@ -68,33 +77,36 @@ const EditorContext = createContext<{
   state: State;
   refreshAll: () => Promise<void>;
   select: <T = any>(table: string, where?: string, params?: any[]) => Promise<T[]>;
-
+  // Contentsテーブル
   addContent: (data: Content) => Promise<void>;
   updateContent: (id: string, data: Partial<Content>) => Promise<void>;
   deleteContent: (id: string) => Promise<void>;
-
+  getContentsByBookId: (bookId: string) => Promise<Content[]>;
+  // Imagesテーブル
   addImage: (data: Image) => Promise<void>;
   updateImage: (id: string, data: Partial<Image>) => Promise<void>;
   deleteImage: (id: string) => Promise<void>;
-
+  getImagesByContentId: (contentId: string) => Promise<Image[]>;
+  // Outlinesテーブル
   addOutline: (data: Outline) => Promise<void>;
   updateOutline: (id: string, data: Partial<Outline>) => Promise<void>;
   deleteOutline: (id: string) => Promise<void>;
-
+  getOutlinesByContentId: (contentId: string) => Promise<Outline[]>;
+  // Textテーブル
   addText: (data: Text) => Promise<void>;
   updateText: (id: string, data: Partial<Text>) => Promise<void>;
   deleteText: (id: string) => Promise<void>;
-
+  getTextsByContentId: (contentId: string) => Promise<Text[]>;
+  // Wordテーブル
   addWord: (data: Word) => Promise<void>;
   updateWord: (id: string, data: Partial<Word>) => Promise<void>;
   deleteWord: (id: string) => Promise<void>;
-
-  getContentsByBookId: (bookId: string) => Promise<Content[]>;
-  getTextsByContentId: (contentId: string) => Promise<Text[]>;
-  getOutlinesByContentId: (contentId: string) => Promise<Outline[]>;
   getWordsByContentId: (contentId: string) => Promise<Word[]>;
-  getImagesByContentId: (contentId: string) => Promise<Image[]>;
-  
+  // PageImage
+  addPageImage: (data: PageImage) => Promise<void>;
+  updatePageImage: (id: string, data: Partial<PageImage>) => Promise<void>;
+  deletePageImage: (id: string) => Promise<void>;
+  getPageImagesByBookId: (bookId: string) => Promise<PageImage[]>;
 }>({
   state: initialState,
   refreshAll: async () => {},
@@ -119,6 +131,10 @@ const EditorContext = createContext<{
   getOutlinesByContentId: async () => [],
   getWordsByContentId: async () => [],
   getImagesByContentId: async () => [],
+  addPageImage: async () => {},
+  updatePageImage: async () => {},
+  deletePageImage: async () => {},
+  getPageImagesByBookId: async () => [],
 });
 
 // ===== Reducer =====
@@ -193,6 +209,34 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         );
       `);
 
+      await database.execAsync(`
+        CREATE TABLE IF NOT EXISTS page_images (
+          page_image_id TEXT PRIMARY KEY NOT NULL,
+          image_path TEXT,
+          page_order INTEGER,
+          book_id TEXT
+        );
+      `);
+
+      // === Migration: older installs may have 'image' column instead of 'image_path'
+      try {
+        const cols = await database.getAllAsync(`PRAGMA table_info(page_images);`);
+        const hasImagePath = cols.some((c: any) => c.name === 'image_path');
+        const hasImage = cols.some((c: any) => c.name === 'image');
+        if (!hasImagePath) {
+          // Add the new column
+          await database.execAsync(`ALTER TABLE page_images ADD COLUMN image_path TEXT;`);
+          console.log('Migration: added page_images.image_path column');
+          // If old 'image' column exists, copy values over
+          if (hasImage) {
+            await database.execAsync(`UPDATE page_images SET image_path = image WHERE image IS NOT NULL;`);
+            console.log('Migration: copied image -> image_path for existing rows');
+          }
+        }
+      } catch (merr) {
+        console.warn('page_images migration warning:', merr);
+      }
+
       // ===== データ読み込み =====
       await refreshAll(database);
     } catch (e) {
@@ -211,24 +255,26 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const dbRef = database || db;
     if (!dbRef) return;
 
-    const [contents, images, outlines, texts, words] = await Promise.all([
-      dbRef.getAllAsync('SELECT * FROM contents;'),
-      dbRef.getAllAsync('SELECT * FROM images;'),
-      dbRef.getAllAsync('SELECT * FROM outlines;'),
-      dbRef.getAllAsync('SELECT * FROM texts;'),
-      dbRef.getAllAsync('SELECT * FROM words;'),
-    ]);
+    const [contents, images, outlines, texts, words, pageImages] = await Promise.all([
+        dbRef.getAllAsync('SELECT * FROM contents;'),
+        dbRef.getAllAsync('SELECT * FROM images;'),
+        dbRef.getAllAsync('SELECT * FROM outlines;'),
+        dbRef.getAllAsync('SELECT * FROM texts;'),
+        dbRef.getAllAsync('SELECT * FROM words;'),
+        dbRef.getAllAsync('SELECT * FROM page_images;'),
+      ]);
 
-    dispatch({
-      type: 'SET_ALL',
-      payload: {
-        contents: contents as Content[],
-        images: images as Image[],
-        outlines: outlines as Outline[],
-        texts: texts as Text[],
-        words: words as Word[],
-      },
-    });
+      dispatch({
+        type: 'SET_ALL',
+        payload: {
+          contents: contents as Content[],
+          images: images as Image[],
+          outlines: outlines as Outline[],
+          texts: texts as Text[],
+          words: words as Word[],
+          pageImages: pageImages as PageImage[],
+        },
+      });
   };
 
   // ===== 共通CRUDヘルパー =====
@@ -308,6 +354,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const deleteWord = (id: string) => remove('words', 'word_id', id);
   const getWords = () => select<Word>('words');
 
+  // Page images
+  const addPageImage = (data: PageImage) => insert('page_images', data);
+  const updatePageImage = (id: string, data: Partial<PageImage>) => update('page_images', 'page_image_id', id, data);
+  const deletePageImage = (id: string) => remove('page_images', 'page_image_id', id);
+  const getPageImages = () => select<PageImage>('page_images');
+
   // ===== ページ復元用の読み込み関数 =====
 
   // bookId + page で contents を取得
@@ -340,6 +392,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return await select<Image>('images', 'content_id = ?', [contentId]);
   };
 
+  // book_id に紐づく page_images
+  const getPageImagesByBookId = async (bookId: string) => {
+    return await select<PageImage>('page_images', 'book_id = ?', [bookId]);
+  };
+
 
   return (
     <EditorContext.Provider
@@ -366,7 +423,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         getTextsByContentId,
         getOutlinesByContentId,
         getWordsByContentId,
-        getImagesByContentId
+  getImagesByContentId,
+  // page images
+  addPageImage,
+  updatePageImage,
+  deletePageImage,
+  getPageImagesByBookId,
         }}
     >
       {children}
