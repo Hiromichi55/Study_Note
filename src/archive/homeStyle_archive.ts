@@ -1,6 +1,6 @@
 import { Dimensions, StyleSheet, Image } from 'react-native';
 import bookIMGs from '../constants/bookImage';
-import * as commonStyle from './commonStyle';
+import * as commonStyle from '../styles/commonStyle';
 
 // 元画像の縦横
 const ORIGIN_IMG_WIDTH = Image.resolveAssetSource(bookIMGs.blue).width;

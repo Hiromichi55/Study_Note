@@ -43,7 +43,7 @@ export const homeStyles = StyleSheet.create({
     justifyContent: 'flex-start',
     borderRadius: 16,
     color: 'black',
-    backgroundColor: 'rgba(255, 255, 255, 0.88)', 
+    backgroundColor: 'rgba(255, 255, 255, 0.95)', 
     //borderWidth: 0.5,        
     //borderColor: 'black', 
   },
