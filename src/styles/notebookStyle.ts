@@ -11,7 +11,7 @@ export const notebookStyles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#d9111199',
     borderWidth: 1.5,
     borderColor: 'black',
     alignItems: 'center',
@@ -42,7 +42,7 @@ export const notebookStyles = StyleSheet.create({
 },
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#8f4e4e',
   },
 floatingSearchButton: {
   position: 'absolute',

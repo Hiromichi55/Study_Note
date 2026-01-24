@@ -1,4 +1,3 @@
-import ScreenBackground from './TitleBackground';
 import React, { useState, useRef, useEffect } from 'react';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import Animated from 'react-native-reanimated';
@@ -8,15 +7,18 @@ import {
   Image,
   TouchableOpacity,
 } from 'react-native';
-
+import { Ionicons } from '@expo/vector-icons';
 import { useLibrary } from '../context/LibraryContext';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../App';
 import { Book } from '../context/LibraryContext';
 import { ENV } from '@config';
-import bookImgs from '../constants/bookImage';
 import { homeStyles } from '../styles/homeStyle';
 import * as homeStyle from '../styles/homeStyle';
+import * as commonStyle from '../styles/commonStyle';
+import { ImageBackground,Modal } from 'react-native';
+
+
 
 type HomeScreenNavProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -30,11 +32,19 @@ const DEBUG_LAYOUT = ENV.SCREEN_DEV; // true: レイアウトデバッグ用枠�
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { state, addBook, reorderBooks } = useLibrary();
   const [bookData, setBookData] = useState<Book[]>([]);
-  const [BOOK_ImgLoaded, setBOOK_ImgLoaded] = useState(false); // 画像ロード完了フラグ
   const flatListRef = useRef<any>(null);
 
-  const colorOptions: Book['color'][] = ['red', 'pink', 'yellow', 'green', 'cyan', 'blue'];
+  const colorOptions: Book['color'][] = ['red', 'pink', 'yellow', 'green', 'cyan', 'blue', 'black'];
 
+  const bookIconColors: Record<string, string> = {
+    blue: '#3498DB',
+    cyan: 'cyan',
+    green: '#2ECC71',
+    pink: 'pink',
+    red: '#E74C3C',
+    yellow: '#F1C40F',
+    black: 'black'
+  };
   const [showBookOptions, setShowBookOptions] = useState(false);
 
   useEffect(() => {
@@ -73,112 +83,124 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         onPress={() => navigation.navigate('Notebook', { bookId: item.id })}
         style={[
           homeStyles.bookBtn,
-          DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'red' }, // デバッグ用枠線
+          //DEBUG_LAYOUT && { borderWidth: 0.5, borderColor: 'black' }, // デバッグ用枠線
         ]}
       >
-        <Image
-          source={bookImgs[item.color]}
-          style={homeStyles.bookBtnImg}
-          resizeMode="contain"
-          onLoadEnd={() => setBOOK_ImgLoaded(true)}
+        <View style={homeStyles.bookBtnBottomLine} />
+        <Ionicons 
+          name="chevron-forward-outline" 
+          size={commonStyle.screenWidth/18}
+          style={homeStyles.forwardNotebookIcon}
         />
-        {BOOK_ImgLoaded && (
-          <Text
-            style={[
-              homeStyles.bookTitle,
-              {
-                transform: [
-                  { translateX: -homeStyle.BOOK_IMG_WIDTH * 0.5 },
-                  { translateY: -homeStyle.BOOK_IMG_HEIGHT * 0.4 },
-                ],
-              },
-              DEBUG_LAYOUT && { backgroundColor: 'rgba(255,0,0,0.2)' } // 見やすくする
-            ]}
-          >
-            {item.title.split('').join('\n')}
-          </Text>
-        )}  
+        <Ionicons 
+          name="book-outline" 
+          size={commonStyle.screenWidth/14}
+          style={[
+            homeStyles.bookBtnIcon,
+            { color: bookIconColors[item.color] }
+          ]}
+        />
+        <Text
+          style={[
+            homeStyles.bookTitle,
+           // DEBUG_LAYOUT && { backgroundColor: 'rgba(255,0,0,0.2)' } // 見やすくする
+          ]}
+        >
+          {item.title}
+        </Text> 
       </TouchableOpacity>
     </Animated.View>
   );
 
   return (
-    <ScreenBackground>
+    <View style={homeStyles.background}>
       <View style={[
-        homeStyles.titleContainer,
-        DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'green' }, // タイトル全体の枠
-        ]}>
+        homeStyles.topMenuContainer,
+        DEBUG_LAYOUT && { borderWidth: 0.5, borderColor: 'black' }, 
+      ]}>
         <Text style={homeStyles.titleText}>美ノート</Text>
       </View>
+      <DraggableFlatList
+        ref={flatListRef}
+        data={bookData}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        onDragEnd={({ data }) => {
+          setBookData(data);
+          reorderBooks(data);
+        }}
+        extraData={bookData} // ← 状態更新に合わせて再レンダリング
+        contentContainerStyle={[
+          homeStyles.verticalScrollContainer,
+          //DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'black' },
+        ]}
+        getItemLayout={(data, index) => ({
+          length: homeStyle.BOOK_BTN_WIDTH,           // アイテムの幅
+          offset: homeStyle.BOOK_BTN_WIDTH * index,   // オフセット計算
+          index,
+        })}
+        onScrollToIndexFailed={(info) => {
+          // 失敗した場合に少し待って再スクロール
+          setTimeout(() => {
+            flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
+          }, 100);
+        }}
+      />
       <View style={[
-        homeStyles.homeScreenContainer,
-        DEBUG_LAYOUT && { borderWidth: 3, borderColor: 'orange' },
+        homeStyles.bottomMenuContainer,
+        DEBUG_LAYOUT && { borderWidth: 0.5, borderColor: 'black' },
       ]}>
-        <DraggableFlatList
-          ref={flatListRef}
-          data={bookData}
-          keyExtractor={(item) => item.id}
-          horizontal
-          renderItem={renderItem}
-          onDragEnd={({ data }) => {
-            setBookData(data);
-            reorderBooks(data);
-          }}
-          extraData={bookData} // ← 状態更新に合わせて再レンダリング
-          contentContainerStyle={homeStyles.horizontalScrollContainer}
-          getItemLayout={(data, index) => ({
-            length: homeStyle.BOOK_IMG_WIDTH,           // アイテムの幅
-            offset: homeStyle.BOOK_IMG_WIDTH * index,   // オフセット計算
-            index,
-          })}
-            onScrollToIndexFailed={(info) => {
-              // 失敗した場合に少し待って再スクロール
-              setTimeout(() => {
-                flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
-              }, 100);
-            }}
-        />
-      </View>
-
-      <View style={[
-        homeStyles.menuBtnContainer,
-        DEBUG_LAYOUT && { borderWidth: 1, borderColor: 'purple' },
-        ]}>
-        <TouchableOpacity
-          onPress={() => setShowBookOptions(prev => !prev)}
-          style={homeStyles.menuBtn}
-        >
-          <Text style={homeStyles.menuBtnText}>・本を追加</Text>
-        </TouchableOpacity>
-
-        {/* 常にマウントしておく。表示／非表示はスタイルで制御 */}
-        <View style={[
-          homeStyles.newBooksContainer,
-          {
-            opacity: showBookOptions ? 1 : 0,
-            height: showBookOptions ? 'auto' : 0,
-            ...(DEBUG_LAYOUT && { borderColor: 'green' })
-          }
-        ]}>
-          {colorOptions.map(color => (
-            <TouchableOpacity
-              key={color}
-              onPress={() => handleAddBookWithColor(color)}
-              style={[homeStyles.newBookBtn, {...(DEBUG_LAYOUT && {borderWidth: 1,  borderColor: 'blue' })}]}
-            >
-              <Image source={bookImgs[color]} style={homeStyles.newBookBtnImg} resizeMode="contain" />
-            </TouchableOpacity>
-          ))}
-        </View>
-
         <TouchableOpacity
           onPress={() => console.log('使い方')}
-          style={homeStyles.menuBtn}
+          style={homeStyles.manualBtn}
         >
-          <Text style={homeStyles.menuBtnText}>・使い方　</Text>
+          <Ionicons 
+            name="help-circle-outline" 
+            size={commonStyle.screenWidth/11}
+            style={homeStyles.manualBtnIcon}
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setShowBookOptions(prev => !prev)}
+          style={homeStyles.addBookBtn}
+        >
+          <Ionicons 
+            name="book" 
+            size={commonStyle.screenWidth/12}
+            style={homeStyles.addBookBtnIcon}
+          />
         </TouchableOpacity>
       </View>
-    </ScreenBackground>
+      {showBookOptions && (
+        <Modal transparent animationType="fade">
+          <View 
+          style={[
+            homeStyles.newBookOptionsOverlay,
+            //DEBUG_LAYOUT && { borderWidth: 0.5, borderColor: 'red' },
+          ]}>
+            {colorOptions.map(color => (
+              <TouchableOpacity
+                key={color}
+                onPress={() => handleAddBookWithColor(color)}
+                style={[
+                  homeStyles.newBookBtn,
+                  //{...(DEBUG_LAYOUT && {borderWidth: 1,  borderColor: 'blue' })}
+                ]}
+              >
+                <Ionicons 
+                  name="book-outline" 
+                  size={commonStyle.screenWidth/10}
+                  style={[
+                    homeStyles.newBookBtnIcon,
+                    { color: bookIconColors[color] }
+                  ]}
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Modal>
+      )}
+    </View>
   );
 };
 
