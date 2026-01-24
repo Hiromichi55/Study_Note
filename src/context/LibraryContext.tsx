@@ -10,7 +10,7 @@ const isDelete = ENV.INIT_DB; // trueにすると毎回初期化される
 export type Book = {
   book_id: string;
   title: string;
-  color: 'blue' | 'cyan' | 'green' | 'pink' | 'red' | 'yellow'; // 本の色
+  color: 'blue' | 'cyan' | 'green' | 'pink' | 'red' | 'yellow'| 'black'; // 本の色
   order_index: number; // 並び順を管理するためのフィールド
 };
 

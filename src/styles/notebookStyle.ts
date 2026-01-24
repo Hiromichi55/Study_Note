@@ -20,7 +20,7 @@ export const notebookStyles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#d9111199',
     borderWidth: 1.5,
     borderColor: 'black',
     alignItems: 'center',
