@@ -16,7 +16,9 @@ import { ENV } from '@config';
 import { homeStyles } from '../styles/homeStyle';
 import * as homeStyle from '../styles/homeStyle';
 import * as commonStyle from '../styles/commonStyle';
-import { ImageBackground,Modal } from 'react-native';
+import { ImageBackground, Modal } from 'react-native';
+import { logTable } from '../utils/logTable';
+import { initDB } from '../db/db';
 
 
 
@@ -37,12 +39,12 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const colorOptions: Book['color'][] = ['red', 'pink', 'yellow', 'green', 'cyan', 'blue', 'black'];
 
   const bookIconColors: Record<string, string> = {
-    blue: '#3498DB',
-    cyan: 'cyan',
-    green: '#2ECC71',
-    pink: 'pink',
-    red: '#E74C3C',
-    yellow: '#F1C40F',
+    red: '#B26260',
+    pink: '#B25F87',
+    yellow: '#BBA859',
+    green: '#6DA055',
+    blue: '#4B8ABA',
+    cyan: '#55A99F',
     black: 'black'
   };
   const [showBookOptions, setShowBookOptions] = useState(false);
@@ -60,7 +62,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       order_index: state.books.length,
     };
     await addBook(newBook);
-
+    const database = await initDB();
     const updatedBooks = [...state.books, newBook];
     setBookData(updatedBooks);
 
@@ -73,6 +75,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         flatListRef.current.scrollToIndex({ index: newIndex, animated: true });
       }
     }, 100);
+    const result = await database.getAllAsync('SELECT * FROM books;');
+    logTable('Booksテーブル読込', result as Record<string, any>[]);
   };
 
   const renderItem = ({ item, drag, isActive }: RenderItemParams<Book>) => (
@@ -126,7 +130,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       <DraggableFlatList
         ref={flatListRef}
         data={bookData}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.book_id}
         renderItem={renderItem}
         onDragEnd={({ data }) => {
           setBookData(data);
