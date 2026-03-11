@@ -107,6 +107,8 @@ const EditorContext = createContext<{
   updatePageImage: (id: string, data: Partial<PageImage>) => Promise<void>;
   deletePageImage: (id: string) => Promise<void>;
   getPageImagesByBookId: (bookId: string) => Promise<PageImage[]>;
+  // 本㑓40てのコンテンツを削除（本削除時に使用）
+  deleteAllContentsByBookId: (bookId: string) => Promise<void>;
 }>({
   state: initialState,
   refreshAll: async () => {},
@@ -135,6 +137,7 @@ const EditorContext = createContext<{
   updatePageImage: async () => {},
   deletePageImage: async () => {},
   getPageImagesByBookId: async () => [],
+  deleteAllContentsByBookId: async () => {},
 });
 
 // ===== Reducer =====
@@ -331,7 +334,15 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // ===== CRUD =====
   const addContent = (data: Content) => insert('contents', data);
   const updateContent = (id: string, data: Partial<Content>) => update('contents', 'content_id', id, data);
-  const deleteContent = (id: string) => remove('contents', 'content_id', id);
+  // 子テーブルもカスケード削除
+  const deleteContent = async (id: string) => {
+    if (!db) return;
+    await db.runAsync('DELETE FROM outlines WHERE content_id = ?', [id]);
+    await db.runAsync('DELETE FROM texts WHERE content_id = ?', [id]);
+    await db.runAsync('DELETE FROM words WHERE content_id = ?', [id]);
+    await db.runAsync('DELETE FROM images WHERE content_id = ?', [id]);
+    await remove('contents', 'content_id', id);
+  };
   const getContents = () => select<Content>('contents');
 
   const addImage = (data: Image) => insert('images', data);
@@ -397,6 +408,21 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return await select<PageImage>('page_images', 'book_id = ?', [bookId]);
   };
 
+  // book_id に紐づく全コンテンツをカスケード削除（本削除時に使用）
+  const deleteAllContentsByBookId = async (bookId: string) => {
+    if (!db) return;
+    const contents = await select<Content>('contents', 'book_id = ?', [bookId]);
+    for (const c of contents) {
+      await db.runAsync('DELETE FROM outlines WHERE content_id = ?', [c.content_id]);
+      await db.runAsync('DELETE FROM texts WHERE content_id = ?', [c.content_id]);
+      await db.runAsync('DELETE FROM words WHERE content_id = ?', [c.content_id]);
+      await db.runAsync('DELETE FROM images WHERE content_id = ?', [c.content_id]);
+    }
+    await db.runAsync('DELETE FROM contents WHERE book_id = ?', [bookId]);
+    await db.runAsync('DELETE FROM page_images WHERE book_id = ?', [bookId]);
+    await refreshAll();
+  };
+
 
   return (
     <EditorContext.Provider
@@ -429,6 +455,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   updatePageImage,
   deletePageImage,
   getPageImagesByBookId,
+  deleteAllContentsByBookId,
         }}
     >
       {children}
