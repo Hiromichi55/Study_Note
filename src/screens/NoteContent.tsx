@@ -3,7 +3,7 @@
 // ==========================================
 
 import React, { useEffect, useState } from 'react';
-import { View, Text, Image, ActivityIndicator, Dimensions, StyleSheet, ImageBackground } from 'react-native';
+import { View, Text, Image, ActivityIndicator, Dimensions, StyleSheet, ImageBackground, TextInput, TouchableOpacity } from 'react-native';
 import { Skia, PaintStyle } from '@shopify/react-native-skia';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as commonStyle from '../styles/commonStyle';
@@ -49,6 +49,7 @@ const COLOR_MAP = {
   green: '#6DA055',
   blue: '#4B8ABA',
   cyan: '#55A99F',
+  black: '#333333',
 } as const;
 
 type Props = {
@@ -59,9 +60,17 @@ type Props = {
   onNoteLayout?: (bounds: { x: number; y: number; width: number; height: number }) => void;
   /** called when a background image file is generated and saved; receives the file URI */
   onBackgroundGenerated?: (uri: string) => void | Promise<void>;
+  /** 編集モード */
+  isEditing?: boolean;
+  /** 要素の内容変更コールバック */
+  onElementChange?: (index: number, newElement: NoteElement) => void;
+  /** 要素の削除コールバック */
+  onDeleteElement?: (index: number) => void;
+  /** 空行タップ時のコールバック（要素追加トリガー） */
+  onTapEmpty?: (afterIndex: number) => void;
 };
 
-const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onNoteLayout, onBackgroundGenerated }) => {
+const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onNoteLayout, onBackgroundGenerated, isEditing, onElementChange, onDeleteElement, onTapEmpty }) => {
   const bgColor = COLOR_MAP[backgroundColor ?? 'red'];
   const [bgUri, setBgUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -202,14 +211,28 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
   const startY = noteY + upperSpace * interval;
 
   const renderElements = () => {
-    if (!elements) return null;
+    if (!elements || elements.length === 0) {
+      // 編集モード中は空白行をタップ可能に表示
+      if (isEditing) {
+        const elLeft = noteX + noteWidth * space;
+        const elRight = noteX + noteWidth * (1 - space);
+        return Array.from({ length: 8 }, (_, i) => (
+          <TouchableOpacity
+            key={`empty-tap-${i}`}
+            style={{ position: 'absolute', top: startY + i * interval, left: elLeft, width: elRight - elLeft, height: interval }}
+            onPress={() => onTapEmpty?.(0)}
+          />
+        ));
+      }
+      return null;
+    }
 
     const elLeft = noteX + noteWidth * space;
     const elRight = noteX + noteWidth * (1 - space);
 
   let currentY = startY;
 
-    return elements.map((el, idx) => {
+    const rendered: React.ReactElement[] = elements.map((el, idx) => {
       const font = FONT_MAP[el.type];
       // estimate raw height in pixels
       let rawHeight = font.lineHeight;
@@ -252,6 +275,27 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
           }
         : {};
 
+      // 削除ボタン（編集時のみ表示）
+      const DeleteButton = isEditing ? (
+        <TouchableOpacity
+          onPress={() => onDeleteElement?.(idx)}
+          style={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            width: 20,
+            height: 20,
+            borderRadius: 10,
+            backgroundColor: 'rgba(255,59,48,0.85)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10,
+          }}
+        >
+          <Text style={{ color: 'white', fontSize: 11, fontWeight: 'bold', lineHeight: 14 }}>×</Text>
+        </TouchableOpacity>
+      ) : null;
+
       if (el.type === 'image') {
         return (
           <View
@@ -265,6 +309,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
               ...debugStyle,
             }}
           >
+            {DeleteButton}
             <Image
               source={{ uri: el.uri }}
               style={{ width: '100%', height: '100%' }}
@@ -295,11 +340,32 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
               ...debugStyle,
             }}
           >
+            {DeleteButton}
             <View style={{ width: leftWidth, height: '100%', paddingHorizontal: 6, paddingVertical: 4, borderRightWidth: 1, borderRightColor: RULE_COLOR }}>
-              <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}>{el.word}</Text>
+              {isEditing ? (
+                <TextInput
+                  value={el.word}
+                  onChangeText={(t) => onElementChange?.(idx, { ...el, word: t })}
+                  style={{ fontSize: font.size, lineHeight: font.lineHeight, width: '100%', padding: 0 }}
+                  multiline
+                  placeholder="単語"
+                />
+              ) : (
+                <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}>{el.word}</Text>
+              )}
             </View>
             <View style={{ width: rightWidth, height: '100%', paddingHorizontal: 6, paddingVertical: 4, justifyContent: 'flex-start' }}>
-              <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}>{(el as any).meaning}</Text>
+              {isEditing ? (
+                <TextInput
+                  value={(el as any).meaning}
+                  onChangeText={(t) => onElementChange?.(idx, { ...el, meaning: t } as any)}
+                  style={{ fontSize: font.size, lineHeight: font.lineHeight, width: '100%', padding: 0 }}
+                  multiline
+                  placeholder="説明"
+                />
+              ) : (
+                <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}>{(el as any).meaning}</Text>
+              )}
             </View>
           </View>
         );
@@ -319,19 +385,51 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
             ...debugStyle,
           }}
         >
-          <Text
-            style={{
-              fontSize: font.size,
-              lineHeight: font.lineHeight,
-              flexWrap: 'wrap',
-              width: '100%',
-            }}
-          >
-            {'text' in el ? el.text : (el as any).text || ''}
-          </Text>
+          {DeleteButton}
+          {isEditing ? (
+            <TextInput
+              value={'text' in el ? el.text : (el as any).text || ''}
+              onChangeText={(t) => onElementChange?.(idx, { ...el, text: t } as any)}
+              style={{
+                fontSize: font.size,
+                lineHeight: font.lineHeight,
+                width: '90%',
+                padding: 0,
+                includeFontPadding: false,
+              }}
+              multiline
+            />
+          ) : (
+            <Text
+              style={{
+                fontSize: font.size,
+                lineHeight: font.lineHeight,
+                flexWrap: 'wrap',
+                width: '100%',
+              }}
+            >
+              {'text' in el ? el.text : (el as any).text || ''}
+            </Text>
+          )}
         </View>
       );
     });
+
+    // 編集時: 最後の要素の下に空行タップゾーンを追加
+    if (isEditing) {
+      const numEmpty = Math.max(5, Math.floor((noteHeight - (currentY - noteY)) / interval));
+      for (let i = 0; i < numEmpty; i++) {
+        rendered.push(
+          <TouchableOpacity
+            key={`empty-tap-${i}`}
+            style={{ position: 'absolute', top: currentY + i * interval, left: elLeft, width: elRight - elLeft, height: interval }}
+            onPress={() => onTapEmpty?.(elements.length)}
+          />
+        );
+      }
+    }
+
+    return rendered;
   };
 
 

@@ -23,7 +23,8 @@ type State = {
 type Action =
   | { type: 'SET_BOOKS'; books: Book[] }
   | { type: 'ADD_BOOK'; book: Book }
-  | { type: 'SET_LOADING'; isLoading: boolean };
+  | { type: 'SET_LOADING'; isLoading: boolean }
+  | { type: 'DELETE_BOOK'; bookId: string };
 
 const initialBooks: Book[] = [
   { book_id: '1', title: '国語', color: 'red', order_index: 0 },
@@ -41,12 +42,14 @@ const LibraryContext = createContext<{
   state: State;
   dispatch: React.Dispatch<Action>;
   addBook: (book: Book) => Promise<void>;
-  reorderBooks: (newBooks: Book[]) => Promise<void>; 
+  reorderBooks: (newBooks: Book[]) => Promise<void>;
+  deleteBook: (bookId: string) => Promise<void>;
 }>({
   state: initialState,
   dispatch: () => null,
   addBook: async () => {},
   reorderBooks: async () => {},
+  deleteBook: async () => {},
 });
 
 function libraryReducer(state: State, action: Action): State {
@@ -57,6 +60,8 @@ function libraryReducer(state: State, action: Action): State {
       return { ...state, books: [...state.books, action.book] };
     case 'SET_LOADING':
       return { ...state, isLoading: action.isLoading };
+    case 'DELETE_BOOK':
+      return { ...state, books: state.books.filter(b => b.book_id !== action.bookId) };
     default:
       return state;
   }
@@ -199,8 +204,22 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // 本を削除する関数
+  const deleteBook = async (bookId: string) => {
+    if (!db) {
+      console.error('Database not initialized');
+      return;
+    }
+    try {
+      await db.runAsync('DELETE FROM books WHERE id = ?', [bookId]);
+      dispatch({ type: 'DELETE_BOOK', bookId });
+    } catch (error) {
+      console.error('本の削除エラー:', error);
+    }
+  };
+
   return (
-    <LibraryContext.Provider value={{ state, dispatch, addBook, reorderBooks }}>
+    <LibraryContext.Provider value={{ state, dispatch, addBook, reorderBooks, deleteBook }}>
       {children}
     </LibraryContext.Provider>
   );
