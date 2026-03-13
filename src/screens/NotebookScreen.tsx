@@ -21,7 +21,7 @@ import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
 import { notebookStyles } from '../styles/notebookStyle';
 import * as commonStyle from '../styles/commonStyle';
-import NoteContent, { generateDefaultBackground } from './NoteContent';
+import NoteContent, { computeMaxRows } from './NoteContent';
 import { logTable } from 'src/utils/logTable';
 import { useEditor, Content } from '../context/EditorContext';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -106,6 +106,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // 編集状態
   const [editing, setEditing] = useState(false);
+  // 編集終了時に NoteContent を強制再マウントするためのキー
+  const [noteContentKey, setNoteContentKey] = useState(0);
 
   // モーダル表示状態
   const [tocVisible, setTocVisible] = useState(false);
@@ -182,8 +184,18 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   };
 
   const handleTapEmpty = (afterIndex: number) => {
-    setAddAfterIndex(afterIndex);
-    setTypePickerVisible(true);
+    const maxRows = computeMaxRows(headerHeight);
+    const currentElements = pagesElements[currentPageNumber] ?? [];
+    if (currentElements.length >= maxRows) return; // 上限に達した場合は追加しない
+    const newEl: NoteElement = { type: 'text', text: '' };
+    setPagesElements(prev => {
+      const next = [...prev];
+      if (!next[currentPageNumber]) next[currentPageNumber] = [];
+      const arr = [...next[currentPageNumber]];
+      arr.splice(afterIndex, 0, newEl);
+      next[currentPageNumber] = arr;
+      return next;
+    });
   };
 
   const handleAddElement = (type: NoteElement['type']) => {
@@ -521,6 +533,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
           >
           <NoteContent 
+            key={noteContentKey}
             backgroundColor={book.color}
             elements={pagesElements[currentPageNumber]}
             onNoteLayout={setNoteBounds}
@@ -655,12 +668,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           <TouchableOpacity
             style={[
               notebookStyles.editButton,
-              { bottom: commonStyle.screenHeight * 0.02 }
+              { bottom: commonStyle.screenHeight * 0.02 + (editing && isKeyboardVisible ? keyboardHeight : 0) }
             ]}
             onPress={async () => {
               console.log('編集ボタン押下:', { editing });
               if (editing) {
                 setEditing(false);
+                setNoteContentKey(k => k + 1); // NoteContent を再マウントして表示リセット
                 Keyboard.dismiss();
                 await savePageToDB();
                 // UIが isEditing=false で再描画された後にキャプチャ
