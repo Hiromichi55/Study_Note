@@ -29,6 +29,10 @@ import { Image } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { ENV } from '@config';
 import { NoteElement } from './NoteContent';
+import { captureRef } from 'react-native-view-shot';
+import { useHeaderHeight } from '@react-navigation/elements';
+import { Dimensions, PixelRatio } from 'react-native';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 interface Props {
@@ -36,6 +40,15 @@ interface Props {
 }
 
 const NotebookScreen: React.FC<Props> = ({ route }) => {
+  const headerHeight = useHeaderHeight();
+  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+  // NoteContent と同じ計算式でノート領域を定義
+  const noteCapRect = {
+    x: Math.round(screenWidth * 0.01),
+    y: 0,
+    width: Math.round(screenWidth * 0.98),
+    height: Math.round((screenHeight - headerHeight) * 0.87),
+  };
   const { 
   addContent, addText, addWord, addImage, addOutline, getContentsByBookId, 
   getTextsByContentId, getOutlinesByContentId, getWordsByContentId, getImagesByContentId,
@@ -53,6 +66,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [currentPageNumber, setcurrentPageNumber] = useState(0);
   const searchInputRef = useRef<TextInput>(null);
+  const noteContentRef = useRef<any>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
@@ -76,6 +90,20 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const openMenu = () => setMenuVisible(true);
   const closeMenu = () => setMenuVisible(false);
 
+  // ===== ページ一覧モーダルを開く（サムネイルをDBから読み込む） =====
+  const openPageList = async () => {
+    setPageListVisible(true);
+    try {
+      const imgs = await getPageImagesByBookId(bookId);
+      const uriMap: Record<number, string> = {};
+      // page_orderはSQLiteから文字列で返ってくる場合があるためNumber()で指定
+      imgs.forEach(img => { uriMap[Number(img.page_order)] = img.image_path; });
+      setPageImageUris(uriMap);
+    } catch (e) {
+      console.warn('ページ画像読み込みエラー:', e);
+    }
+  };
+
   // 編集状態
   const [editing, setEditing] = useState(false);
 
@@ -84,6 +112,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [pageListVisible, setPageListVisible] = useState(false);
   const [typePickerVisible, setTypePickerVisible] = useState(false);
   const [addAfterIndex, setAddAfterIndex] = useState<number>(0);
+
+  // ページサムネイル（page_order → URI）
+  const [pageImageUris, setPageImageUris] = useState<Record<number, string>>({});
 
   const ELEMENT_LABELS: { label: string; type: NoteElement['type'] }[] = [
     { label: '章', type: 'chapter' },
@@ -327,41 +358,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     for (let p = 0; p <= maxPage; p++) {
       await loadPageFromDB(p);
     }
-    // seed page_images with the generated note background if none exist
-    try {
-      const imgs = await getPageImagesByBookId(bookId);
-      const existing = (imgs || []).find((it) => it.page_order === 0);
-      if (!existing) {
-        // need to generate or use cache
-        const CACHE_FILE = FileSystem.cacheDirectory + `background_${bookId}.webp`;
-        let imageUri = '';
-        try {
-          const info = await FileSystem.getInfoAsync(CACHE_FILE);
-          if (info.exists) {
-            imageUri = info.uri;
-          } else {
-            try {
-              await generateDefaultBackground(CACHE_FILE, 0, book?.color || 'red');
-              const created = await FileSystem.getInfoAsync(CACHE_FILE);
-              if (created.exists) imageUri = created.uri;
-            } catch (genErr) {
-              console.warn('generateDefaultBackground failed, falling back to asset', genErr);
-            }
-          }
-        } catch (e) {
-          console.warn('could not stat cache file for default note image', e);
-        }
-
-        if (!imageUri) {
-          imageUri = Image.resolveAssetSource(require('../../assets/images/note.png')).uri;
-        }
-
-        const newId = Crypto.randomUUID();
-        await addPageImage({ page_image_id: newId, image_path: imageUri, page_order: 0, book_id: bookId });
-      }
-    } catch (e) {
-      console.error('seed page_images error:', e);
-    }
   };
 
   useEffect(() => { // 初回ロード時に DB からページデータを読み込む
@@ -518,6 +514,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     >
       <View style={notebookStyles.notebookContentsContainer}>
         {/* <NoteBackground> */}
+          <View
+            ref={noteContentRef}
+            collapsable={false}
+            pointerEvents="box-none"
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          >
           <NoteContent 
             backgroundColor={book.color}
             elements={pagesElements[currentPageNumber]}
@@ -526,27 +528,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             onElementChange={handleElementChange}
             onDeleteElement={handleDeleteElement}
             onTapEmpty={handleTapEmpty}
-            onBackgroundGenerated={async (uri: string) => {
-              try {
-                const existingImages = await getPageImagesByBookId(bookId);
-                const existing = existingImages.find(img => img.page_order === 0);
-                if (existing) {
-                  await updatePageImage(existing.page_image_id, { image_path: uri });
-                } else {
-                  const newId = Crypto.randomUUID();
-                  await addPageImage({ page_image_id: newId, image_path: uri, page_order: 0, book_id: bookId });
-                }
-              } catch (err) {
-                console.error('page_image保存エラー:', err);
-              }
-              try {
-                const rows = await getPageImagesByBookId(bookId);
-                logTable('page_images', rows as any[]);
-              } catch (logErr) {
-                console.warn('failed to log page_images after background generation:', logErr);
-              }
+            onBackgroundGenerated={(uri: string) => {
+              console.log('背景画像生成完了:', uri);
             }}
           />
+          </View>
           {/* 編集ボタン
           虫眼鏡ボタン
           スライダー */}
@@ -566,7 +552,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   disabled={editing}
                   onPress={() => {
                     console.log('ページ一覧ボタン押下');
-                    setPageListVisible(true);
+                    openPageList();
                   }}
                   style={[
                     notebookStyles.pageListBtn,
@@ -677,6 +663,50 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 setEditing(false);
                 Keyboard.dismiss();
                 await savePageToDB();
+                // UIが isEditing=false で再描画された後にキャプチャ
+                setTimeout(async () => {
+                  try {
+                    if (noteContentRef.current) {
+                      const capturedUri = await captureRef(noteContentRef, { format: 'jpg', quality: 0.8 });
+                      // captureRef は物理ピクセルで画像を生成するため PixelRatio で座標変換
+                      const pr = PixelRatio.get();
+                      const cropped = await manipulateAsync(
+                        capturedUri,
+                        [{ crop: {
+                          originX: Math.round(noteCapRect.x * pr),
+                          originY: Math.round(noteCapRect.y * pr),
+                          width:   Math.round(noteCapRect.width * pr),
+                          height:  Math.round(noteCapRect.height * pr),
+                        }}],
+                        { format: SaveFormat.JPEG, compress: 0.8 }
+                      );
+                      const ts = Date.now();
+                      const thumbPath = (FileSystem.documentDirectory ?? FileSystem.cacheDirectory!) +
+                        `thumb_${bookId}_p${currentPageNumber}_${ts}.jpg`;
+                      await FileSystem.copyAsync({ from: cropped.uri, to: thumbPath });
+
+                      const imgs = await getPageImagesByBookId(bookId);
+                      const existing = imgs.find(img => Number(img.page_order) === currentPageNumber);
+                      if (existing) {
+                        // 旧ファイルを削除（任意）
+                        try { await FileSystem.deleteAsync(existing.image_path, { idempotent: true }); } catch {}
+                        await updatePageImage(existing.page_image_id, { image_path: thumbPath });
+                      } else {
+                        await addPageImage({
+                          page_image_id: await Crypto.randomUUID(),
+                          image_path: thumbPath,
+                          page_order: currentPageNumber,
+                          book_id: bookId,
+                        });
+                      }
+                      // ローカル状態も新ファイル名のまま更新（URI変化でRNが再読込する）
+                      setPageImageUris(prev => ({ ...prev, [currentPageNumber]: thumbPath }));
+                      console.log(`ページ${currentPageNumber + 1}のサムネイルを保存しました`);
+                    }
+                  } catch (e) {
+                    console.warn('サムネイル保存エラー:', e);
+                  }
+                }, 500);
               } else {
                 setEditing(true);
               }
@@ -744,43 +774,67 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         onRequestClose={() => setPageListVisible(false)}
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ backgroundColor: 'white', width: '85%', maxHeight: '70%', borderRadius: 12, padding: 16 }}>
+          <View style={{ backgroundColor: 'white', width: '92%', maxHeight: '80%', borderRadius: 12, padding: 16 }}>
             <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>ページ一覧</Text>
             <FlatList
               data={pagesElements}
               keyExtractor={(_, i) => `page-list-${i}`}
-              renderItem={({ item: pageElems, index }) => {
-                const firstEl = (pageElems || [])[0];
-                const preview = firstEl
-                  ? firstEl.type === 'word'
-                    ? (firstEl as any).word
-                    : firstEl.type === 'image'
-                    ? '［画像］'
-                    : (firstEl as any).text || ''
-                  : '（空白ページ）';
+              numColumns={2}
+              columnWrapperStyle={{ justifyContent: 'space-between' }}
+              renderItem={({ index }) => {
+                const thumbUri = pageImageUris[index];
+                const isCurrentPage = index === currentPageNumber;
                 return (
                   <TouchableOpacity
                     onPress={() => { setcurrentPageNumber(index); setPageListVisible(false); }}
-                    style={{ paddingVertical: 10, borderBottomWidth: 0.5, borderColor: '#eee', flexDirection: 'row', alignItems: 'center' }}
+                    style={{
+                      width: '48%',
+                      marginBottom: 12,
+                      borderRadius: 8,
+                      overflow: 'hidden',
+                      borderWidth: 2,
+                      borderColor: isCurrentPage ? '#007AFF' : '#e0e0e0',
+                    }}
                   >
-                    <View style={{
-                      width: 36, height: 36, borderRadius: 6,
-                      backgroundColor: '#4B8ABA',
-                      justifyContent: 'center', alignItems: 'center', marginRight: 12
-                    }}>
-                      <Text style={{ color: 'white', fontWeight: 'bold' }}>{index + 1}</Text>
-                    </View>
-                    <Text numberOfLines={1} style={{ flex: 1, fontSize: 15 }}>{preview}</Text>
-                    {index === currentPageNumber && (
-                      <Ionicons name="checkmark" size={18} color="#007AFF" />
+                    {thumbUri ? (
+                      <Image
+                        source={{ uri: thumbUri }}
+                        style={{ width: '100%', aspectRatio: 0.65 }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={{
+                        width: '100%',
+                        aspectRatio: 0.65,
+                        backgroundColor: '#f5f5f5',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}>
+                        <Ionicons name="document-outline" size={32} color="#ccc" />
+                        <Text style={{ color: '#bbb', fontSize: 11, marginTop: 4 }}>未保存</Text>
+                      </View>
                     )}
+                    <View style={{
+                      paddingVertical: 6,
+                      paddingHorizontal: 8,
+                      backgroundColor: isCurrentPage ? '#007AFF' : 'white',
+                    }}>
+                      <Text style={{
+                        fontSize: 13,
+                        fontWeight: 'bold',
+                        color: isCurrentPage ? 'white' : '#333',
+                        textAlign: 'center',
+                      }}>
+                        ページ {index + 1}
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                 );
               }}
             />
             <TouchableOpacity
               onPress={() => setPageListVisible(false)}
-              style={{ marginTop: 12, alignSelf: 'flex-end' }}
+              style={{ marginTop: 8, alignSelf: 'flex-end' }}
             >
               <Text style={{ color: '#007AFF', fontSize: 16 }}>閉じる</Text>
             </TouchableOpacity>

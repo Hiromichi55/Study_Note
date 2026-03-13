@@ -65,7 +65,7 @@ HomeScreen (ホーム)
 | ページ削除（メニュー） | ✅ 実装済み（cascade削除 + 確認Alert） |
 | 本の削除（メニュー） | ✅ 実装済み（cascade削除 + 確認Alert + 画面戻り） |
 | 目次ボタン（見出し一覧モーダル） | ✅ 実装済み |
-| ページ一覧ボタン（ページ一覧モーダル） | ✅ 実装済み |
+| ページ一覧ボタン（ページ一覧モーダル） | ✅ 実装済み（2列グリッドでサムネイル表示） |
 | ノート背景画像の生成・表示 | ✅ 実装済み（expo-file-system でキャッシュ管理） |
 
 ---
@@ -160,16 +160,19 @@ CREATE TABLE images (
 
 ### 3.7 page_images テーブル
 
-ノートページの背景画像を格納。
+各ページのサムネイル画像（編集完了時にキャプチャ）を格納。
 
 ```sql
 CREATE TABLE page_images (
   page_image_id TEXT PRIMARY KEY NOT NULL,
-  image_path    TEXT,              -- 背景画像のローカルURI
-  page_order    INTEGER,           -- ページ順序
+  image_path    TEXT,              -- キャプチャ画像のローカルURI（Documentsディレクトリに保存）
+  page_order    INTEGER,           -- ページ番号（0始まり、ページ番号と対応）
   book_id       TEXT               -- 紐づく books.id
 );
 ```
+
+**保存タイミング**: 編集完了（✓ボタン）時に現在ページのサムネイルを `react-native-view-shot` でキャプチャして保存。
+`page_order` はページ番号と対応（ページ、0 → `page_order=0`）。未保存のページはアイコンと「未保存」表示。
 
 ---
 
@@ -298,7 +301,8 @@ type Action =
 | react-native-paper | UIコンポーネント（Menuなど） |
 | react-native-gesture-handler | ジェスチャー処理 |
 | react-native-reanimated | アニメーション |
-| expo-file-system | ファイルI/O（背景画像キャッシュ） |
+| react-native-view-shot | ページサムネイルのキャプチャ |
+| expo-file-system | ファイルI/O（背景画像キャッシュ・サムネイル保存） |
 | expo-crypto | UUID生成 |
 | @react-native-community/slider | ページ切り替えスライダー |
 | expo-font | カスタムフォント |
