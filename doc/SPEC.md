@@ -100,12 +100,11 @@ CREATE TABLE books (
 
 ```sql
 CREATE TABLE contents (
-  content_id    TEXT PRIMARY KEY NOT NULL,
-  content_order INTEGER,           -- ページ順序
-  type          TEXT,              -- 現状 'text' 固定（将来拡張用）
-  book_id       TEXT,              -- 紐づく books.id
-  page          INTEGER,           -- ページ番号（0始まり）
-  height        REAL               -- ページ高さ（将来用）
+  content_id TEXT PRIMARY KEY NOT NULL,
+  type       TEXT,              -- 現状 'text' 固定（将来拡張用）
+  book_id    TEXT,              -- 紐づく books.id
+  page       INTEGER,           -- ページ番号（0始まり、ページ順序の唯一の正規フィールド）
+  height     REAL               -- ページ高さ（将来用）
 );
 ```
 
@@ -185,7 +184,7 @@ books
   │  id (PK)
   │
   ├── contents (book_id → books.id)
-  │     │  content_id (PK), page, content_order
+  │     │  content_id (PK), page
   │     │
   │     ├── outlines   (content_id → contents.content_id)  ← 章・節・項
   │     ├── texts      (content_id → contents.content_id)  ← 文章
@@ -255,7 +254,9 @@ type NoteElement =
 
 ### 6.1 LibraryContext（`src/context/LibraryContext.tsx`）
 
-**管理対象**: Book（本）一覧
+**管理対象**: `books` テーブルのみ
+
+**DB初期化責任**: `ENV.INIT_DB=true` のとき、`books` テーブルのみをDROP→再作成する。コンテンツ系テーブルには一切触れない。
 
 | 提供する値 | 型 | 説明 |
 |------------|-----|------|
@@ -279,6 +280,8 @@ type Action =
 ### 6.2 EditorContext（`src/context/EditorContext.tsx`）
 
 **管理対象**: ノートコンテンツ（contents / outlines / texts / words / images / page_images）
+
+**DB初期化責任**: `ENV.INIT_DB=true` のとき、コンテンツ系テーブル（page_images→images→words→texts→outlines→contents の順）をDROP→再作成する。`books` テーブルには一切触れない。
 
 | 提供する値 | 型 | 説明 |
 |------------|-----|------|
@@ -379,7 +382,7 @@ src/
 |---------|-----|------|
 | `ENV.IS_DEV` | `boolean` | `true`: TestApp表示、`false`: ProductionApp表示 |
 | `ENV.SCREEN_DEV` | `boolean` | `true`: デバッグ用背景色・レイアウト枠線を表示 |
-| `ENV.INIT_DB` | `boolean` | `true`: 起動ごとにDBを初期化（booksテーブルをリセット） |
+| `ENV.INIT_DB` | `boolean` | `true`: 起動ごとにDBを初期化。**LibraryContext** が `books` を、**EditorContext** がコンテンツ系テーブル（contents/texts/outlines/words/images/page_images）を各自でDROP→再作成する |
 
 ---
 
@@ -389,7 +392,7 @@ src/
 
 ```
 1. crypto.randomUUID() で content_id を生成
-2. contents テーブルに INSERT（book_id, page番号, content_order）
+2. contents テーブルに INSERT（book_id, page番号）
 3. pagesElements[currentPageNumber] をループ
    - type='chapter'|'section'|'subsection' → outlines に INSERT
    - type='word'                            → words に INSERT

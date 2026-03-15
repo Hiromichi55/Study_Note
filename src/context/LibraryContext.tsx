@@ -88,30 +88,27 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const tableExists = tableCheckResult.length > 0;
 
         if (!tableExists || isDelete) {
-          const insertValues = initialBooks
-            .map(
-              (b) =>
-                `('${b.book_id}', '${b.title}', '${b.color}', ${b.order_index})`
-            )
-            .join(',');
+          // LibraryContext は books テーブルのみ管理する
+          // コンテンツ系テーブルは EditorContext が責任を持つ
+          await database.runAsync('DROP TABLE IF EXISTS books;');
 
-          await database.execAsync(`
-            BEGIN TRANSACTION;
-
-            DROP TABLE IF EXISTS books;
-
+          // books テーブルを再作成
+          await database.runAsync(`
             CREATE TABLE books (
               id TEXT PRIMARY KEY NOT NULL,
               title TEXT NOT NULL,
               color TEXT NOT NULL,
               order_index INTEGER DEFAULT 0
             );
-
-            INSERT INTO books (id, title, color, order_index)
-            VALUES ${insertValues};
-
-            COMMIT;
           `);
+
+          // 初期データを挿入
+          for (const b of initialBooks) {
+            await database.runAsync(
+              'INSERT INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
+              [b.book_id, b.title, b.color, b.order_index]
+            );
+          }
         }
 
 
@@ -124,7 +121,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           book_id: String(row.id),
           title: String(row.title),
           color: (row.color || 'blue') as Book['color'],  // ✅ 明示的に型を指定
-          order_index: Number(row.order_index || 0), // order_index フィールドを追加
+          order_index: Number(row.order_index || 0),
         }));
 
         // ✅ データベースが空なら初期データを挿入

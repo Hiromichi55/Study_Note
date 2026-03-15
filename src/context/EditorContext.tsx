@@ -1,11 +1,13 @@
 import React, { createContext, useReducer, useContext, useEffect, useState } from 'react';
 import * as SQLite from 'expo-sqlite';
 import { initDB } from '../db/db';
+import { ENV } from '@config';
+
+const isDelete = ENV.INIT_DB; // trueのとき: コンテンツ系テーブルを全削除して再作成
 
 // ===== 型定義 =====
 export type Content = {
   content_id: string;
-  content_order: number;
   type: 'image' | 'outline' | 'text' | 'word';
   book_id: string;
   page: number;
@@ -165,11 +167,23 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const database = await initDB();
       setDb(database);
 
-      // ===== テーブル作成 =====
-      await database.execAsync(`
+      // ===== isDelete=true のとき: コンテンツ系テーブルを全削除して再作成 =====
+      // （books テーブルは LibraryContext が管理するため触らない）
+      if (isDelete) {
+        const contentTables = ['page_images', 'images', 'words', 'texts', 'outlines', 'contents'];
+        for (const table of contentTables) {
+          try {
+            await database.runAsync(`DROP TABLE IF EXISTS ${table};`);
+          } catch (err) {
+            console.warn(`Failed to drop ${table}:`, err);
+          }
+        }
+      }
+
+      // ===== テーブル作成（個別のrunAsyncで確実に作成）=====
+      await database.runAsync(`
         CREATE TABLE IF NOT EXISTS contents (
           content_id TEXT PRIMARY KEY NOT NULL,
-          content_order INTEGER,
           type TEXT,
           book_id TEXT,
           page INTEGER,
@@ -177,7 +191,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         );
       `);
 
-      await database.execAsync(`
+      await database.runAsync(`
         CREATE TABLE IF NOT EXISTS images (
           image_id TEXT PRIMARY KEY NOT NULL,
           image TEXT,
@@ -185,7 +199,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         );
       `);
 
-      await database.execAsync(`
+      await database.runAsync(`
         CREATE TABLE IF NOT EXISTS outlines (
           outline_id TEXT PRIMARY KEY NOT NULL,
           outline TEXT,
@@ -194,7 +208,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         );
       `);
 
-      await database.execAsync(`
+      await database.runAsync(`
         CREATE TABLE IF NOT EXISTS texts (
           text_id TEXT PRIMARY KEY NOT NULL,
           text TEXT,
@@ -202,7 +216,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         );
       `);
 
-      await database.execAsync(`
+      await database.runAsync(`
         CREATE TABLE IF NOT EXISTS words (
           word_id TEXT PRIMARY KEY NOT NULL,
           word TEXT,
@@ -212,7 +226,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         );
       `);
 
-      await database.execAsync(`
+      await database.runAsync(`
         CREATE TABLE IF NOT EXISTS page_images (
           page_image_id TEXT PRIMARY KEY NOT NULL,
           image_path TEXT,
@@ -228,11 +242,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const hasImage = cols.some((c: any) => c.name === 'image');
         if (!hasImagePath) {
           // Add the new column
-          await database.execAsync(`ALTER TABLE page_images ADD COLUMN image_path TEXT;`);
+          await database.runAsync(`ALTER TABLE page_images ADD COLUMN image_path TEXT;`);
           console.log('Migration: added page_images.image_path column');
           // If old 'image' column exists, copy values over
           if (hasImage) {
-            await database.execAsync(`UPDATE page_images SET image_path = image WHERE image IS NOT NULL;`);
+            await database.runAsync(`UPDATE page_images SET image_path = image WHERE image IS NOT NULL;`);
             console.log('Migration: copied image -> image_path for existing rows');
           }
         }
