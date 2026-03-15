@@ -13,7 +13,7 @@ import {
   Alert,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
-import { RouteProp, useNavigation } from '@react-navigation/native';
+import { RouteProp, useNavigation, usePreventRemove } from '@react-navigation/native';
 import { useLibrary } from '../context/LibraryContext';
 import { MESSAGES } from '../constants/messages';
 import { Ionicons } from '@expo/vector-icons';
@@ -54,7 +54,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   getTextsByContentId, getOutlinesByContentId, getWordsByContentId, getImagesByContentId,
   addPageImage, updatePageImage, getPageImagesByBookId,
   deleteContent, deleteAllContentsByBookId,
-  select
+  select, updateContent
 } = useEditor();
 
   const isTest = ENV.SCREEN_DEV;
@@ -96,15 +96,20 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // ===== ページ一覧モーダルを開く（サムネイルをDBから読み込む） =====
   const openPageList = async () => {
-    setPageListVisible(true);
     try {
+      // DB から現在の本のすべてのページをリロード（最新データを取得）
+      await loadAllPages();
+      
+      // サムネイル画像を読み込む
       const imgs = await getPageImagesByBookId(bookId);
       const uriMap: Record<number, string> = {};
-      // page_orderはSQLiteから文字列で返ってくる場合があるためNumber()で指定
       imgs.forEach(img => { uriMap[Number(img.page_order)] = img.image_path; });
       setPageImageUris(uriMap);
+      
+      setPageListVisible(true);
     } catch (e) {
-      console.warn('ページ画像読み込みエラー:', e);
+      console.warn('ページ一覧読み込みエラー:', e);
+      setPageListVisible(true);
     }
   };
 
@@ -272,7 +277,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       Keyboard.dismiss();
       const pageNumber = await savePageToDB(); // ref から最新ページ番号取得
       if (pageNumber !== undefined) {
-        await loadPageFromDB(pageNumber);
+        // 保存後は全ページを再読み込みして DB との整合性を確保
+        await loadAllPages();
         setEditing(false);
         setPendingFocusIndex(undefined);
         setTimeout(() => saveThumbnailAsync(pageNumber), 400);
@@ -288,10 +294,34 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const deleteCurrentPage = async () => {
     try {
       const contents = await getContentsByBookId(bookId);
+      logTable('ページ削除前 contentsテーブル', contents as any[]);
       const pageContent = contents.find(c => c.page === currentPageNumber);
       if (pageContent) {
         await deleteContent(pageContent.content_id);
+        
+        // DB: 削除したページより後ろのページの page 値を全て -1 する（上詰め）
+        for (const content of contents) {
+          if (content.page > currentPageNumber) {
+            await updateContent(content.content_id, { page: content.page - 1 });
+          }
+        }
+        
+        // DB: 削除したページより後ろの page_images の page_order も -1 する
+        const allPageImages = await getPageImagesByBookId(bookId);
+        for (const img of allPageImages) {
+          if (Number(img.page_order) === currentPageNumber) {
+            // 削除ページのサムネイルは削除
+            // (deletePageImage がなければスキップ)
+          } else if (Number(img.page_order) > currentPageNumber) {
+            await updatePageImage(img.page_image_id, { page_order: Number(img.page_order) - 1 });
+          }
+        }
+        
+        // 削除後のDB確認ログ
+        const afterContents = await getContentsByBookId(bookId);
+        logTable('ページ削除後 contentsテーブル', afterContents as any[]);
       }
+      
       setPagesElements(prev => {
         const next = [...prev];
         next.splice(currentPageNumber, 1);
@@ -332,7 +362,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       const contentId = await Crypto.randomUUID();
       await addContent({
         content_id: contentId,
-        content_order: pageNumber,
         type: 'text',
         book_id: bookId,
         page: pageNumber,
@@ -429,32 +458,116 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const loadAllPages = async () => {
     let contents = await getContentsByBookId(bookId);
 
-    // DB が空なら空のページを1つ作成
+    // DB が空なら空のページを2つ作成
     if (!contents || contents.length === 0) {
-      const contentId = await Crypto.randomUUID();
-      await addContent({
-        content_id: contentId,
-        content_order: 0,
-        type: 'text',
-        book_id: bookId,
-        page: 0,
-        height: 0,
-      });
+      for (let p = 0; p < 2; p++) {
+        const contentId = await Crypto.randomUUID();
+        await addContent({
+          content_id: contentId,
+          type: 'text',
+          book_id: bookId,
+          page: p,
+          height: 0,
+        });
+        // page_images テーブルにもエントリを追加
+        const pageImageId = await Crypto.randomUUID();
+        await addPageImage({
+          page_image_id: pageImageId,
+          image_path: '',
+          page_order: p,
+          book_id: bookId,
+        });
+      }
       contents = await getContentsByBookId(bookId);
     }
 
-    // ページ数を最大ページに合わせる
-    const maxPage = contents.length > 0 ? Math.max(...contents.map(c => c.page), 0) : 0;
+    // page 値で昇順ソートして確実に順番を保証
+    const sortedContents = [...contents].sort((a, b) => a.page - b.page);
+    const maxPage = sortedContents.length > 0 ? sortedContents[sortedContents.length - 1].page : 0;
 
-    for (let p = 0; p <= maxPage; p++) {
-      await loadPageFromDB(p);
+    // 全ページ分の空配列を先に確保
+    const newPagesElements: NoteElement[][] = Array(maxPage + 1).fill(null).map(() => []);
+
+    // 各ページの要素を取得してまとめてセット（一括更新で順序ずれを防ぐ）
+    for (const content of sortedContents) {
+      const p = content.page;
+      const contentId = content.content_id;
+      const [texts, outlines, words, images] = await Promise.all([
+        getTextsByContentId(contentId),
+        getOutlinesByContentId(contentId),
+        getWordsByContentId(contentId),
+        getImagesByContentId(contentId),
+      ]);
+
+      type RawItem =
+        | { id: string; kind: 'outline'; data: typeof outlines[0] }
+        | { id: string; kind: 'text';    data: typeof texts[0] }
+        | { id: string; kind: 'word';    data: typeof words[0] }
+        | { id: string; kind: 'image';   data: typeof images[0] };
+
+      const all: RawItem[] = [
+        ...outlines.map(o  => ({ id: o.outline_id,  kind: 'outline' as const, data: o })),
+        ...texts.map(t    => ({ id: t.text_id,     kind: 'text'    as const, data: t })),
+        ...words.map(w    => ({ id: w.word_id,     kind: 'word'    as const, data: w })),
+        ...images.map(img => ({ id: (img as any).image_id, kind: 'image' as const, data: img })),
+      ];
+      all.sort((a, b) => a.id.localeCompare(b.id));
+
+      newPagesElements[p] = all.map(item => {
+        if (item.kind === 'outline') {
+          const o = item.data as typeof outlines[0];
+          return { type: o.type as 'chapter' | 'section' | 'subsection', text: o.outline };
+        }
+        if (item.kind === 'text') {
+          return { type: 'text' as const, text: (item.data as typeof texts[0]).text };
+        }
+        if (item.kind === 'word') {
+          const w = item.data as typeof words[0];
+          return { type: 'word' as const, word: w.word, meaning: w.explanation };
+        }
+        const img = item.data as typeof images[0];
+        return { type: 'image' as const, uri: (img as any).image_path || (img as any).image || '' };
+      });
     }
+
+    // 一括で State を更新（順序が確実に保証される）
+    setPagesElements(newPagesElements);
   };
 
   useEffect(() => { // 初回ロード時に DB からページデータを読み込む
     loadAllPages();
   }, [bookId]);
 
+  // 初期2ページのサムネイルを自動生成（初回ロード時のみ）
+  useEffect(() => {
+    const saveThumbnails = async () => {
+      try {
+        if (pagesElements.length >= 2) {
+          const pageImages = await getPageImagesByBookId(bookId);
+          
+          // 初回時はサムネイル生成をスキップ（page_images はすでに作成済み、image_pathは空）
+          const isInitialLoad = pageImages.every(img => !img.image_path);
+          if (isInitialLoad) {
+            return; // UI更新なしでスキップ
+          }
+          
+          // 2回目以降のみサムネイル生成処理を実行
+          for (let p = 0; p < 2; p++) {
+            const exists = pageImages.find(img => Number(img.page_order) === p && img.image_path);
+            if (!exists) {
+              setTimeout(() => {
+                setcurrentPageNumber(p);
+                setTimeout(() => saveThumbnailAsync(p), 300);
+              }, 100);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('初期サムネイル生成エラー:', e);
+      }
+    };
+    saveThumbnails();
+  }, [pagesElements.length]);
 
   useEffect(() => {
     const loadContents = async () => {
@@ -464,6 +577,46 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     };
     loadContents();
   }, [bookId]);
+
+  // 編集中は戻るをプリベント
+  usePreventRemove(editing, ({ data }) => {
+    Alert.alert(
+      '確認',
+      '編集中です。保存しますか？',
+      [
+        {
+          text: '保存しない',
+          onPress: () => {
+            setEditing(false);
+            navigation.dispatch(data.action);
+          },
+          style: 'destructive',
+        },
+        {
+          text: 'キャンセル',
+          style: 'cancel',
+        },
+        {
+          text: '保存',
+          onPress: async () => {
+            // 保存してから戻る
+            try {
+              const pageNumber = currentPageNumberRef.current;
+              await savePageToDB();
+              await loadAllPages();
+              setEditing(false);
+              setTimeout(() => saveThumbnailAsync(pageNumber), 400);
+              setTimeout(() => {
+                navigation.dispatch(data.action);
+              }, 500);
+            } catch (err) {
+              console.error('保存エラー:', err);
+            }
+          },
+        },
+      ]
+    );
+  });
 
   useEffect(() => {
     // iOS: keyboardWillShow / WillHide を使うと表示前に高さ取得できる
@@ -532,33 +685,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           >
           <Menu.Item
             onPress={() => {
-              console.log('メニュー/ページ追加ボタン押下');
-              closeMenu();
-              const newPageNumber = pagesElements.length;
-              setPagesElements(prev => [...prev, []]);
-              setcurrentPageNumber(newPageNumber);
-            }}
-            title="ページ追加"
-            rippleColor="rgba(0, 122, 255, 0.3)"
-            leadingIcon="plus"
-          />
-          <Menu.Item
-            onPress={() => {
-              console.log('メニュー/ページ編集ボタン押下');
-              closeMenu();
-              setEditing(true);
-            }}
-            title="ページ編集"
-            leadingIcon="pencil"
-          />
-          <Menu.Item
-            onPress={() => {
               console.log('メニュー/検索ボタン押下');
               closeMenu();
               setShowSearch(!showSearch);
             }}
             title="検索"
-            leadingIcon="search"
+            leadingIcon="magnify"
           />
           <Menu.Item
             onPress={() => {
@@ -572,7 +704,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             title="ページ削除"
             leadingIcon="trash-can"
           />
-          <Menu.Item
+          {/* <Menu.Item
             onPress={() => {
               console.log('メニュー/本削除ボタン押下');
               closeMenu();
@@ -584,7 +716,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             title="本削除"
             titleStyle={notebookStyles.deleteOption}
             leadingIcon="delete"
-          />
+          /> */}
         </Menu>
         ),
     });
@@ -643,6 +775,22 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           スライダー */}
         {/* </NoteBackground> */}
 
+          {/* ページ番号（右上） */}
+          {!editing && (
+            <Text
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 30,
+                fontSize: 14,
+                color: '#666',
+                fontWeight: '500',
+              }}
+            >
+              {currentPageNumber + 1}
+            </Text>
+          )}
+
           {/* ページ一覧ボタン（左下） */}
           {!editing && (
             <TouchableOpacity
@@ -680,6 +828,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               }}
             >
               <Slider
+                key={`slider-${pagesElements.length}`}
                 style={{ flex: 1 }}
                 minimumValue={0}
                 maximumValue={Math.max(pagesElements.length - 1, 0)}
@@ -690,7 +839,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 thumbTintColor="#fff"
                 onValueChange={ async(v) => {
                   setcurrentPageNumber(v);
-                  console.log('ページ数変更:', v);
+                  console.log('ページ数変更:', v+1);
                   await loadPageFromDB(v);
                 }}
               />
@@ -771,21 +920,70 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           )}
 
           {/* ページ追加ボタン（右下）+ */}
-          <TouchableOpacity
-            style={[
-              notebookStyles.editButton,
-              { bottom: commonStyle.screenHeight * 0.02 }
-            ]}
-            onPress={() => {
-              console.log('ページ追加ボタン押下');
-              closeMenu();
-              const newPageNumber = pagesElements.length;
-              setPagesElements(prev => [...prev, []]);
-              setcurrentPageNumber(newPageNumber);
-            }}
-          >
-            <Ionicons name="add" size={commonStyle.screenWidth / 12} color="white" />
-          </TouchableOpacity>
+          {!editing && (
+            <TouchableOpacity
+              style={[
+                notebookStyles.editButton,
+                { bottom: commonStyle.screenHeight * 0.02 }
+              ]}
+              onPress={async () => {
+                console.log('ページ追加ボタン押下');
+                closeMenu();
+                
+                try {
+                  // 新ページを挿入する位置（現在ページの次）
+                  const insertPosition = currentPageNumber + 1;
+                  
+                  // DB: 挿入位置以降のページのpage番号を全て +1 する
+                  const allContents = await getContentsByBookId(bookId);
+                  logTable('ページ追加前 contentsテーブル', allContents as any[]);
+                  for (const content of allContents) {
+                    if (content.page >= insertPosition) {
+                      await updateContent(content.content_id, { page: content.page + 1 });
+                    }
+                  }
+                  
+                  // DB: 挿入位置以降の page_images の page_order も +1 する
+                  const allPageImages = await getPageImagesByBookId(bookId);
+                  for (const img of allPageImages) {
+                    if (Number(img.page_order) >= insertPosition) {
+                      await updatePageImage(img.page_image_id, { page_order: Number(img.page_order) + 1 });
+                    }
+                  }
+                  
+                  // DB: 新ページの content を作成
+                  const newContentId = await Crypto.randomUUID();
+                  await addContent({
+                    content_id: newContentId,
+                    type: 'text',
+                    book_id: bookId,
+                    page: insertPosition,
+                    height: 0,
+                  } as Content);
+                  
+                  // 追加後のDB確認ログ
+                  const afterContents = await getContentsByBookId(bookId);
+                  logTable('ページ追加後 contentsテーブル', afterContents as any[]);
+                  
+                  // ステップ1: スライダーの最大値を更新（新ページを現在ページの次に挿入）
+                  setPagesElements(prev => {
+                    const newPages = [...prev];
+                    newPages.splice(insertPosition, 0, []); // 指定位置に空ページを挿入
+                    return newPages;
+                  });
+                  
+                  // ステップ2: 新ページへ遷移
+                  setTimeout(() => {
+                    setcurrentPageNumber(insertPosition);
+                  }, 0);
+                } catch (e) {
+                  console.error('ページ追加エラー:', e);
+                }
+              }}
+            >
+              <Ionicons name="add" size={commonStyle.screenWidth / 12} color="white" />
+            </TouchableOpacity>
+          )}
 
 
       </View>
@@ -833,7 +1031,22 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         visible={pageListVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setPageListVisible(false)}
+        onRequestClose={async () => {
+          // ページ一覧を閉じるときに、現在の pagesElements の順番をDB に書き込む
+          try {
+            const allContents = await getContentsByBookId(bookId);
+            // 各ページのpage値を 0, 1, 2, ... に更新
+            for (let i = 0; i < pagesElements.length; i++) {
+              const content = allContents.find(c => c.page === i);
+              if (content) {
+                await updateContent(content.content_id, { page: i });
+              }
+            }
+          } catch (e) {
+            console.error('ページ順序保存エラー:', e);
+          }
+          setPageListVisible(false);
+        }}
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
           <View style={{ backgroundColor: 'white', width: '92%', maxHeight: '80%', borderRadius: 12, padding: 16 }}>

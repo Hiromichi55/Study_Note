@@ -8,7 +8,6 @@ import { LibraryProvider } from './context/LibraryContext';
 import { EditorProvider, useEditor, Content } from './context/EditorContext';
 import { Provider as PaperProvider } from 'react-native-paper';
 import * as Font from 'expo-font';
-import AppLoading from 'expo-app-loading';
 import * as SplashScreen from 'expo-splash-screen';
 import { MESSAGES } from './constants/messages';
 import HomeScreenProduction from './screens/HomeScreen';
@@ -48,12 +47,15 @@ export default function App() {
 
   useEffect(() => {
     const hideSplash = async () => {
-      await SplashScreen.hideAsync();
+      if (fontsLoaded) {
+        await SplashScreen.hideAsync();
+      }
     };
     hideSplash();
-  }, []);
+  }, [fontsLoaded]);
 
-  if (!fontsLoaded && !IS_DEV) return <AppLoading />;
+  // フォント読み込みまで待機
+  if (!fontsLoaded) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -85,7 +87,7 @@ function ProductionApp() {
             />
             <Stack.Screen
               name="Notebook"
-              component={NotebookScreen}
+              component={NotebookScreen as any}
               options={{ title: MESSAGES.NOTE_TITLE }}
             />
           </Stack.Navigator>
@@ -134,7 +136,6 @@ const DBTestComponent = () => {
         if (existing.length === 0) {
           const newContent: Content = {
             content_id: '1',
-            content_order: 1,
             type: 'image',
             book_id: 'book1',
             page: 1,
@@ -162,7 +163,7 @@ const DBTestComponent = () => {
       <Text>Hello from EditorContext!</Text>
       <Text>isLoading: {state.isLoading ? 'true' : 'false'}</Text>
       {state.contents.map((c) => (
-        <Text key={c.content_id}>{`${c.content_order}: ${c.content_id} (Book: ${c.book_id})`}</Text>
+        <Text key={c.content_id}>{`page${c.page}: ${c.content_id} (Book: ${c.book_id})`}</Text>
       ))}
     </ScrollView>
   );
