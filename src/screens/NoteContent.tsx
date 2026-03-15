@@ -64,14 +64,17 @@ type Props = {
   onDeleteElement?: (index: number) => void;
   /** 空行タップ時のコールバック（要素追加トリガー） */
   onTapEmpty?: (afterIndex: number) => void;
+  /** 非編集モードで行をタップして編集開始するコールバック */
+  onEditStart?: (index: number) => void;
+  /** 編集開始時にフォーカスする要素インデックス */
+  initialFocusIndex?: number;
 };
 
-const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onNoteLayout, onBackgroundGenerated, isEditing, onElementChange, onDeleteElement, onTapEmpty }) => {
+const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onNoteLayout, onBackgroundGenerated, isEditing, onElementChange, onDeleteElement, onTapEmpty, onEditStart, initialFocusIndex }) => {
   const bgColor = COLOR_MAP[backgroundColor ?? 'red'];
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const slideAnim = useRef(new Animated.Value(0)).current;
   const inputRefs = useRef<Record<string, TextInput | null>>({});
   const scrollViewRef = useRef<ScrollView>(null);
   const headerHeight = useHeaderHeight();
@@ -133,23 +136,17 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
       setKeyboardVisible(true);
       setKeyboardHeight(kbH);
 
-      // キーボード分のスライド量（ノートがキーボードと重ならない最小量）
-      const defaultSlide = Math.max(0, kbH - bottomMargin);
+      // キーボードで隠れるノート下部の高さ（bottomMargin を超えた分）
+      const coveredByKb = Math.max(0, kbH - bottomMargin);
+      // キーボードが出ている状態でのノート可視高さ
+      const visibleHeight = noteHeight - coveredByKb;
 
-      // アクティブ要素のY位置（上端より上に飛び出さないよう上限を設ける）
+      // アクティブ要素のY位置（ScrollView 内座標）
       const elementY = getActiveElementY(activeIndexRef.current, elementsRef.current);
-      // elementY まで以上スライドすると要素が画面上端より上に消える
-      const slideUp = Math.min(defaultSlide, elementY);
 
-      Animated.timing(slideAnim, {
-        toValue: -slideUp,
-        duration: 250,
-        useNativeDriver: true,
-      }).start();
-
-      // スライド量に合わせてスクロール位置も調整（スライドで隠れない分はスクロールで補う）
-      // アクティブ行を上から2行目に見せるため interval 分余白を取る
-      const scrollY = Math.max(0, elementY - slideUp - interval);
+      // 要素がキーボードで隠れる場合だけスクロール
+      // 要素がvisibleHeightの下端より下にある場合のみスクロールが必要
+      const scrollY = Math.max(0, elementY - visibleHeight + 2 * interval);
       setTimeout(() => {
         scrollViewRef.current?.scrollTo({ y: scrollY, animated: true });
       }, 150);
@@ -157,15 +154,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
     const onHide = () => {
       setKeyboardVisible(false);
       setKeyboardHeight(0);
-      // スライドアニメーション完了後にscrollToリセット
-      // アニメーション中にリセットすると競合して白くなるため、完了コールバックで実行
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start(() => {
-        scrollViewRef.current?.scrollTo({ y: 0, animated: false });
-      });
+      // キーボード非表示時はスクロール位置をトップに戻す
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      }, 100);
     };
     const showSub = Platform.OS === 'ios'
       ? Keyboard.addListener('keyboardWillShow', onShow)
@@ -179,6 +171,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
   // isEditing が false になったときもスクロールリセット（キーボードが既に閉じている場合の保険）
   useEffect(() => {
     if (!isEditing) {
+      setActiveIndex(null);
       // スライドアニメ完了を待ってからリセット（200ms＋余裕）
       const t = setTimeout(() => {
         scrollViewRef.current?.scrollTo({ y: 0, animated: false });
@@ -187,14 +180,22 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
     }
   }, [isEditing]);
 
-  // フォーカス行までスクロール（キーボード表示中のみ・スライド量と整合）
-  // アクティブ行を上から2行目に見せるため interval 分余白を取る
+  // 編集モード開始時に initialFocusIndex の要素にフォーカス
+  useEffect(() => {
+    if (isEditing && initialFocusIndex !== undefined && initialFocusIndex !== null) {
+      setActiveIndex(initialFocusIndex);
+      // レンダリング後にフォーカス
+      setTimeout(() => focusElementInput(initialFocusIndex), 50);
+    }
+  }, [isEditing, initialFocusIndex]);
+
+  // フォーカス行が変わったときにスクロール調整（キーボード表示中のみ）
   useEffect(() => {
     if (activeIndex === null || !keyboardVisible || !isEditing || !elements) return;
+    const coveredByKb = Math.max(0, keyboardHeight - bottomMargin);
+    const visibleHeight = noteHeight - coveredByKb;
     const yOffset = getActiveElementY(activeIndex, elements);
-    const defaultSlide = Math.max(0, keyboardHeight - bottomMargin);
-    const safeSlide = Math.min(defaultSlide, yOffset);
-    const scrollY = Math.max(0, yOffset - safeSlide - interval);
+    const scrollY = Math.max(0, yOffset - visibleHeight + 2 * interval);
     setTimeout(() => {
       scrollViewRef.current?.scrollTo({ y: scrollY, animated: true });
     }, 100);
@@ -293,33 +294,18 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
         ? { backgroundColor: 'rgba(255,0,0,0.15)', borderWidth: 1, borderColor: 'red' }
         : {};
 
-      // 削除ボタン（編集時のみ）
-      const DeleteButton = isEditing ? (
-        <TouchableOpacity
-          onPress={() => onDeleteElement?.(idx)}
-          style={{
-            position: 'absolute',
-            top: 4,
-            right: 4,
-            width: 20,
-            height: 20,
-            borderRadius: 10,
-            backgroundColor: 'rgba(255,59,48,0.85)',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10,
-          }}
-        >
-          <Text style={{ color: 'white', fontSize: 11, fontWeight: 'bold', lineHeight: 14 }}>×</Text>
-        </TouchableOpacity>
-      ) : null;
-
       if (el.type === 'image') {
         rendered.push(
           <View
             key={idx}
-            onStartShouldSetResponder={() => !!isEditing}
-            onResponderRelease={() => { if (!isEditing) return; setActiveIndex(idx); }}
+            onStartShouldSetResponder={() => true}
+            onResponderRelease={() => {
+              if (!isEditing) {
+                onEditStart?.(idx);
+                return;
+              }
+              setActiveIndex(idx);
+            }}
             style={{
               height: 200,
               borderBottomWidth: 1,
@@ -329,7 +315,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
               ...debugStyle,
             }}
           >
-            {DeleteButton}
             <Image source={{ uri: el.uri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
           </View>
         );
@@ -343,8 +328,14 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
         rendered.push(
           <View
             key={idx}
-            onStartShouldSetResponder={() => !!isEditing}
-            onResponderRelease={() => { if (!isEditing) return; setActiveIndex(idx); }}
+            onStartShouldSetResponder={() => true}
+            onResponderRelease={() => {
+              if (!isEditing) {
+                onEditStart?.(idx);
+                return;
+              }
+              setActiveIndex(idx);
+            }}
             style={{
               height: estHeight,
               flexDirection: 'row',
@@ -355,7 +346,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
               ...debugStyle,
             }}
           >
-            {DeleteButton}
             <View style={{ width: colLeftWidth, height: '100%', paddingHorizontal: 6, paddingVertical: 4, borderRightWidth: 1, borderRightColor: RULE_COLOR }}>
               {isEditing ? (
                 <TextInput
@@ -407,9 +397,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
       rendered.push(
         <View
           key={idx}
-          onStartShouldSetResponder={() => !!isEditing}
+          onStartShouldSetResponder={() => true}
           onResponderRelease={() => {
-            if (!isEditing) return;
+            if (!isEditing) {
+              onEditStart?.(idx);
+              return;
+            }
             setActiveIndex(idx);
             focusElementInput(idx);
           }}
@@ -422,7 +415,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
             ...debugStyle,
           }}
         >
-          {DeleteButton}
           {isEditing ? (
             <TextInput
               value={'text' in el ? el.text : (el as any).text || ''}
@@ -465,22 +457,22 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
     const currentCount = elements?.length ?? 0;
     const remaining = Math.max(0, maxRows - currentCount);
     for (let i = 0; i < remaining; i++) {
-      if (isEditing) {
-        rendered.push(
-          <TouchableOpacity
-            key={`empty-tap-${i}`}
-            style={{ height: interval, borderBottomWidth: 1, borderBottomColor: RULE_COLOR }}
-            onPress={() => onTapEmpty?.(currentCount)}
-          />
-        );
-      } else {
-        rendered.push(
-          <View
-            key={`empty-line-${i}`}
-            style={{ height: interval, borderBottomWidth: 1, borderBottomColor: RULE_COLOR }}
-          />
-        );
-      }
+      rendered.push(
+        <TouchableOpacity
+          key={`empty-tap-${i}`}
+          style={{ height: interval, borderBottomWidth: 1, borderBottomColor: RULE_COLOR }}
+          onPress={() => {
+            if (!isEditing) {
+              // 非編集モード：新要素追加 → 編集モード開始
+              onTapEmpty?.(currentCount);
+              onEditStart?.(currentCount);
+            } else {
+              // 編集モード：新要素追加のみ
+              onTapEmpty?.(currentCount);
+            }
+          }}
+        />
+      );
     }
 
     return rendered;
@@ -506,7 +498,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
           shadowRadius: 0,
           elevation: 4,
           overflow: 'hidden',
-          transform: [{ translateY: slideAnim }],
+          // translateY は使わない：スライドするとヘッダー上に内容が隠れるため
         }}
       >
         {/* 常にスクロール可能にする。scrollEnabled=false だと scrollTo() が iOS で無視されるため
