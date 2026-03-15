@@ -79,12 +79,16 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // elements ベースのページデータ
   const [pagesElements, setPagesElements] = useState<NoteElement[][]>([]);
+  // useLayoutEffect クロージャで古い値を参照しないよう常に最新を保持する ref
+  const pagesElementsRef = useRef<NoteElement[][]>([]);
+  const currentPageNumberRef = useRef<number>(0);
+  pagesElementsRef.current = pagesElements;
+  currentPageNumberRef.current = currentPageNumber;
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // スライダー表示状態とアニメーション
-  const [isSliderVisible, setisSliderVisible] = useState(true);
+  // アニメーション
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
   const openMenu = () => setMenuVisible(true);
@@ -106,6 +110,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // 編集状態
   const [editing, setEditing] = useState(false);
+  // 行タップ時の編集開始フォーカス先インデックス
+  const [pendingFocusIndex, setPendingFocusIndex] = useState<number | undefined>(undefined);
   // 編集終了時に NoteContent を強制再マウントするためのキー
   const [noteContentKey, setNoteContentKey] = useState(0);
 
@@ -217,6 +223,67 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     setTypePickerVisible(false);
   };
 
+  // ===== 行タップ → 編集モード開始 =====
+  const handleEditStart = (index: number) => {
+    setPendingFocusIndex(index);
+    setEditing(true);
+  };
+
+  // ===== サムネイル保存（バックグラウンド・UIをブロックしない） =====
+  const saveThumbnailAsync = async (pageNumber: number) => {
+    try {
+      if (!noteContentRef.current) return;
+      const uri = await captureRef(noteContentRef, { format: 'jpg', quality: 0.7, result: 'tmpfile' });
+      const pr = PixelRatio.get();
+      const cropped = await manipulateAsync(
+        uri,
+        [{ crop: {
+          originX: noteCapRect.x * pr,
+          originY: noteCapRect.y * pr,
+          width: noteCapRect.width * pr,
+          height: noteCapRect.height * pr,
+        }}],
+        { compress: 0.7, format: SaveFormat.JPEG }
+      );
+      const destDir = FileSystem.documentDirectory + 'thumbnails/';
+      await FileSystem.makeDirectoryAsync(destDir, { intermediates: true });
+      const destPath = destDir + `book_${bookId}_page_${pageNumber}.jpg`;
+      await FileSystem.copyAsync({ from: cropped.uri, to: destPath });
+      const existing = await getPageImagesByBookId(bookId);
+      const existingPage = existing.find(img => Number(img.page_order) === pageNumber);
+      if (existingPage) {
+        await updatePageImage(existingPage.page_image_id, { image_path: destPath });
+      } else {
+        await addPageImage({
+          page_image_id: await Crypto.randomUUID(),
+          image_path: destPath,
+          page_order: pageNumber,
+          book_id: bookId,
+        });
+      }
+    } catch (e) {
+      console.warn('サムネイル保存エラー:', e);
+    }
+  };
+
+  // ===== 保存処理（DB保存 + 再読み込み + 編集終了） =====
+  const handleSave = async () => {
+    try {
+      Keyboard.dismiss();
+      const pageNumber = await savePageToDB(); // ref から最新ページ番号取得
+      if (pageNumber !== undefined) {
+        await loadPageFromDB(pageNumber);
+        setEditing(false);
+        setPendingFocusIndex(undefined);
+        setTimeout(() => saveThumbnailAsync(pageNumber), 400);
+      }
+    } catch (e) {
+      console.error('保存エラー:', e);
+      setEditing(false);
+      setPendingFocusIndex(undefined);
+    }
+  };
+
   // ===== ページ削除 =====
   const deleteCurrentPage = async () => {
     try {
@@ -250,7 +317,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   // 📌 ページ保存ロジック
   const savePageToDB = async () => {
     try {
-      const pageNumber = currentPageNumber;
+      // ref から最新の値を取得（useLayoutEffect のクロージャが古い state を掴む問題を回避）
+      const pageNumber = currentPageNumberRef.current;
+      const elems = pagesElementsRef.current[pageNumber];
+
       // ⭐ 1) 既存 content をカスケード削除
       const oldContents = await getContentsByBookId(bookId);
       const oldPageContent = oldContents.find(c => c.page === pageNumber);
@@ -260,52 +330,35 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
       // ⭐ 2) 新しい content を追加して保存
       const contentId = await Crypto.randomUUID();
-      const newContent: Content = {
+      await addContent({
         content_id: contentId,
         content_order: pageNumber,
         type: 'text',
         book_id: bookId,
         page: pageNumber,
-        height: 0
-      };
-      await addContent(newContent);
+        height: 0,
+      } as Content);
 
-      const elems = pagesElements[pageNumber];
       if (Array.isArray(elems) && elems.length > 0) {
         for (let i = 0; i < elems.length; i++) {
           const el = elems[i];
+          const orderPrefix = String(i).padStart(4, '0');
+          const elemId = `${orderPrefix}_${await Crypto.randomUUID()}`;
           if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
-            await addOutline({
-              outline_id: await Crypto.randomUUID(),
-              type: el.type === 'chapter' ? 'chapter' : el.type === 'section' ? 'section' : 'subsection',
-              outline: (el as any).text,
-              content_id: contentId,
-            });
+            await addOutline({ outline_id: elemId, type: el.type, outline: (el as any).text, content_id: contentId });
           } else if (el.type === 'word') {
-            await addWord({
-              word_id: await Crypto.randomUUID(),
-              word: (el as any).word,
-              explanation: (el as any).meaning || '',
-              word_order: i,
-              content_id: contentId,
-            });
+            await addWord({ word_id: elemId, word: (el as any).word, explanation: (el as any).meaning || '', word_order: i, content_id: contentId });
           } else if (el.type === 'image') {
-            await addImage({
-              image_id: await Crypto.randomUUID(),
-              image: (el as any).uri,
-              content_id: contentId,
-            });
+            await addImage({ image_id: elemId, image: (el as any).uri, content_id: contentId });
           } else if (el.type === 'text') {
-            await addText({
-              text_id: await Crypto.randomUUID(),
-              text: (el as any).text,
-              content_id: contentId,
-            });
+            await addText({ text_id: elemId, text: (el as any).text, content_id: contentId });
           }
         }
       }
+      return pageNumber; // 保存したページ番号を返す
     } catch (e) {
       console.error('保存エラー:', e);
+      throw e;
     }
   };
 
@@ -318,21 +371,47 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
       const contentId = pageContentRow.content_id;
 
-      const texts = await getTextsByContentId(contentId);
-      const outlines = await getOutlinesByContentId(contentId);
-      const words = await getWordsByContentId(contentId);
-      const images = await getImagesByContentId(contentId);
+      const [texts, outlines, words, images] = await Promise.all([
+        getTextsByContentId(contentId),
+        getOutlinesByContentId(contentId),
+        getWordsByContentId(contentId),
+        getImagesByContentId(contentId),
+      ]);
 
-      // DB から NoteElement[] を組み立てる（文字列マーカーに依存しない）
-  const elements: NoteElement[] = [];
-  outlines.forEach(o => {
-        if (o.type === 'chapter') elements.push({ type: 'chapter', text: o.outline });
-        else if (o.type === 'section') elements.push({ type: 'section', text: o.outline });
-        else if (o.type === 'subsection') elements.push({ type: 'subsection', text: o.outline });
+      // 全要素をIDでまとめてソートし、保存時の順序を復元する
+      // IDは "0000_uuid" 形式（savePageToDB で付与）→辞書順ソートで元の挿入順になる
+      type RawItem =
+        | { id: string; kind: 'outline'; data: typeof outlines[0] }
+        | { id: string; kind: 'text';    data: typeof texts[0] }
+        | { id: string; kind: 'word';    data: typeof words[0] }
+        | { id: string; kind: 'image';   data: typeof images[0] };
+
+      const all: RawItem[] = [
+        ...outlines.map(o  => ({ id: o.outline_id,  kind: 'outline' as const, data: o })),
+        ...texts.map(t    => ({ id: t.text_id,     kind: 'text'    as const, data: t })),
+        ...words.map(w    => ({ id: w.word_id,     kind: 'word'    as const, data: w })),
+        ...images.map(img => ({ id: (img as any).image_id, kind: 'image' as const, data: img })),
+      ];
+
+      // IDの先頭4桁が順序プレフィックス。古いデータ（プレフィックスなし）はそのまま末尾に
+      all.sort((a, b) => a.id.localeCompare(b.id));
+
+      const elements: NoteElement[] = all.map(item => {
+        if (item.kind === 'outline') {
+          const o = item.data as typeof outlines[0];
+          return { type: o.type as 'chapter' | 'section' | 'subsection', text: o.outline };
+        }
+        if (item.kind === 'text') {
+          return { type: 'text' as const, text: (item.data as typeof texts[0]).text };
+        }
+        if (item.kind === 'word') {
+          const w = item.data as typeof words[0];
+          return { type: 'word' as const, word: w.word, meaning: w.explanation };
+        }
+        // image
+        const img = item.data as typeof images[0];
+        return { type: 'image' as const, uri: (img as any).image_path || (img as any).image || '' };
       });
-      texts.forEach(t => elements.push({ type: 'text', text: t.text }));
-      words.forEach(w => elements.push({ type: 'word', word: w.word, meaning: w.explanation }));
-  images.forEach(img => elements.push({ type: 'image', uri: (img as any).image_path || (img as any).image || '' }));
 
       // pagesElements を更新して UI が NoteElement を使えるようにする
       setPagesElements(prev => {
@@ -416,15 +495,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     };
   }, []);
 
-  // 👇 表示状態が変わったらアニメーションさせる
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: isSliderVisible ? 1 : 0,
-      duration: 600,
-      easing: Easing.out(Easing.ease),
-      useNativeDriver: true,
-    }).start();
-  }, [isSliderVisible]);
+
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -433,27 +504,39 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           <Text style={notebookStyles.outlineBtn}>目次</Text>
         </TouchableOpacity>
       ),
-      headerRight: () => (
-        <Menu
-          key={menuVisible ? 'open' : 'closed'}
-          visible={menuVisible}
-          onDismiss={closeMenu}
-          anchor={
-            <TouchableOpacity
-              onPress={() => { console.log('メニューボタン押下'); openMenu(); }}
-              style={[notebookStyles.menuBtn, getDebugStyle('rgba(0, 255, 0, 0.15)')]}>
-              <View style={notebookStyles.menuBtnIcon}>
-                <Ionicons name="ellipsis-horizontal" size={20} color="black" />
-              </View>
-            </TouchableOpacity>
-          }
-          contentStyle={notebookStyles.menuOptionsContainer}
-        >
+      headerRight: () =>
+        editing ? (
+          // 編集中: チェックボタン（保存）
+          <TouchableOpacity
+            onPress={() => { console.log('保存ボタン押下'); handleSave(); }}
+            style={[notebookStyles.menuBtn, { paddingHorizontal: 12 }]}
+          >
+            <Ionicons name="checkmark" size={26} color="#007AFF" />
+          </TouchableOpacity>
+        ) : (
+          // 通常: ミートボールメニュー
+          <Menu
+            key={menuVisible ? 'open' : 'closed'}
+            visible={menuVisible}
+            onDismiss={closeMenu}
+            anchor={
+              <TouchableOpacity
+                onPress={() => { console.log('メニューボタン押下'); openMenu(); }}
+                style={[notebookStyles.menuBtn, getDebugStyle('rgba(0, 255, 0, 0.15)')]}>
+                <View style={notebookStyles.menuBtnIcon}>
+                  <Ionicons name="ellipsis-horizontal" size={20} color="black" />
+                </View>
+              </TouchableOpacity>
+            }
+            contentStyle={notebookStyles.menuOptionsContainer}
+          >
           <Menu.Item
             onPress={() => {
               console.log('メニュー/ページ追加ボタン押下');
               closeMenu();
+              const newPageNumber = pagesElements.length;
               setPagesElements(prev => [...prev, []]);
+              setcurrentPageNumber(newPageNumber);
             }}
             title="ページ追加"
             rippleColor="rgba(0, 122, 255, 0.3)"
@@ -467,6 +550,15 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             }}
             title="ページ編集"
             leadingIcon="pencil"
+          />
+          <Menu.Item
+            onPress={() => {
+              console.log('メニュー/検索ボタン押下');
+              closeMenu();
+              setShowSearch(!showSearch);
+            }}
+            title="検索"
+            leadingIcon="search"
           />
           <Menu.Item
             onPress={() => {
@@ -494,7 +586,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             leadingIcon="delete"
           />
         </Menu>
-      ),
+        ),
     });
   }, [navigation, menuVisible, editing, currentPageNumber]);
 
@@ -505,10 +597,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     <TouchableWithoutFeedback 
       disabled={editing}
       onPress={() => {
-        setisSliderVisible(!isSliderVisible);
-        isSliderVisible ? console.log('スライダー非表示') : console.log('スライダー表示');
         if (showSearch) {
-          // 検索中は検索バー閉じてスライダー表示
+          // 検索中は検索バー閉じる
           setShowSearch(false);
 
           // フォーカス解除してキーボードを確実に閉じる
@@ -541,6 +631,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             onElementChange={handleElementChange}
             onDeleteElement={handleDeleteElement}
             onTapEmpty={handleTapEmpty}
+            onEditStart={handleEditStart}
+            initialFocusIndex={pendingFocusIndex}
             onBackgroundGenerated={(uri: string) => {
               console.log('背景画像生成完了:', uri);
             }}
@@ -551,49 +643,57 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           スライダー */}
         {/* </NoteBackground> */}
 
-          {/* ページ一覧ボタンとスライダー */}
-          {isSliderVisible && !editing && (
-            <View
+          {/* ページ一覧ボタン（左下） */}
+          {!editing && (
+            <TouchableOpacity
+              disabled={editing}
+              onPress={() => {
+                console.log('ページ一覧ボタン押下');
+                openPageList();
+              }}
               style={[
-                notebookStyles.pageListBtnAndSliderContainer,
-                { bottom: !showSearch ? commonStyle.screenHeight*0.25 : commonStyle.screenHeight*0.3, },
-                getDebugStyle('rgba(0, 0, 255, 0.2)'), // スライダー：薄い青
-            ]}
+                notebookStyles.pageListBtn,
+                { position: 'absolute', bottom: commonStyle.screenHeight * 0.02 + (commonStyle.screenWidth / 6 - commonStyle.screenWidth / 7) / 2, left: 20 },
+                getDebugStyle('rgba(0, 0, 0, 0.4)'),
+              ]}
             >
-                {/*  📚 ページ一覧ボタン */}
-                <TouchableOpacity
-                  disabled={editing}
-                  onPress={() => {
-                    console.log('ページ一覧ボタン押下');
-                    openPageList();
-                  }}
-                  style={[
-                    notebookStyles.pageListBtn,
-                    getDebugStyle('rgba(0, 0, 0, 0.4)'),
-                  ]}
-                >
-                  <Ionicons name="albums-outline" size={commonStyle.screenWidth/15} color="white" />
-                </TouchableOpacity>
+              <Ionicons name="albums-outline" size={commonStyle.screenWidth/15} color="white" />
+            </TouchableOpacity>
+          )}
 
-              {/* 丸いつまみのスライダー（右70%） */}
-                <Slider
-                  style={notebookStyles.slider}
-                  minimumValue={0}
-                  maximumValue={Math.max(pagesElements.length - 1, 0)}
-                  step={1}
-                  value={currentPageNumber}
-                  minimumTrackTintColor="#000"
-                  maximumTrackTintColor="#ccc"
-                  thumbTintColor="#000"
-                  onValueChange={ async(v) => {
-                    setcurrentPageNumber(v);
-                    console.log('ページ数変更:', v);
-                    // PagerView was removed; just update page state and load
-                    // ★ ページ切り替え時に読み込み
-                    await loadPageFromDB(v);
-                    // await loadPageFromPDF(v); // PDFをDBから読み込むようにする
-                  }}
-                />
+          {/* スライダー（ページ一覧ボタンと+ボタンの間） */}
+          {!editing && (
+            <View
+              style={{
+                position: 'absolute',
+                bottom: commonStyle.screenHeight * 0.02,
+                left: commonStyle.screenWidth * 0.25,
+                right: commonStyle.screenWidth * 0.25,
+                height: commonStyle.screenWidth / 6,
+                borderRadius: 12,
+                justifyContent: 'center',
+                paddingHorizontal: 10,
+                shadowColor: '#000',
+                shadowOpacity: 0.3,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 5,
+              }}
+            >
+              <Slider
+                style={{ flex: 1 }}
+                minimumValue={0}
+                maximumValue={Math.max(pagesElements.length - 1, 0)}
+                step={1}
+                value={currentPageNumber}
+                minimumTrackTintColor="#fff"
+                maximumTrackTintColor="#666"
+                thumbTintColor="#fff"
+                onValueChange={ async(v) => {
+                  setcurrentPageNumber(v);
+                  console.log('ページ数変更:', v);
+                  await loadPageFromDB(v);
+                }}
+              />
             </View>
           )}
 
@@ -601,7 +701,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
           {/* 🔍 検索欄と検索結果 */}
           {showSearch && (
-            <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+            <View style={{ 
+              position: 'absolute',
+              bottom: isKeyboardVisible ? keyboardHeight : 0,
+              left: 0,
+              right: 0,
+              flexDirection: 'column',
+            }}>
               {/* 検索結果一覧 */}
               {searchResults.length > 0 && (
                 <FlatList
@@ -664,82 +770,24 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             </View>
           )}
 
-          {/* 編集ボタン（右下） */}
+          {/* ページ追加ボタン（右下）+ */}
           <TouchableOpacity
             style={[
               notebookStyles.editButton,
-              { bottom: commonStyle.screenHeight * 0.02 + (editing && isKeyboardVisible ? keyboardHeight : 0) }
+              { bottom: commonStyle.screenHeight * 0.02 }
             ]}
-            onPress={async () => {
-              console.log('編集ボタン押下:', { editing });
-              if (editing) {
-                setEditing(false);
-                setNoteContentKey(k => k + 1); // NoteContent を再マウントして表示リセット
-                Keyboard.dismiss();
-                await savePageToDB();
-                // UIが isEditing=false で再描画された後にキャプチャ
-                setTimeout(async () => {
-                  try {
-                    if (noteContentRef.current) {
-                      const capturedUri = await captureRef(noteContentRef, { format: 'jpg', quality: 0.8 });
-                      // captureRef は物理ピクセルで画像を生成するため PixelRatio で座標変換
-                      const pr = PixelRatio.get();
-                      const cropped = await manipulateAsync(
-                        capturedUri,
-                        [{ crop: {
-                          originX: Math.round(noteCapRect.x * pr),
-                          originY: Math.round(noteCapRect.y * pr),
-                          width:   Math.round(noteCapRect.width * pr),
-                          height:  Math.round(noteCapRect.height * pr),
-                        }}],
-                        { format: SaveFormat.JPEG, compress: 0.8 }
-                      );
-                      const ts = Date.now();
-                      const thumbPath = (FileSystem.documentDirectory ?? FileSystem.cacheDirectory!) +
-                        `thumb_${bookId}_p${currentPageNumber}_${ts}.jpg`;
-                      await FileSystem.copyAsync({ from: cropped.uri, to: thumbPath });
-
-                      const imgs = await getPageImagesByBookId(bookId);
-                      const existing = imgs.find(img => Number(img.page_order) === currentPageNumber);
-                      if (existing) {
-                        // 旧ファイルを削除（任意）
-                        try { await FileSystem.deleteAsync(existing.image_path, { idempotent: true }); } catch {}
-                        await updatePageImage(existing.page_image_id, { image_path: thumbPath });
-                      } else {
-                        await addPageImage({
-                          page_image_id: await Crypto.randomUUID(),
-                          image_path: thumbPath,
-                          page_order: currentPageNumber,
-                          book_id: bookId,
-                        });
-                      }
-                      // ローカル状態も新ファイル名のまま更新（URI変化でRNが再読込する）
-                      setPageImageUris(prev => ({ ...prev, [currentPageNumber]: thumbPath }));
-                      console.log(`ページ${currentPageNumber + 1}のサムネイルを保存しました`);
-                    }
-                  } catch (e) {
-                    console.warn('サムネイル保存エラー:', e);
-                  }
-                }, 500);
-              } else {
-                setEditing(true);
-              }
+            onPress={() => {
+              console.log('ページ追加ボタン押下');
+              closeMenu();
+              const newPageNumber = pagesElements.length;
+              setPagesElements(prev => [...prev, []]);
+              setcurrentPageNumber(newPageNumber);
             }}
           >
-            <Ionicons name={editing ? 'checkmark' : 'create'} size={commonStyle.screenWidth / 12} color="white" />
+            <Ionicons name="add" size={commonStyle.screenWidth / 12} color="white" />
           </TouchableOpacity>
 
-          {/* 虫眼鏡ボタン（左下） */}
-          {!editing && (
-            <TouchableOpacity
-              style={notebookStyles.searchBtn}
-              onPress={() => {
-                console.log('虫眼鏡ボタン押下');
-                setShowSearch(!showSearch)}}
-            >
-              <Ionicons name="search" size={commonStyle.screenWidth/12} color="white" />
-            </TouchableOpacity>
-          )}
+
       </View>
     </TouchableWithoutFeedback>
 

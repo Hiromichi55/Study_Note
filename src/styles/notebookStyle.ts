@@ -14,15 +14,13 @@ export const notebookStyles = StyleSheet.create({
   /* ミートボールメニュー */
   menuBtn: {
     paddingRight: 0,
-    alignItems: 'center'
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   menuBtnIcon: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#d9111199',
-    borderWidth: 1.5,
-    borderColor: 'black',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -83,14 +81,17 @@ export const notebookStyles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   pageListBtn: {
-    width: '15%',
-    aspectRatio: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     borderRadius: 15,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center', //アイコン画像の位置
+    width: commonStyle.screenWidth/7,
+    height: commonStyle.screenWidth/7,
     justifyContent: 'center',
-    marginRight: 10,
-    marginLeft: 10,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
   slider: {
     width: '70%',
@@ -100,16 +101,14 @@ export const notebookStyles = StyleSheet.create({
 
   /* 検索ボックス */
   searchBoxContainer: {
-    position: 'absolute',
-    bottom: 100,
-    left: 20,
-    right: 20,
-    backgroundColor: 'white', // ← 半透明赤
+    backgroundColor: 'white',
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
+    marginHorizontal: 20,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOpacity: 0.2,
     shadowOffset: { width: 0, height: 2 },
