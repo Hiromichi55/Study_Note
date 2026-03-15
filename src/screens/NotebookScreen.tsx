@@ -307,14 +307,24 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         }
         
         // DB: 削除したページより後ろの page_images の page_order も -1 する
+        // ※ サムネイルファイルも新しいページ番号のファイル名にコピーする
         const allPageImages = await getPageImagesByBookId(bookId);
-        for (const img of allPageImages) {
-          if (Number(img.page_order) === currentPageNumber) {
-            // 削除ページのサムネイルは削除
-            // (deletePageImage がなければスキップ)
-          } else if (Number(img.page_order) > currentPageNumber) {
-            await updatePageImage(img.page_image_id, { page_order: Number(img.page_order) - 1 });
+        // 番号が小さい順に処理して上書き衝突を防ぐ
+        const sortedImgsAsc = [...allPageImages]
+          .filter(img => Number(img.page_order) > currentPageNumber)
+          .sort((a, b) => Number(a.page_order) - Number(b.page_order));
+        for (const img of sortedImgsAsc) {
+          const newOrder = Number(img.page_order) - 1;
+          const thumbDir = FileSystem.documentDirectory + 'thumbnails/';
+          const newPath = thumbDir + `book_${bookId}_page_${newOrder}.jpg`;
+          let updatedPath = img.image_path;
+          if (img.image_path) {
+            try {
+              await FileSystem.copyAsync({ from: img.image_path, to: newPath });
+              updatedPath = newPath;
+            } catch (_) { /* ファイルが存在しない場合はスキップ */ }
           }
+          await updatePageImage(img.page_image_id, { page_order: newOrder, image_path: updatedPath });
         }
         
         // 削除後のDB確認ログ
@@ -944,12 +954,33 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   }
                   
                   // DB: 挿入位置以降の page_images の page_order も +1 する
+                  // ※ サムネイルファイルも新しいページ番号のファイル名にコピーする
                   const allPageImages = await getPageImagesByBookId(bookId);
-                  for (const img of allPageImages) {
-                    if (Number(img.page_order) >= insertPosition) {
-                      await updatePageImage(img.page_image_id, { page_order: Number(img.page_order) + 1 });
+                  // 番号が大きい順に処理して上書き衝突を防ぐ
+                  const sortedImgs = [...allPageImages]
+                    .filter(img => Number(img.page_order) >= insertPosition)
+                    .sort((a, b) => Number(b.page_order) - Number(a.page_order));
+                  for (const img of sortedImgs) {
+                    const newOrder = Number(img.page_order) + 1;
+                    const thumbDir = FileSystem.documentDirectory + 'thumbnails/';
+                    const newPath = thumbDir + `book_${bookId}_page_${newOrder}.jpg`;
+                    let updatedPath = img.image_path;
+                    if (img.image_path) {
+                      try {
+                        await FileSystem.copyAsync({ from: img.image_path, to: newPath });
+                        updatedPath = newPath;
+                      } catch (_) { /* ファイルが存在しない場合はスキップ */ }
                     }
+                    await updatePageImage(img.page_image_id, { page_order: newOrder, image_path: updatedPath });
                   }
+
+                  // 新ページ用の page_images エントリを作成
+                  await addPageImage({
+                    page_image_id: await Crypto.randomUUID(),
+                    image_path: '',
+                    page_order: insertPosition,
+                    book_id: bookId,
+                  });
                   
                   // DB: 新ページの content を作成
                   const newContentId = await Crypto.randomUUID();
