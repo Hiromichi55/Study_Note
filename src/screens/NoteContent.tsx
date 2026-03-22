@@ -426,6 +426,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
               style={{
                 fontSize: font.size,
                 lineHeight: font.lineHeight,
+                fontFamily: 'piroji',
                 width: '90%',
                 padding: 0,
                 includeFontPadding: false,

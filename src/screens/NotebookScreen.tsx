@@ -672,9 +672,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           // 編集中: チェックボタン（保存）
           <TouchableOpacity
             onPress={() => { console.log('保存ボタン押下'); handleSave(); }}
-            style={[notebookStyles.menuBtn, { paddingHorizontal: 12 }]}
+            style={[notebookStyles.menuBtn, { paddingHorizontal: 12 }]} // color="#007AFF"
           >
-            <Ionicons name="checkmark" size={26} color="#007AFF" />
+            <Ionicons name="checkmark" size={35} color="#007AFF" />
           </TouchableOpacity>
         ) : (
           // 通常: ミートボールメニュー

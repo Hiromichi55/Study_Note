@@ -5,6 +5,7 @@ import { center } from '@shopify/react-native-skia';
 // 適応する本の画像
 export const BOOK_BTN_HEIGHT = commonStyle.screenHeight / 3.7;
 export const BOOK_BTN_WIDTH = commonStyle.screenWidth / 3.7;
+export const font = commonStyle.screenHeight / 36;
 
 export const homeStyles = StyleSheet.create({
   /* ホームスクリーンの背景 */
@@ -29,7 +30,6 @@ export const homeStyles = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 5,
     fontSize: commonStyle.screenHeight/36,
-    fontFamily: 'dartsfont',
     textAlign: 'center'
   },
 
@@ -78,7 +78,6 @@ export const homeStyles = StyleSheet.create({
     left: commonStyle.screenWidth / 10,
     paddingHorizontal: 20,
     fontSize: commonStyle.screenHeight/36,
-    fontFamily: 'dartsfont',
     textAlign: 'center'
   },
 

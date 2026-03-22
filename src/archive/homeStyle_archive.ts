@@ -43,7 +43,6 @@ export const homeStyles = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 5,
     fontSize: commonStyle.screenHeight/12,
-    fontFamily: 'dartsfont',
     textAlign: 'center'
   },
 
@@ -68,7 +67,6 @@ export const homeStyles = StyleSheet.create({
     fontSize: FONT_SIZE,
     lineHeight: LINE_HEIGHT,
     color: 'black',
-    fontFamily: 'dartsfont',
   },
 
   /* メニュー */
@@ -90,7 +88,6 @@ export const homeStyles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0)',
     color: 'black',
     fontSize: commonStyle.screenHeight/20,
-    fontFamily: 'dartsfont',
   },
 
   /* 新規ノート追加ボタン */

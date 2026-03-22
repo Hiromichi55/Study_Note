@@ -43,6 +43,8 @@ export default function App() {
     'dartsfont': require('../assets/fonts/dartsfont.ttf'),
     'HiraMinProN-W3': require('../assets/fonts/HiraMinProN-W3-AlphaNum-01.otf'),
     'HiraMinProN-W6': require('../assets/fonts/HiraMinProN-W6-AlphaNum-03.otf'),
+    'piroji': require('../assets/fonts/piroji.ttf'),
+    'pencil': require('../assets/fonts/pencil.ttf'),
   });
 
   useEffect(() => {
@@ -75,7 +77,7 @@ function ProductionApp() {
           <Stack.Navigator
             initialRouteName="Home"
             screenOptions={{
-              headerTitleStyle: { fontFamily: 'MyFont' },
+              // headerTitleStyle: { fontFamily: 'piroji' },
               gestureEnabled: true,
               animation: 'slide_from_right',
             }}

@@ -13,9 +13,9 @@ export const notebookStyles = StyleSheet.create({
 
   /* ミートボールメニュー */
   menuBtn: {
-    paddingRight: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 100,
   },
   menuBtnIcon: {
     width: 36,
@@ -81,7 +81,7 @@ export const notebookStyles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   pageListBtn: {
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     borderRadius: 15,
     width: commonStyle.screenWidth/7,
     height: commonStyle.screenWidth/7,
@@ -124,7 +124,7 @@ export const notebookStyles = StyleSheet.create({
   editButton: {
     position: 'absolute',
     right: 20,
-    backgroundColor: 'black', // 好きな色に
+    backgroundColor: 'rgba(0, 0, 0, 1)',
     borderRadius: commonStyle.screenHeight,
     width: commonStyle.screenWidth/6,
     height: commonStyle.screenWidth/6,
