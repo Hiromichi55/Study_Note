@@ -7,7 +7,6 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Animated,
-  Easing,
   Modal,
   FlatList,
   Alert,
@@ -128,7 +127,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
   // アニメーション
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const isSwipeAnimatingRef = useRef(false);
 
   const openMenu = () => setMenuVisible(true);
   const closeMenu = () => setMenuVisible(false);
@@ -167,6 +166,27 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // ページサムネイル（page_order → URI）
   const [pageImageUris, setPageImageUris] = useState<Record<number, string>>({});
+
+  const runPageSwitchAnimation = (targetPage: number, direction: 1 | -1) => {
+    if (isSwipeAnimatingRef.current) return;
+    if (targetPage < 0 || targetPage >= pagesElements.length) return;
+
+    isSwipeAnimatingRef.current = true;
+    const shouldLoadTargetPage = !Array.isArray(pagesElementsRef.current[targetPage]);
+    setcurrentPageNumber(targetPage);
+    if (shouldLoadTargetPage) {
+      void loadPageFromDB(targetPage);
+    }
+    requestAnimationFrame(() => {
+      isSwipeAnimatingRef.current = false;
+    });
+  };
+
+  const handleNoteSwipePage = (direction: 1 | -1) => {
+    if (editing || showSearch || tocVisible || pageListVisible || typePickerVisible) return;
+    const targetPage = currentPageNumber + direction;
+    runPageSwitchAnimation(targetPage, direction);
+  };
 
   const ELEMENT_LABELS: { label: string; type: NoteElement['type'] }[] = [
     { label: '章', type: 'chapter' },
@@ -800,21 +820,28 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         notebookStyles.notebookScreenWrapper,
         getDebugStyle('rgba(255, 255, 0, 1)')]}
     >
-      <View style={notebookStyles.notebookContentsContainer}>
-        <View style={notebookStyles.backgroundGlowTop} />
-        <View style={notebookStyles.backgroundGlowBottom} />
+      <View style={[notebookStyles.notebookContentsContainer, { backgroundColor: noteBgHex }]}>
         {/* <NoteBackground> */}
-          <View
+          <Animated.View
             ref={noteContentRef}
             collapsable={false}
             pointerEvents="box-none"
-            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backfaceVisibility: 'hidden',
+              opacity: 1,
+            }}
           >
           <NoteContent 
             key={noteContentKey}
             backgroundColor={book.color}
             elements={pagesElements[currentPageNumber]}
             onNoteLayout={setNoteBounds}
+            onSwipePage={handleNoteSwipePage}
             isEditing={editing}
             onElementChange={handleElementChange}
             onDeleteElement={handleDeleteElement}
@@ -825,61 +852,160 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               console.log('背景画像生成完了:', uri);
             }}
           />
-          </View>
+          </Animated.View>
           {/* 編集ボタン
           虫眼鏡ボタン
           スライダー */}
         {/* </NoteBackground> */}
 
-          {/* ページ番号（右上） */}
-          {!editing && (
-            <View style={notebookStyles.pageNumberBadge}>
-              <Text style={notebookStyles.pageNumberText}>{currentPageNumber + 1}</Text>
-            </View>
-          )}
+          <View
+            pointerEvents="box-none"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 30,
+              elevation: 30,
+            }}
+          >
+            {/* ページ番号（右上） */}
+            {!editing && (
+              <View style={notebookStyles.pageNumberBadge}>
+                <Text style={notebookStyles.pageNumberText}>{currentPageNumber + 1}</Text>
+              </View>
+            )}
 
-          {/* ページ一覧ボタン（左下） */}
-          {!editing && (
-            <TouchableOpacity
-              disabled={editing}
-              onPress={() => {
-                console.log('ページ一覧ボタン押下');
-                openPageList();
-              }}
-              style={[
-                notebookStyles.pageListBtn,
-                { backgroundColor: floatingButtonBg, borderColor: floatingButtonBorder },
-                { position: 'absolute', bottom: commonStyle.screenHeight * 0.02 + (commonStyle.screenWidth / 6 - commonStyle.screenWidth / 7) / 2, left: 20 },
-                getDebugStyle('rgba(0, 0, 0, 0.4)'),
-              ]}
-            >
-              <Ionicons name="albums-outline" size={commonStyle.screenWidth/15} color={floatingButtonIcon} />
-            </TouchableOpacity>
-          )}
-
-          {/* スライダー（ページ一覧ボタンと+ボタンの間） */}
-          {!editing && (
-            <View
-              style={notebookStyles.sliderShell}
-            >
-              <Slider
-                key={`slider-${pagesElements.length}`}
-                style={{ flex: 1 }}
-                minimumValue={0}
-                maximumValue={Math.max(pagesElements.length - 1, 0)}
-                step={1}
-                value={currentPageNumber}
-                minimumTrackTintColor={notebookColors.accent}
-                maximumTrackTintColor={notebookColors.paperLine}
-                thumbTintColor={notebookColors.ink}
-                onValueChange={ async(v) => {
-                  setcurrentPageNumber(v);
-                  console.log('ページ数変更:', v+1);
-                  await loadPageFromDB(v);
+            {/* ページ一覧ボタン（左下） */}
+            {!editing && (
+              <TouchableOpacity
+                disabled={editing}
+                onPress={() => {
+                  console.log('ページ一覧ボタン押下');
+                  openPageList();
                 }}
-              />
-            </View>
-          )}
+                style={[
+                  notebookStyles.pageListBtn,
+                  { backgroundColor: floatingButtonBg, borderColor: floatingButtonBorder },
+                  { position: 'absolute', bottom: commonStyle.screenHeight * 0.02 + (commonStyle.screenWidth / 6 - commonStyle.screenWidth / 7) / 2, left: 20 },
+                  getDebugStyle('rgba(0, 0, 0, 0.4)'),
+                ]}
+              >
+                <Ionicons name="albums-outline" size={commonStyle.screenWidth/15} color={floatingButtonIcon} />
+              </TouchableOpacity>
+            )}
+
+            {/* スライダー（ページ一覧ボタンと+ボタンの間） */}
+            {!editing && (
+              <View style={notebookStyles.sliderShell}>
+                <Slider
+                  key={`slider-${pagesElements.length}`}
+                  style={{ flex: 1 }}
+                  minimumValue={0}
+                  maximumValue={Math.max(pagesElements.length - 1, 0)}
+                  step={1}
+                  value={currentPageNumber}
+                  minimumTrackTintColor={notebookColors.accent}
+                  maximumTrackTintColor={notebookColors.paperLine}
+                  thumbTintColor={notebookColors.ink}
+                  onValueChange={ async(v) => {
+                    setcurrentPageNumber(v);
+                    console.log('ページ数変更:', v+1);
+                    await loadPageFromDB(v);
+                  }}
+                />
+              </View>
+            )}
+
+            {/* ページ追加ボタン（右下）+ */}
+            {!editing && (
+              <TouchableOpacity
+                style={[
+                  notebookStyles.editButton,
+                  { backgroundColor: floatingButtonBg, borderColor: floatingButtonBorder },
+                  { bottom: commonStyle.screenHeight * 0.02 }
+                ]}
+                onPress={async () => {
+                  console.log('ページ追加ボタン押下');
+                  closeMenu();
+                  
+                  try {
+                    // 新ページを挿入する位置（現在ページの次）
+                    const insertPosition = currentPageNumber + 1;
+                    
+                    // DB: 挿入位置以降のページのpage番号を全て +1 する
+                    const allContents = await getContentsByBookId(bookId);
+                    logTable('ページ追加前 contentsテーブル', allContents as any[]);
+                    for (const content of allContents) {
+                      if (content.page >= insertPosition) {
+                        await updateContent(content.content_id, { page: content.page + 1 });
+                      }
+                    }
+                    
+                    // DB: 挿入位置以降の page_images の page_order も +1 する
+                    // ※ サムネイルファイルも新しいページ番号のファイル名にコピーする
+                    const allPageImages = await getPageImagesByBookId(bookId);
+                    // 番号が大きい順に処理して上書き衝突を防ぐ
+                    const sortedImgs = [...allPageImages]
+                      .filter(img => Number(img.page_order) >= insertPosition)
+                      .sort((a, b) => Number(b.page_order) - Number(a.page_order));
+                    for (const img of sortedImgs) {
+                      const newOrder = Number(img.page_order) + 1;
+                      const thumbDir = FileSystem.documentDirectory + 'thumbnails/';
+                      const newPath = thumbDir + `book_${bookId}_page_${newOrder}.jpg`;
+                      let updatedPath = img.image_path;
+                      if (img.image_path) {
+                        try {
+                          await FileSystem.copyAsync({ from: img.image_path, to: newPath });
+                          updatedPath = newPath;
+                        } catch (_) { /* ファイルが存在しない場合はスキップ */ }
+                      }
+                      await updatePageImage(img.page_image_id, { page_order: newOrder, image_path: updatedPath });
+                    }
+
+                    // 新ページ用の page_images エントリを作成
+                    await addPageImage({
+                      page_image_id: await Crypto.randomUUID(),
+                      image_path: '',
+                      page_order: insertPosition,
+                      book_id: bookId,
+                    });
+                    
+                    // DB: 新ページの content を作成
+                    const newContentId = await Crypto.randomUUID();
+                    await addContent({
+                      content_id: newContentId,
+                      type: 'text',
+                      book_id: bookId,
+                      page: insertPosition,
+                      height: 0,
+                    } as Content);
+                    
+                    // 追加後のDB確認ログ
+                    const afterContents = await getContentsByBookId(bookId);
+                    logTable('ページ追加後 contentsテーブル', afterContents as any[]);
+                    
+                    // ステップ1: スライダーの最大値を更新（新ページを現在ページの次に挿入）
+                    setPagesElements(prev => {
+                      const newPages = [...prev];
+                      newPages.splice(insertPosition, 0, []); // 指定位置に空ページを挿入
+                      return newPages;
+                    });
+                    
+                    // ステップ2: 新ページへ遷移
+                    setTimeout(() => {
+                      setcurrentPageNumber(insertPosition);
+                    }, 0);
+                  } catch (e) {
+                    console.error('ページ追加エラー:', e);
+                  }
+                }}
+              >
+                <Ionicons name="add" size={commonStyle.screenWidth / 12} color={floatingButtonIcon} />
+              </TouchableOpacity>
+            )}
+          </View>
 
           {/* 編集画面: EditorScreenは廃止。NoteContentが直接編集機能を提供 */}
 
@@ -938,95 +1064,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               </View>
             </View>
           )}
-
-          {/* ページ追加ボタン（右下）+ */}
-          {!editing && (
-            <TouchableOpacity
-              style={[
-                notebookStyles.editButton,
-                { backgroundColor: floatingButtonBg, borderColor: floatingButtonBorder },
-                { bottom: commonStyle.screenHeight * 0.02 }
-              ]}
-              onPress={async () => {
-                console.log('ページ追加ボタン押下');
-                closeMenu();
-                
-                try {
-                  // 新ページを挿入する位置（現在ページの次）
-                  const insertPosition = currentPageNumber + 1;
-                  
-                  // DB: 挿入位置以降のページのpage番号を全て +1 する
-                  const allContents = await getContentsByBookId(bookId);
-                  logTable('ページ追加前 contentsテーブル', allContents as any[]);
-                  for (const content of allContents) {
-                    if (content.page >= insertPosition) {
-                      await updateContent(content.content_id, { page: content.page + 1 });
-                    }
-                  }
-                  
-                  // DB: 挿入位置以降の page_images の page_order も +1 する
-                  // ※ サムネイルファイルも新しいページ番号のファイル名にコピーする
-                  const allPageImages = await getPageImagesByBookId(bookId);
-                  // 番号が大きい順に処理して上書き衝突を防ぐ
-                  const sortedImgs = [...allPageImages]
-                    .filter(img => Number(img.page_order) >= insertPosition)
-                    .sort((a, b) => Number(b.page_order) - Number(a.page_order));
-                  for (const img of sortedImgs) {
-                    const newOrder = Number(img.page_order) + 1;
-                    const thumbDir = FileSystem.documentDirectory + 'thumbnails/';
-                    const newPath = thumbDir + `book_${bookId}_page_${newOrder}.jpg`;
-                    let updatedPath = img.image_path;
-                    if (img.image_path) {
-                      try {
-                        await FileSystem.copyAsync({ from: img.image_path, to: newPath });
-                        updatedPath = newPath;
-                      } catch (_) { /* ファイルが存在しない場合はスキップ */ }
-                    }
-                    await updatePageImage(img.page_image_id, { page_order: newOrder, image_path: updatedPath });
-                  }
-
-                  // 新ページ用の page_images エントリを作成
-                  await addPageImage({
-                    page_image_id: await Crypto.randomUUID(),
-                    image_path: '',
-                    page_order: insertPosition,
-                    book_id: bookId,
-                  });
-                  
-                  // DB: 新ページの content を作成
-                  const newContentId = await Crypto.randomUUID();
-                  await addContent({
-                    content_id: newContentId,
-                    type: 'text',
-                    book_id: bookId,
-                    page: insertPosition,
-                    height: 0,
-                  } as Content);
-                  
-                  // 追加後のDB確認ログ
-                  const afterContents = await getContentsByBookId(bookId);
-                  logTable('ページ追加後 contentsテーブル', afterContents as any[]);
-                  
-                  // ステップ1: スライダーの最大値を更新（新ページを現在ページの次に挿入）
-                  setPagesElements(prev => {
-                    const newPages = [...prev];
-                    newPages.splice(insertPosition, 0, []); // 指定位置に空ページを挿入
-                    return newPages;
-                  });
-                  
-                  // ステップ2: 新ページへ遷移
-                  setTimeout(() => {
-                    setcurrentPageNumber(insertPosition);
-                  }, 0);
-                } catch (e) {
-                  console.error('ページ追加エラー:', e);
-                }
-              }}
-            >
-              <Ionicons name="add" size={commonStyle.screenWidth / 12} color={floatingButtonIcon} />
-            </TouchableOpacity>
-          )}
-
 
       </View>
     </TouchableWithoutFeedback>

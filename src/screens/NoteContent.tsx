@@ -62,8 +62,11 @@ type Props = {
   onPress?: () => void;
   children?: React.ReactNode;
   backgroundColor?: keyof typeof COLOR_MAP;
+  fillBackground?: boolean;
   elements?: NoteElement[];
   onNoteLayout?: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  /** ノート上で横スワイプした時のページ移動通知。1=次ページ, -1=前ページ */
+  onSwipePage?: (direction: 1 | -1) => void;
   /** called when a background image file is generated and saved; receives the file URI */
   onBackgroundGenerated?: (uri: string) => void | Promise<void>;
   /** 編集モード */
@@ -80,13 +83,15 @@ type Props = {
   initialFocusIndex?: number;
 };
 
-const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onNoteLayout, onBackgroundGenerated, isEditing, onElementChange, onDeleteElement, onTapEmpty, onEditStart, initialFocusIndex }) => {
+const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackground = true, elements, onNoteLayout, onSwipePage, onBackgroundGenerated, isEditing, onElementChange, onDeleteElement, onTapEmpty, onEditStart, initialFocusIndex }) => {
   const bgColor = COLOR_MAP[backgroundColor ?? 'red'];
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const inputRefs = useRef<Record<string, TextInput | null>>({});
   const scrollViewRef = useRef<ScrollView>(null);
+  const swipeStateRef = useRef<{ startX: number; startY: number; swiped: boolean }>({ startX: 0, startY: 0, swiped: false });
+  const lastSwipeAtRef = useRef<number>(0);
   const headerHeight = useHeaderHeight();
   // キーボードリスナー内で最新値を参照するためのref
   const activeIndexRef = useRef<number | null>(null);
@@ -213,6 +218,40 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
 
   const getInputKey = (index: number, field: 'main' | 'word' | 'meaning' = 'main') => `${index}:${field}`;
 
+  const handleRowResponderGrant = (e: any) => {
+    const x = e?.nativeEvent?.pageX ?? 0;
+    const y = e?.nativeEvent?.pageY ?? 0;
+    swipeStateRef.current = { startX: x, startY: y, swiped: false };
+  };
+
+  const handleRowResponderMove = (e: any) => {
+    if (!onSwipePage) return;
+    const now = Date.now();
+    if (now - lastSwipeAtRef.current < 260) return;
+
+    const x = e?.nativeEvent?.pageX ?? 0;
+    const y = e?.nativeEvent?.pageY ?? 0;
+    const dx = x - swipeStateRef.current.startX;
+    const dy = y - swipeStateRef.current.startY;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    if (swipeStateRef.current.swiped) return;
+
+    if (absDx > 54 && absDx > absDy * 1.3) {
+      swipeStateRef.current.swiped = true;
+      lastSwipeAtRef.current = now;
+      onSwipePage(dx < 0 ? 1 : -1);
+    }
+  };
+
+  const handleRowResponderRelease = (onTap: () => void) => {
+    if (swipeStateRef.current.swiped) {
+      swipeStateRef.current.swiped = false;
+      return;
+    }
+    onTap();
+  };
+
   const focusElementInput = (index: number) => {
     const target = elements?.[index];
     if (!target) return;
@@ -312,13 +351,17 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
           <View
             key={idx}
             onStartShouldSetResponder={() => true}
-            onResponderRelease={() => {
-              if (!isEditing) {
-                onEditStart?.(idx);
-                return;
-              }
-              setActiveIndex(idx);
-            }}
+            onResponderGrant={handleRowResponderGrant}
+            onResponderMove={handleRowResponderMove}
+            onResponderRelease={() =>
+              handleRowResponderRelease(() => {
+                if (!isEditing) {
+                  onEditStart?.(idx);
+                  return;
+                }
+                setActiveIndex(idx);
+              })
+            }
             style={{
               height: 200,
               borderBottomWidth: isBottomElementBorder ? 1.5 : 1,
@@ -342,13 +385,17 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
           <View
             key={idx}
             onStartShouldSetResponder={() => true}
-            onResponderRelease={() => {
-              if (!isEditing) {
-                onEditStart?.(idx);
-                return;
-              }
-              setActiveIndex(idx);
-            }}
+            onResponderGrant={handleRowResponderGrant}
+            onResponderMove={handleRowResponderMove}
+            onResponderRelease={() =>
+              handleRowResponderRelease(() => {
+                if (!isEditing) {
+                  onEditStart?.(idx);
+                  return;
+                }
+                setActiveIndex(idx);
+              })
+            }
             style={{
               height: estHeight,
               flexDirection: 'row',
@@ -411,14 +458,18 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
         <View
           key={idx}
           onStartShouldSetResponder={() => true}
-          onResponderRelease={() => {
-            if (!isEditing) {
-              onEditStart?.(idx);
-              return;
-            }
-            setActiveIndex(idx);
-            focusElementInput(idx);
-          }}
+          onResponderGrant={handleRowResponderGrant}
+          onResponderMove={handleRowResponderMove}
+          onResponderRelease={() =>
+            handleRowResponderRelease(() => {
+              if (!isEditing) {
+                onEditStart?.(idx);
+                return;
+              }
+              setActiveIndex(idx);
+              focusElementInput(idx);
+            })
+          }
           style={{
             height: estHeight,
             justifyContent: 'center',
@@ -472,22 +523,27 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
     for (let i = 0; i < remaining; i++) {
       const isBottomEmptyLine = i === remaining - 1;
       rendered.push(
-        <TouchableOpacity
+        <View
           key={`empty-tap-${i}`}
+          onStartShouldSetResponder={() => true}
+          onResponderGrant={handleRowResponderGrant}
+          onResponderMove={handleRowResponderMove}
+          onResponderRelease={() =>
+            handleRowResponderRelease(() => {
+              if (!isEditing) {
+                // 非編集モード：新要素追加 → 編集モード開始
+                onTapEmpty?.(currentCount);
+                onEditStart?.(currentCount);
+              } else {
+                // 編集モード：新要素追加のみ
+                onTapEmpty?.(currentCount);
+              }
+            })
+          }
           style={{
             height: interval,
             borderBottomWidth: isBottomEmptyLine ? 1.5 : 1,
             borderBottomColor: isBottomEmptyLine ? TITLE_RULE_COLOR : RULE_COLOR,
-          }}
-          onPress={() => {
-            if (!isEditing) {
-              // 非編集モード：新要素追加 → 編集モード開始
-              onTapEmpty?.(currentCount);
-              onEditStart?.(currentCount);
-            } else {
-              // 編集モード：新要素追加のみ
-              onTapEmpty?.(currentCount);
-            }
           }}
         />
       );
@@ -500,7 +556,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
   //  JSX レンダリング
   // ===================================================
   return (
-    <View style={{ flex: 1, backgroundColor: bgColor }}>
+    <View style={{ flex: 1, backgroundColor: fillBackground ? bgColor : 'transparent' }}>
       {/* 白いノート用紙。Animated.View の translateY でキーボード出現時に全体がスライドアップ */}
       <Animated.View
         style={{
@@ -523,7 +579,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
             キーボード非表示時はコンテンツが画面内に収まるので実質スクロールは起きない */}
         <ScrollView
           ref={scrollViewRef}
-          scrollEnabled={true}
+          scrollEnabled={false}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: noteWidth * space }}
