@@ -9,6 +9,7 @@ import {
   Alert,
   TextInput,
   Modal,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Menu } from 'react-native-paper';
@@ -74,6 +75,41 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const [renameModalVisible, setRenameModalVisible] = useState(false);
   const [renamingBookId, setRenamingBookId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState('');
+  const swipeHandledRef = useRef(false);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        if (showBookOptions || renameModalVisible || menuVisibleBookId !== null) return false;
+        return Math.abs(gestureState.dx) > 16 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2;
+      },
+      onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+        if (showBookOptions || renameModalVisible || menuVisibleBookId !== null) return false;
+        return Math.abs(gestureState.dx) > 16 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2;
+      },
+      onPanResponderGrant: () => {
+        swipeHandledRef.current = false;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (swipeHandledRef.current) return;
+        if (gestureState.dx < -56 && Math.abs(gestureState.dy) < 28) {
+          swipeHandledRef.current = true;
+          navigation.navigate('Wordbook');
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (swipeHandledRef.current) return;
+        if (gestureState.dx < -56 && Math.abs(gestureState.dy) < 28) {
+          swipeHandledRef.current = true;
+          navigation.navigate('Wordbook');
+        }
+      },
+      onPanResponderTerminate: () => {
+        swipeHandledRef.current = false;
+      },
+    })
+  ).current;
 
   useEffect(() => {
     setBookData(state.books);
@@ -204,7 +240,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   return (
-    <View style={homeStyles.background}>
+    <View style={homeStyles.background} {...panResponder.panHandlers}>
       <View style={homeStyles.backgroundGlowTop} />
       <View style={homeStyles.backgroundGlowBottom} />
 
@@ -212,8 +248,19 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         homeStyles.topSpacer,
         DEBUG_LAYOUT && { borderWidth: 0.5, borderColor: 'black' },
       ]}>
-        <Text style={homeStyles.eyebrow}>NOTE STYLE MEMO</Text>
-        <Text style={homeStyles.screenCaption}>ノート風メモ帳</Text>
+        <View style={homeStyles.titleRow}>
+          <Text style={homeStyles.screenCaption}>ノート本棚</Text>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Wordbook')}
+            style={homeStyles.wordbookQuickBtn}
+          >
+            <Ionicons name="library-outline" size={16} color="#FFFFFF" />
+            <Text style={homeStyles.wordbookQuickBtnText}>単語帳</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={homeStyles.listHeaderDescription}>
+          全 {bookData.length} 冊 ・ 追加 / 並び替え / 管理
+        </Text>
       </View>
 
       <DraggableFlatList
@@ -237,15 +284,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
           }, 100);
         }}
-        ListHeaderComponent={
-          <View style={homeStyles.listHeaderStrip}>
-            <View style={homeStyles.listHeaderAccentBar} />
-            <View style={homeStyles.listHeaderTextWrap}>
-              <Text style={homeStyles.listHeaderTitle}>ノート本棚</Text>
-              <Text style={homeStyles.listHeaderDescription}>全 {bookData.length} 冊 ・ 追加 / 並び替え / 管理</Text>
-            </View>
-          </View>
-        }
+        ListHeaderComponent={null}
         ListEmptyComponent={
           <View style={homeStyles.emptyCard}>
             <Text style={homeStyles.emptyTitle}>まだ本がありません</Text>

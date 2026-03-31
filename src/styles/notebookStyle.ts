@@ -166,6 +166,8 @@ export const notebookStyles = StyleSheet.create({
     left: 0,
     right: 0,
     flexDirection: 'column',
+    zIndex: 60,
+    elevation: 60,
   },
   searchResultsList: {
     maxHeight: commonStyle.screenHeight * 0.3,

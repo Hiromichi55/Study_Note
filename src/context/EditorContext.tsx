@@ -39,6 +39,7 @@ export type Word = {
   explanation: string;
   word_order: number;
   content_id: string;
+  review_flag?: number;
 };
 
 export type PageImage = {
@@ -222,9 +223,23 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           word TEXT,
           explanation TEXT,
           word_order INTEGER,
-          content_id TEXT
+          content_id TEXT,
+          review_flag INTEGER DEFAULT 0
         );
       `);
+
+      // === Migration: add review_flag column for older installs
+      try {
+        const wordCols = await database.getAllAsync(`PRAGMA table_info(words);`);
+        const hasReviewFlag = wordCols.some((c: any) => c.name === 'review_flag');
+        if (!hasReviewFlag) {
+          await database.runAsync(`ALTER TABLE words ADD COLUMN review_flag INTEGER DEFAULT 0;`);
+          await database.runAsync(`UPDATE words SET review_flag = 0 WHERE review_flag IS NULL;`);
+          console.log('Migration: added words.review_flag column');
+        }
+      } catch (merr) {
+        console.warn('words migration warning:', merr);
+      }
 
       await database.runAsync(`
         CREATE TABLE IF NOT EXISTS page_images (

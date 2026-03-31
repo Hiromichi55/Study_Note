@@ -12,6 +12,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { MESSAGES } from './constants/messages';
 import HomeScreenProduction from './screens/HomeScreen';
 import NotebookScreen from './screens/NotebookScreen';
+import WordbookScreen from './screens/WordbookScreen';
 import { ENV } from '@config';
 
 // ===== 開発フラグ =====
@@ -93,6 +94,11 @@ function ProductionApp() {
               name="Notebook"
               component={NotebookScreen as any}
               options={{ title: MESSAGES.NOTE_TITLE }}
+            />
+            <Stack.Screen
+              name="Wordbook"
+              component={WordbookScreen as any}
+              options={{ title: '単語帳' }}
             />
           </Stack.Navigator>
         </NavigationContainer>
@@ -189,6 +195,7 @@ const HomeScreenTest = ({ navigation }: any) => (
 // ===== 画面遷移パラメータ型 =====
 export type RootStackParamList = {
   Home: undefined;
-  Notebook: { bookId: string };
+  Notebook: { bookId: string; initialPage?: number };
+  Wordbook: undefined;
   Edit: { bookId: string }; 
 };

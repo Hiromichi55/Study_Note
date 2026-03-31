@@ -1,6 +1,7 @@
 // src/types/navigation.ts
 export type RootStackParamList = {
   Home: undefined; // 本棚画面
-  Notebook: { bookId: string }; // 選択した本のIDを渡す
+  Notebook: { bookId: string; initialPage?: number }; // 選択した本のIDと初期ページを渡す
+  Wordbook: undefined; // 単語帳画面
   NoteDetail: { bookId: string; noteId: string }; // 特定のノートIDを渡す
 };

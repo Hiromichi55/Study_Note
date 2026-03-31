@@ -57,6 +57,26 @@ export const homeStyles = StyleSheet.create({
     fontWeight: '700',
     color: INK,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  wordbookQuickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: ACTION_BG,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  wordbookQuickBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   verticalScrollContainer: {
     width: commonStyle.screenWidth * 0.92,
     paddingTop: 8,

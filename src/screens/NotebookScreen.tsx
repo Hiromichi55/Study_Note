@@ -92,7 +92,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   const isTest = ENV.SCREEN_DEV;
   const navigation = useNavigation<any>();
-  const { bookId } = route.params;
+  const { bookId, initialPage } = route.params;
   const { state, dispatch, deleteBook } = useLibrary();
 
   const book = state.books.find((b) => b.book_id === bookId);
@@ -120,6 +120,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   // useLayoutEffect クロージャで古い値を参照しないよう常に最新を保持する ref
   const pagesElementsRef = useRef<NoteElement[][]>([]);
   const currentPageNumberRef = useRef<number>(0);
+  const didApplyInitialPageRef = useRef(false);
   pagesElementsRef.current = pagesElements;
   currentPageNumberRef.current = currentPageNumber;
 
@@ -607,6 +608,26 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     loadAllPages();
   }, [bookId]);
 
+  useEffect(() => {
+    didApplyInitialPageRef.current = false;
+  }, [bookId, initialPage]);
+
+  useEffect(() => {
+    if (didApplyInitialPageRef.current) return;
+    if (typeof initialPage !== 'number') {
+      didApplyInitialPageRef.current = true;
+      return;
+    }
+    if (pagesElements.length === 0) return;
+
+    const target = Math.max(0, Math.min(initialPage, pagesElements.length - 1));
+    setcurrentPageNumber(target);
+    if (!Array.isArray(pagesElementsRef.current[target])) {
+      void loadPageFromDB(target);
+    }
+    didApplyInitialPageRef.current = true;
+  }, [initialPage, pagesElements.length]);
+
   // 初期2ページのサムネイルを自動生成（初回ロード時のみ）
   useEffect(() => {
     const saveThumbnails = async () => {
@@ -798,23 +819,21 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   if (!book) return <Text>{MESSAGES.NOT_FOUND_BOOK}</Text>;
 
+  const closeSearchPanel = () => {
+    if (!showSearch) return;
+    setShowSearch(false);
+    if (searchInputRef.current) {
+      searchInputRef.current.blur();
+    }
+    Keyboard.dismiss();
+  };
+
   return (
     <>
     <TouchableWithoutFeedback 
-      disabled={editing}
+      disabled={editing || showSearch}
       onPress={() => {
-        if (showSearch) {
-          // 検索中は検索バー閉じる
-          setShowSearch(false);
-
-          // フォーカス解除してキーボードを確実に閉じる
-          if (searchInputRef.current) {
-            searchInputRef.current.blur();
-            Keyboard.dismiss();
-          } else {
-            Keyboard.dismiss();
-          }
-        }
+        closeSearchPanel();
       }}
       style={[
         notebookStyles.notebookScreenWrapper,
@@ -853,6 +872,21 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             }}
           />
           </Animated.View>
+
+          {showSearch && !editing && (
+            <TouchableWithoutFeedback onPress={closeSearchPanel}>
+              <View
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 20,
+                }}
+              />
+            </TouchableWithoutFeedback>
+          )}
           {/* 編集ボタン
           虫眼鏡ボタン
           スライダー */}
@@ -1018,12 +1052,18 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   data={searchResults}
                   keyExtractor={(_, i) => `result-${i}`}
                   style={notebookStyles.searchResultsList}
+                  keyboardShouldPersistTaps="always"
                   renderItem={({ item }) => (
                     <TouchableOpacity
-                      onPress={() => {
+                      onPress={async () => {
                         setcurrentPageNumber(item.pageNum);
-                        setShowSearch(false);
-                        setSearchQuery('');
+                        if (!Array.isArray(pagesElementsRef.current[item.pageNum])) {
+                          await loadPageFromDB(item.pageNum);
+                        }
+                        // 候補選択後もキーボードを維持して連続検索できるようにする
+                        requestAnimationFrame(() => {
+                          searchInputRef.current?.focus();
+                        });
                       }}
                       style={notebookStyles.searchResultItem}
                     >
@@ -1055,9 +1095,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   placeholderTextColor={notebookColors.inkSoft}
                 />
                 <TouchableOpacity style={notebookStyles.searchCloseButton} onPress={() => {
-                  console.log('検索欄閉じるボタン押下');
-                  setShowSearch(false);
+                  console.log('検索欄クリアボタン押下');
                   setSearchQuery('');
+                  requestAnimationFrame(() => {
+                    searchInputRef.current?.focus();
+                  });
                 }}>
                   <Ionicons name="close" size={commonStyle.screenWidth / 16} color={notebookColors.ink} />
                 </TouchableOpacity>
