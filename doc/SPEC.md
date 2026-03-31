@@ -37,8 +37,8 @@ HomeScreen (ホーム)
 | Book一覧の表示 | ✅ 実装済み |
 | Book のドラッグ＆ドロップ並び替え | ✅ 実装済み（react-native-draggable-flatlist） |
 | カラー選択で新規 Book 追加 | ✅ 実装済み |
-| Book をタップして NotebookScreen へ遷移 | ✅ 実装済み |
-
+| Book をタップして NotebookScreen へ遷移 | ✅ 実装済み || Bookのタイトル変更（ミートボールメニュー） | ✅ 実装済み（モーダルで再入力、DB保存） |
+| Bookの削除（ミートボールメニュー） | ✅ 実装済み（確認Alert付き、DB削除） |
 **Book のカラー選択肢**: `red` / `pink` / `yellow` / `green` / `cyan` / `blue` / `black`
 
 ---
@@ -427,3 +427,4 @@ src/
 | db.ts の旧スキーマが残存 | 低 | `memos`/`memoBlocks` テーブルの定義が残っているが現在は未使用。EditorContext側で新スキーマを使用 |
 | NoteContent のスクロール非対応 | 中 | 要素が多い場合に画面外にはみ出す（ページを分割して対処推奨） |
 | ページ追加時のDB保存 | 中 | メニュー「ページ追加」はstateのみ更新。初回の編集&保存時にDBに書き込まれる |
+| HomeScreen: 使い方ボタン未実装 | 低 | 左下のヘルプボタンはメニュー表示として未接続（console.logのみ） |

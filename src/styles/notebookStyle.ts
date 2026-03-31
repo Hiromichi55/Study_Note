@@ -1,157 +1,383 @@
-import { Dimensions, StyleSheet, Image } from 'react-native';
+import { StyleSheet } from 'react-native';
 import * as commonStyle from './commonStyle';
-import Slider from '@react-native-community/slider';
 
-// NotebookScreen用スタイル
+const PAPER = '#F5EFE6';
+const PAPER_SOFT = '#FCFAF6';
+const PAPER_LINE = '#E3D8C9';
+const INK = '#342C24';
+const INK_SOFT = '#7D7268';
+const OVERLAY = 'rgba(39, 30, 22, 0.22)';
+const SHADOW = 'rgba(73, 53, 34, 0.12)';
+const ACCENT = '#8A6F56';
+const ACCENT_SOFT = '#EEE3D7';
+const ACTION_BG = '#5E4633';
+const ACTION_BG_SOFT = '#6E5844';
+
+export const notebookColors = {
+  paper: PAPER,
+  paperSoft: PAPER_SOFT,
+  paperLine: PAPER_LINE,
+  ink: INK,
+  inkSoft: INK_SOFT,
+  accent: ACCENT,
+  accentSoft: ACCENT_SOFT,
+};
+
 export const notebookStyles = StyleSheet.create({
-  
-  /* 目次ボタン */
   outlineBtn: {
-    fontSize: 20,
-    color: 'black',
+    fontSize: 17,
+    color: INK,
+    fontWeight: '700',
   },
-
-  /* ミートボールメニュー */
   menuBtn: {
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 100,
+    paddingHorizontal: 6,
   },
   menuBtnIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: ACCENT_SOFT,
   },
   menuOptionsContainer: {
-    backgroundColor: 'white',
+    backgroundColor: PAPER_SOFT,
     marginTop: 40,
   },
   deleteOption: {
-    color: 'red',
+    color: '#B45145',
   },
-
-  /* ノート全体（スライダー出し入れ） */
   notebookScreenWrapper: {
     flex: 1,
-    backgroundColor: 'black',
+    backgroundColor: PAPER,
   },
-
-  /* ノートコンテンツ部分 */
+  backgroundGlowTop: {
+    position: 'absolute',
+    top: -commonStyle.screenWidth * 0.2,
+    right: -commonStyle.screenWidth * 0.08,
+    width: commonStyle.screenWidth * 0.62,
+    height: commonStyle.screenWidth * 0.62,
+    borderRadius: commonStyle.screenWidth,
+    backgroundColor: '#E9DCCD',
+  },
+  backgroundGlowBottom: {
+    position: 'absolute',
+    bottom: -commonStyle.screenWidth * 0.14,
+    left: -commonStyle.screenWidth * 0.12,
+    width: commonStyle.screenWidth * 0.56,
+    height: commonStyle.screenWidth * 0.56,
+    borderRadius: commonStyle.screenWidth,
+    backgroundColor: '#ECE3D8',
+  },
   notebookContentsContainer: {
     flex: 1,
     alignItems: 'center',
-    // justifyContent: 'center',
   },
-
   inputSmallStyle: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: PAPER_LINE,
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 6,
-    backgroundColor: 'white',
+    backgroundColor: PAPER_SOFT,
   },
-
-  container:{
-    flex:1,
-    backgroundColor:'white',
+  container: {
+    flex: 1,
+    backgroundColor: PAPER_SOFT,
   },
-
-  /* スライダー, ページ一覧部分 */
   pageListBtnAndSliderContainer: {
-    // 自身の座標
-    position: 'absolute', // 親要素の基準を基準に
+    position: 'absolute',
     top: '75%',
-    // 自身の形
-    height: commonStyle.screenHeight/15,
-    width: commonStyle.screenWidth*0.8,
+    height: commonStyle.screenHeight / 15,
+    width: commonStyle.screenWidth * 0.8,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'transparent',
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 3 },
+    shadowColor: SHADOW,
+    shadowOpacity: 1,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 16,
     elevation: 5,
-    // 子の座標
-    flexDirection: 'row', // ← 横並び
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   pageListBtn: {
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    borderRadius: 15,
-    width: commonStyle.screenWidth/7,
-    height: commonStyle.screenWidth/7,
+    backgroundColor: ACTION_BG_SOFT,
+    borderWidth: 1,
+    borderColor: '#816955',
+    borderRadius: 16,
+    width: commonStyle.screenWidth / 7,
+    height: commonStyle.screenWidth / 7,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    shadowColor: '#2E241B',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
     elevation: 5,
   },
   slider: {
     width: '70%',
-    // alignSelf: 'flex-end',
     marginRight: 20,
   },
-
-  /* 検索ボックス */
+  pageNumberBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 24,
+    minWidth: 42,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(252, 250, 246, 0.92)',
+    borderWidth: 1,
+    borderColor: PAPER_LINE,
+    alignItems: 'center',
+  },
+  pageNumberText: {
+    fontSize: 13,
+    color: INK_SOFT,
+    fontWeight: '700',
+  },
+  sliderShell: {
+    position: 'absolute',
+    bottom: commonStyle.screenHeight * 0.02,
+    left: commonStyle.screenWidth * 0.25,
+    right: commonStyle.screenWidth * 0.25,
+    height: commonStyle.screenWidth / 6,
+    borderRadius: 18,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(252, 250, 246, 0.88)',
+    borderWidth: 1,
+    borderColor: PAPER_LINE,
+    shadowColor: SHADOW,
+    shadowOpacity: 1,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 18,
+    elevation: 5,
+  },
+  searchResultsContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    flexDirection: 'column',
+  },
+  searchResultsList: {
+    maxHeight: commonStyle.screenHeight * 0.3,
+    backgroundColor: PAPER_SOFT,
+    marginHorizontal: 20,
+    marginBottom: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: PAPER_LINE,
+    shadowColor: SHADOW,
+    shadowOpacity: 1,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  searchResultItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 0.5,
+    borderColor: '#E8DDD0',
+  },
+  searchResultMeta: {
+    fontSize: 13,
+    color: INK_SOFT,
+    marginBottom: 2,
+  },
+  searchResultText: {
+    fontSize: 15,
+    color: INK,
+  },
   searchBoxContainer: {
-    backgroundColor: 'white',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    backgroundColor: PAPER_SOFT,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 20,
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 2 },
+    borderWidth: 1,
+    borderColor: PAPER_LINE,
+    shadowColor: SHADOW,
+    shadowOpacity: 1,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 16,
     elevation: 5,
   },
   searchBoxInput: {
     flex: 1,
     marginLeft: 8,
     fontSize: 16,
+    color: INK,
   },
-
-  /* 編集ボタン（右下） */
+  searchCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: ACCENT_SOFT,
+    marginLeft: 8,
+  },
   editButton: {
     position: 'absolute',
     right: 20,
-    backgroundColor: 'rgba(0, 0, 0, 1)',
+    backgroundColor: ACTION_BG,
+    borderWidth: 1,
+    borderColor: '#7D644E',
     borderRadius: commonStyle.screenHeight,
-    width: commonStyle.screenWidth/6,
-    height: commonStyle.screenWidth/6,
+    width: commonStyle.screenWidth / 6,
+    height: commonStyle.screenWidth / 6,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowColor: '#2E241B',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
   },
-
-  /* 虫眼鏡ボタン（左下） */
   searchBtn: {
     position: 'absolute',
-    bottom: commonStyle.screenHeight*0.02,
+    bottom: commonStyle.screenHeight * 0.02,
     left: 20,
-    backgroundColor: "black",
+    backgroundColor: ACTION_BG,
+    borderWidth: 1,
+    borderColor: '#7D644E',
     borderRadius: commonStyle.screenHeight,
-    width: commonStyle.screenWidth/6,
-    height: commonStyle.screenWidth/6,
+    width: commonStyle.screenWidth / 6,
+    height: commonStyle.screenWidth / 6,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowColor: '#2E241B',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: OVERLAY,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCard: {
+    backgroundColor: PAPER_SOFT,
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: PAPER_LINE,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 12,
+    color: INK,
+  },
+  modalEmptyText: {
+    color: INK_SOFT,
+    textAlign: 'center',
+    marginVertical: 24,
+  },
+  modalCloseText: {
+    color: ACCENT,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  tocCard: {
+    width: '85%',
+    maxHeight: '70%',
+  },
+  tocItem: {
+    paddingVertical: 10,
+    borderBottomWidth: 0.5,
+    borderColor: '#E8DDD0',
+  },
+  tocItemPage: {
+    color: INK_SOFT,
+    fontSize: 12,
+  },
+  pageListCard: {
+    width: '92%',
+    maxHeight: '80%',
+  },
+  pageListItem: {
+    width: '48%',
+    marginBottom: 12,
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#E0D4C4',
+    backgroundColor: PAPER_SOFT,
+  },
+  pageListItemActive: {
+    borderColor: ACCENT,
+  },
+  pageListPlaceholder: {
+    width: '100%',
+    aspectRatio: 0.65,
+    backgroundColor: '#F3ECE2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pageListPlaceholderText: {
+    color: '#A79A8B',
+    fontSize: 11,
+    marginTop: 4,
+  },
+  pageListLabel: {
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    backgroundColor: PAPER_SOFT,
+  },
+  pageListLabelActive: {
+    backgroundColor: ACCENT,
+  },
+  pageListLabelText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: INK,
+    textAlign: 'center',
+  },
+  pageListLabelTextActive: {
+    color: '#FFFDF9',
+  },
+  typePickerCard: {
+    width: '78%',
+  },
+  typePickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  typePickerOption: {
+    width: '48%',
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: ACCENT,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  typePickerOptionText: {
+    color: '#FFFDF9',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  typePickerCancel: {
+    marginTop: 12,
+    alignSelf: 'center',
+  },
+  typePickerCancelText: {
+    color: INK_SOFT,
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

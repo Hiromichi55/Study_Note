@@ -1,132 +1,354 @@
-import { Dimensions, StyleSheet, Image } from 'react-native';
+import { StyleSheet } from 'react-native';
 import * as commonStyle from './commonStyle';
-import { center } from '@shopify/react-native-skia';
 
-// 適応する本の画像
-export const BOOK_BTN_HEIGHT = commonStyle.screenHeight / 3.7;
-export const BOOK_BTN_WIDTH = commonStyle.screenWidth / 3.7;
+export const BOOK_BTN_HEIGHT = commonStyle.screenHeight / 8.8;
+export const BOOK_BTN_WIDTH = commonStyle.screenWidth / 1.12;
 export const font = commonStyle.screenHeight / 36;
 
+const PAPER = '#F5EFE6';
+const PAPER_DARK = '#E8DECF';
+const INK = '#342C24';
+const SUBTLE = '#7D7268';
+const CARD = '#FCFAF6';
+const ACTION_BG = '#5E4633';
+const ACTION_BG_SOFT = '#6E5844';
+const SHADOW = 'rgba(73, 53, 34, 0.12)';
+
 export const homeStyles = StyleSheet.create({
-  /* ホームスクリーンの背景 */
   background: {
-    width: commonStyle.screenWidth,
-    height: commonStyle.screenHeight,
     flex: 1,
-    backgroundColor: 'rgba(101, 42, 2, 1)',
+    backgroundColor: PAPER,
     alignItems: 'center',
+    overflow: 'hidden',
   },
-  /* ページ上部メニュー */
-  topMenuContainer: { 
+  backgroundGlowTop: {
     position: 'absolute',
-    marginTop: 0,
+    top: -commonStyle.screenWidth * 0.22,
+    right: -commonStyle.screenWidth * 0.1,
+    width: commonStyle.screenWidth * 0.72,
+    height: commonStyle.screenWidth * 0.72,
+    borderRadius: commonStyle.screenWidth,
+    backgroundColor: '#E9DCCD',
+  },
+  backgroundGlowBottom: {
+    position: 'absolute',
+    bottom: -commonStyle.screenWidth * 0.18,
+    left: -commonStyle.screenWidth * 0.12,
+    width: commonStyle.screenWidth * 0.62,
+    height: commonStyle.screenWidth * 0.62,
+    borderRadius: commonStyle.screenWidth,
+    backgroundColor: '#ECE3D8',
+  },
+  topSpacer: {
     width: '100%',
-    alignContent: 'center',
-    height: commonStyle.screenHeight/ 8.7,
-    backgroundColor: 'rgba(235, 235, 235, 1)', 
+    paddingTop: commonStyle.screenHeight * 0.075,
+    paddingHorizontal: 24,
+    paddingBottom: 10,
   },
-  titleText: {
-    paddingTop: commonStyle.screenHeight/14,
-    paddingHorizontal: 20,
-    borderRadius: 5,
-    fontSize: commonStyle.screenHeight/36,
-    textAlign: 'center'
+  eyebrow: {
+    fontSize: 12,
+    letterSpacing: 2.2,
+    textTransform: 'uppercase',
+    color: SUBTLE,
+    marginBottom: 6,
   },
-
-  /* 本のスクロール範囲 */
+  screenCaption: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: INK,
+  },
   verticalScrollContainer: {
-    width: commonStyle.screenWidth / 1.05,
-    height: commonStyle.screenHeight / 1.1,
-    marginTop: commonStyle.screenHeight / 7.7,
-    marginBottom: commonStyle.screenHeight / 9.4,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    borderRadius: 16,
-    color: 'black',
-    backgroundColor: 'rgba(255, 255, 255, 0.88)', 
-    //borderWidth: 0.5,        
-    //borderColor: 'black', 
+    width: commonStyle.screenWidth * 0.92,
+    paddingTop: 8,
+    paddingBottom: commonStyle.screenHeight * 0.18,
   },
-
-  /* 本アイコン */
-  bookBtn: { 
-    width: commonStyle.screenWidth / 1.05,
-    height: commonStyle.screenHeight / 17,
+  listHeaderStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  listHeaderTextWrap: {
+    flex: 1,
+  },
+  listHeaderAccentBar: {
+    width: 3,
+    height: 36,
+    borderRadius: 999,
+    backgroundColor: '#8A6A52',
+    marginRight: 12,
+  },
+  listHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: INK,
+    marginBottom: 2,
+  },
+  listHeaderDescription: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#6F6359',
+  },
+  emptyCard: {
+    backgroundColor: CARD,
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    borderWidth: 1,
+    borderColor: PAPER_DARK,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: INK,
+    marginBottom: 8,
+  },
+  emptyDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: SUBTLE,
+    textAlign: 'center',
+  },
+  bookCardWrap: {
+    marginBottom: 14,
+  },
+  bookBtn: {
+    minHeight: BOOK_BTN_HEIGHT,
+    backgroundColor: CARD,
+    borderRadius: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: PAPER_DARK,
+    shadowColor: SHADOW,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 1,
+    shadowRadius: 18,
+    elevation: 5,
+    overflow: 'hidden',
+  },
+  bookSpine: {
+    width: 10,
+    alignSelf: 'stretch',
+    borderTopLeftRadius: 24,
+    borderBottomLeftRadius: 24,
+  },
+  bookMainArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 16,
+    paddingRight: 10,
+    paddingVertical: 16,
+  },
+  bookIconBadge: {
+    width: commonStyle.screenWidth / 8.5,
+    height: commonStyle.screenWidth / 8.5,
+    borderRadius: commonStyle.screenWidth,
+    alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 14,
+  },
+  bookIconGlyphWrap: {
+    width: commonStyle.screenWidth / 16,
+    height: commonStyle.screenWidth / 16,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  forwardNotebookIcon: { 
-    position: 'absolute',
-    right: commonStyle.screenWidth / 60,
+  bookIconGlyph: {
+    textAlign: 'center',
+    includeFontPadding: false,
+    marginTop: 0.5,
   },
-  bookBtnBottomLine: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: '88%',          
-    height: StyleSheet.hairlineWidth * 2,
-    backgroundColor: 'black',
-  },
-  bookBtnIcon: {
-    width: '100%',
-    height: '100%',
-    paddingTop: commonStyle.screenHeight / 65,
-    paddingLeft: commonStyle.screenWidth / 35,
+  bookTextBlock: {
+    flex: 1,
+    justifyContent: 'center',
   },
   bookTitle: {
-    position: 'absolute',
-    left: commonStyle.screenWidth / 10,
-    paddingHorizontal: 20,
-    fontSize: commonStyle.screenHeight/36,
-    textAlign: 'center'
+    fontSize: 18,
+    fontWeight: '700',
+    color: INK,
+    marginBottom: 4,
   },
-
-  /* ページ下部メニュー */
+  bookSubtitle: {
+    fontSize: 12,
+    color: SUBTLE,
+  },
+  bookMenuButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F1E8DC',
+  },
+  bookMenuContent: {
+    backgroundColor: '#FFFDF9',
+    marginTop: 40,
+  },
   bottomMenuContainer: {
-    flexDirection: 'row', 
     position: 'absolute',
-    height: commonStyle.screenHeight / 11,
-    justifyContent: 'space-between',
-    bottom: 0,
     left: 0,
-    right: 0,            
-    backgroundColor: 'rgba(235, 235, 235, 1)', 
+    right: 0,
+    bottom: 0,
   },
   addBookBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    borderRadius: 5,
-  },
-  addBookBtnIcon: {
-    backgroundColor: 'rgba(255, 255, 255, 0)',
-    color: 'green',
+    position: 'absolute',
+    right: 20,
+    bottom: commonStyle.screenHeight * 0.02,
+    backgroundColor: ACTION_BG,
+    borderWidth: 1,
+    borderColor: '#7D644E',
+    borderRadius: commonStyle.screenHeight,
+    width: commonStyle.screenWidth / 6,
+    height: commonStyle.screenWidth / 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#2E241B',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
   },
   manualBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 5,
-  },
-  manualBtnIcon: {
-    backgroundColor: 'rgba(255, 255, 255, 0)',
-    color: 'black',
-  },
-
-  /* 新規ノート追加ボタン */
-  newBookOptionsOverlay: {
     position: 'absolute',
-    width: commonStyle.screenWidth / 1.05,
-    bottom: commonStyle.screenHeight / 10,
-    backgroundColor: 'white',
-    borderWidth: 1,               
-    borderRadius: 8,                                
-    flexDirection: 'row',        
-    overflow: 'hidden',
+    left: 20,
+    bottom: commonStyle.screenHeight * 0.02 + (commonStyle.screenWidth / 6 - commonStyle.screenWidth / 7) / 2,
+    backgroundColor: ACTION_BG_SOFT,
+    borderWidth: 1,
+    borderColor: '#816955',
+    borderRadius: 16,
+    width: commonStyle.screenWidth / 7,
+    height: commonStyle.screenWidth / 7,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#2E241B',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(39, 30, 22, 0.16)',
+  },
+  modalBackdropCenter: {
+    flex: 1,
+    backgroundColor: 'rgba(39, 30, 22, 0.22)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  newBookOptionsOverlay: {
+    marginHorizontal: commonStyle.screenWidth * 0.04,
+    marginBottom: commonStyle.screenHeight * 0.11,
+    backgroundColor: '#FFFDF9',
+    borderRadius: 24,
+    paddingTop: 18,
+    paddingBottom: 20,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: PAPER_DARK,
+    shadowColor: SHADOW,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 1,
+    shadowRadius: 18,
+    elevation: 6,
+  },
+  paletteTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: INK,
+    marginBottom: 14,
+    paddingHorizontal: 8,
+  },
+  paletteGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
   },
   newBookBtn: {
     marginHorizontal: 6,
+    marginBottom: 6,
+  },
+  paletteSwatch: {
+    width: commonStyle.screenWidth / 8.2,
+    height: commonStyle.screenWidth / 8.2,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#EEE3D7',
+  },
+  paletteIconGlyphWrap: {
+    width: commonStyle.screenWidth / 10,
+    height: commonStyle.screenWidth / 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   newBookBtnIcon: {
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  renameModalCard: {
     width: '100%',
-    height: '100%',
+    maxWidth: 360,
+    backgroundColor: '#FFFDF9',
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    borderWidth: 1,
+    borderColor: PAPER_DARK,
+  },
+  renameModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: INK,
+    marginBottom: 14,
+    textAlign: 'center',
+  },
+  renameInput: {
+    borderWidth: 1,
+    borderColor: '#DED2C3',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: INK,
+    backgroundColor: '#FAF6EF',
+  },
+  renameActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 18,
+  },
+  renameGhostButton: {
+    width: '48%',
+    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: '#F3ECE2',
+  },
+  renameGhostButtonText: {
+    color: SUBTLE,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  renamePrimaryButton: {
+    width: '48%',
+    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: ACTION_BG,
+  },
+  renamePrimaryButtonText: {
+    color: '#FFFDF9',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

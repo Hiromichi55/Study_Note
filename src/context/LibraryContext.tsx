@@ -10,7 +10,7 @@ const isDelete = ENV.INIT_DB; // trueにすると毎回初期化される
 export type Book = {
   book_id: string;
   title: string;
-  color: 'blue' | 'cyan' | 'green' | 'pink' | 'red' | 'yellow'| 'black'; // 本の色
+  color: 'blue' | 'cyan' | 'green' | 'pink' | 'red' | 'yellow' | 'black' | 'orange' | 'purple' | 'brown' | 'gray'; // 本の色
   order_index: number; // 並び順を管理するためのフィールド
 };
 
@@ -24,7 +24,8 @@ type Action =
   | { type: 'SET_BOOKS'; books: Book[] }
   | { type: 'ADD_BOOK'; book: Book }
   | { type: 'SET_LOADING'; isLoading: boolean }
-  | { type: 'DELETE_BOOK'; bookId: string };
+  | { type: 'DELETE_BOOK'; bookId: string }
+  | { type: 'RENAME_BOOK'; bookId: string; title: string };
 
 const initialBooks: Book[] = [
   { book_id: '1', title: '国語', color: 'red', order_index: 0 },
@@ -44,12 +45,14 @@ const LibraryContext = createContext<{
   addBook: (book: Book) => Promise<void>;
   reorderBooks: (newBooks: Book[]) => Promise<void>;
   deleteBook: (bookId: string) => Promise<void>;
+  renameBook: (bookId: string, title: string) => Promise<void>;
 }>({
   state: initialState,
   dispatch: () => null,
   addBook: async () => {},
   reorderBooks: async () => {},
   deleteBook: async () => {},
+  renameBook: async () => {},
 });
 
 function libraryReducer(state: State, action: Action): State {
@@ -62,6 +65,8 @@ function libraryReducer(state: State, action: Action): State {
       return { ...state, isLoading: action.isLoading };
     case 'DELETE_BOOK':
       return { ...state, books: state.books.filter(b => b.book_id !== action.bookId) };
+    case 'RENAME_BOOK':
+      return { ...state, books: state.books.map(b => b.book_id === action.bookId ? { ...b, title: action.title } : b) };
     default:
       return state;
   }
@@ -215,8 +220,22 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // 本のタイトルを変更する関数
+  const renameBook = async (bookId: string, title: string) => {
+    if (!db) {
+      console.error('Database not initialized');
+      return;
+    }
+    try {
+      await db.runAsync('UPDATE books SET title = ? WHERE id = ?', [title, bookId]);
+      dispatch({ type: 'RENAME_BOOK', bookId, title });
+    } catch (error) {
+      console.error('本のタイトル変更エラー:', error);
+    }
+  };
+
   return (
-    <LibraryContext.Provider value={{ state, dispatch, addBook, reorderBooks, deleteBook }}>
+    <LibraryContext.Provider value={{ state, dispatch, addBook, reorderBooks, deleteBook, renameBook }}>
       {children}
     </LibraryContext.Provider>
   );

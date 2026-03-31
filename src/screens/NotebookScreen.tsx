@@ -19,9 +19,9 @@ import { MESSAGES } from '../constants/messages';
 import { Ionicons } from '@expo/vector-icons';
 import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
-import { notebookStyles } from '../styles/notebookStyle';
+import { notebookColors, notebookStyles } from '../styles/notebookStyle';
 import * as commonStyle from '../styles/commonStyle';
-import NoteContent, { computeMaxRows } from './NoteContent';
+import NoteContent, { computeMaxRows, NOTE_OUTER_MARGIN } from './NoteContent';
 import { logTable } from 'src/utils/logTable';
 import { useEditor, Content } from '../context/EditorContext';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -39,15 +39,49 @@ interface Props {
   route: NotebookScreenRouteProp;
 }
 
+const NOTE_BG_COLOR_MAP: Record<string, string> = {
+  red: '#B26260',
+  pink: '#B25F87',
+  orange: '#B47B4F',
+  yellow: '#BBA859',
+  green: '#6DA055',
+  blue: '#4B8ABA',
+  cyan: '#55A99F',
+  purple: '#7A68B2',
+  brown: '#8A6A52',
+  gray: '#6F7A86',
+  black: '#333333',
+};
+
+const hexToRgb = (hex: string): [number, number, number] => {
+  const normalized = hex.replace('#', '');
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return [r, g, b];
+};
+
+const getLuminance = (hex: string): number => {
+  const [r, g, b] = hexToRgb(hex);
+  const toLinear = (v: number) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const rl = toLinear(r);
+  const gl = toLinear(g);
+  const bl = toLinear(b);
+  return 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
+};
+
 const NotebookScreen: React.FC<Props> = ({ route }) => {
   const headerHeight = useHeaderHeight();
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   // NoteContent と同じ計算式でノート領域を定義
   const noteCapRect = {
-    x: Math.round(screenWidth * 0.01),
-    y: 0,
+    x: Math.round(NOTE_OUTER_MARGIN),
+    y: Math.round(NOTE_OUTER_MARGIN),
     width: Math.round(screenWidth * 0.98),
-    height: Math.round((screenHeight - headerHeight) * 0.87),
+    height: Math.round((screenHeight - headerHeight) * 0.87 - NOTE_OUTER_MARGIN),
   };
   const { 
   addContent, addText, addWord, addImage, addOutline, getContentsByBookId, 
@@ -63,6 +97,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const { state, dispatch, deleteBook } = useLibrary();
 
   const book = state.books.find((b) => b.book_id === bookId);
+  const noteBgHex = NOTE_BG_COLOR_MAP[book?.color ?? 'red'] ?? NOTE_BG_COLOR_MAP.red;
+  const useLightFloatingButtons = getLuminance(noteBgHex) < 0.28;
+  const floatingButtonBg = useLightFloatingButtons ? 'rgba(252, 250, 246, 0.96)' : '#5E4633';
+  const floatingButtonBorder = useLightFloatingButtons ? '#DED2C3' : '#7D644E';
+  const floatingButtonIcon = useLightFloatingButtons ? '#342C24' : '#FFFDF9';
   const [menuVisible, setMenuVisible] = useState(false);
   const [currentPageNumber, setcurrentPageNumber] = useState(0);
   const searchInputRef = useRef<TextInput>(null);
@@ -662,6 +701,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   useLayoutEffect(() => {
     navigation.setOptions({
+      headerStyle: {
+        backgroundColor: notebookColors.paper,
+      },
+      headerShadowVisible: false,
+      headerTintColor: notebookColors.ink,
       headerTitle: () => (
         <TouchableOpacity onPress={() => { setTocVisible(true); console.log('目次ボタン押下'); }}>
           <Text style={notebookStyles.outlineBtn}>目次</Text>
@@ -674,7 +718,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             onPress={() => { console.log('保存ボタン押下'); handleSave(); }}
             style={[notebookStyles.menuBtn, { paddingHorizontal: 12 }]} // color="#007AFF"
           >
-            <Ionicons name="checkmark" size={35} color="#007AFF" />
+            <Ionicons name="checkmark" size={35} color={notebookColors.accent} />
           </TouchableOpacity>
         ) : (
           // 通常: ミートボールメニュー
@@ -687,7 +731,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 onPress={() => { console.log('メニューボタン押下'); openMenu(); }}
                 style={[notebookStyles.menuBtn, getDebugStyle('rgba(0, 255, 0, 0.15)')]}>
                 <View style={notebookStyles.menuBtnIcon}>
-                  <Ionicons name="ellipsis-horizontal" size={20} color="black" />
+                  <Ionicons name="ellipsis-horizontal" size={20} color={notebookColors.ink} />
                 </View>
               </TouchableOpacity>
             }
@@ -757,6 +801,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         getDebugStyle('rgba(255, 255, 0, 1)')]}
     >
       <View style={notebookStyles.notebookContentsContainer}>
+        <View style={notebookStyles.backgroundGlowTop} />
+        <View style={notebookStyles.backgroundGlowBottom} />
         {/* <NoteBackground> */}
           <View
             ref={noteContentRef}
@@ -787,18 +833,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
           {/* ページ番号（右上） */}
           {!editing && (
-            <Text
-              style={{
-                position: 'absolute',
-                top: 10,
-                right: 30,
-                fontSize: 14,
-                color: '#666',
-                fontWeight: '500',
-              }}
-            >
-              {currentPageNumber + 1}
-            </Text>
+            <View style={notebookStyles.pageNumberBadge}>
+              <Text style={notebookStyles.pageNumberText}>{currentPageNumber + 1}</Text>
+            </View>
           )}
 
           {/* ページ一覧ボタン（左下） */}
@@ -811,31 +848,19 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               }}
               style={[
                 notebookStyles.pageListBtn,
+                { backgroundColor: floatingButtonBg, borderColor: floatingButtonBorder },
                 { position: 'absolute', bottom: commonStyle.screenHeight * 0.02 + (commonStyle.screenWidth / 6 - commonStyle.screenWidth / 7) / 2, left: 20 },
                 getDebugStyle('rgba(0, 0, 0, 0.4)'),
               ]}
             >
-              <Ionicons name="albums-outline" size={commonStyle.screenWidth/15} color="white" />
+              <Ionicons name="albums-outline" size={commonStyle.screenWidth/15} color={floatingButtonIcon} />
             </TouchableOpacity>
           )}
 
           {/* スライダー（ページ一覧ボタンと+ボタンの間） */}
           {!editing && (
             <View
-              style={{
-                position: 'absolute',
-                bottom: commonStyle.screenHeight * 0.02,
-                left: commonStyle.screenWidth * 0.25,
-                right: commonStyle.screenWidth * 0.25,
-                height: commonStyle.screenWidth / 6,
-                borderRadius: 12,
-                justifyContent: 'center',
-                paddingHorizontal: 10,
-                shadowColor: '#000',
-                shadowOpacity: 0.3,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 5,
-              }}
+              style={notebookStyles.sliderShell}
             >
               <Slider
                 key={`slider-${pagesElements.length}`}
@@ -844,9 +869,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 maximumValue={Math.max(pagesElements.length - 1, 0)}
                 step={1}
                 value={currentPageNumber}
-                minimumTrackTintColor="#fff"
-                maximumTrackTintColor="#666"
-                thumbTintColor="#fff"
+                minimumTrackTintColor={notebookColors.accent}
+                maximumTrackTintColor={notebookColors.paperLine}
+                thumbTintColor={notebookColors.ink}
                 onValueChange={ async(v) => {
                   setcurrentPageNumber(v);
                   console.log('ページ数変更:', v+1);
@@ -860,29 +885,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
           {/* 🔍 検索欄と検索結果 */}
           {showSearch && (
-            <View style={{ 
-              position: 'absolute',
-              bottom: isKeyboardVisible ? keyboardHeight : 0,
-              left: 0,
-              right: 0,
-              flexDirection: 'column',
-            }}>
+            <View style={[notebookStyles.searchResultsContainer, { bottom: isKeyboardVisible ? keyboardHeight : 0 }]}>
               {/* 検索結果一覧 */}
               {searchResults.length > 0 && (
                 <FlatList
                   data={searchResults}
                   keyExtractor={(_, i) => `result-${i}`}
-                  style={{
-                    maxHeight: commonStyle.screenHeight * 0.3,
-                    backgroundColor: 'white',
-                    marginHorizontal: 20,
-                    marginBottom: 4,
-                    borderRadius: 8,
-                    shadowColor: '#000',
-                    shadowOpacity: 0.15,
-                    shadowOffset: { width: 0, height: 2 },
-                    elevation: 4,
-                  }}
+                  style={notebookStyles.searchResultsList}
                   renderItem={({ item }) => (
                     <TouchableOpacity
                       onPress={() => {
@@ -890,10 +899,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         setShowSearch(false);
                         setSearchQuery('');
                       }}
-                      style={{ paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 0.5, borderColor: '#eee' }}
+                      style={notebookStyles.searchResultItem}
                     >
-                      <Text style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>ページ {item.pageNum + 1} ・ {item.type}</Text>
-                      <Text numberOfLines={2} style={{ fontSize: 15 }}>{item.text}</Text>
+                      <Text style={notebookStyles.searchResultMeta}>ページ {item.pageNum + 1} ・ {item.type}</Text>
+                      <Text numberOfLines={2} style={notebookStyles.searchResultText}>{item.text}</Text>
                     </TouchableOpacity>
                   )}
                 />
@@ -917,13 +926,14 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   autoCorrect={false}
                   textContentType="none"
                   keyboardAppearance="default"
+                  placeholderTextColor={notebookColors.inkSoft}
                 />
-                <TouchableOpacity onPress={() => {
+                <TouchableOpacity style={notebookStyles.searchCloseButton} onPress={() => {
                   console.log('検索欄閉じるボタン押下');
                   setShowSearch(false);
                   setSearchQuery('');
                 }}>
-                  <Ionicons name="close" size={commonStyle.screenWidth / 12} color="gray" />
+                  <Ionicons name="close" size={commonStyle.screenWidth / 16} color={notebookColors.ink} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -934,6 +944,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             <TouchableOpacity
               style={[
                 notebookStyles.editButton,
+                { backgroundColor: floatingButtonBg, borderColor: floatingButtonBorder },
                 { bottom: commonStyle.screenHeight * 0.02 }
               ]}
               onPress={async () => {
@@ -1012,7 +1023,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 }
               }}
             >
-              <Ionicons name="add" size={commonStyle.screenWidth / 12} color="white" />
+              <Ionicons name="add" size={commonStyle.screenWidth / 12} color={floatingButtonIcon} />
             </TouchableOpacity>
           )}
 
@@ -1027,11 +1038,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         animationType="slide"
         onRequestClose={() => setTocVisible(false)}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ backgroundColor: 'white', width: '85%', maxHeight: '70%', borderRadius: 12, padding: 16 }}>
-            <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>目次</Text>
+        <View style={notebookStyles.modalBackdrop}>
+          <View style={[notebookStyles.modalCard, notebookStyles.tocCard]}>
+            <Text style={notebookStyles.modalTitle}>目次</Text>
             {tocItems.length === 0 ? (
-              <Text style={{ color: '#888', textAlign: 'center', marginVertical: 24 }}>見出しがありません</Text>
+              <Text style={notebookStyles.modalEmptyText}>見出しがありません</Text>
             ) : (
               <FlatList
                 data={tocItems}
@@ -1039,10 +1050,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     onPress={() => { setcurrentPageNumber(item.pageNum); setTocVisible(false); }}
-                    style={{ paddingVertical: 10, borderBottomWidth: 0.5, borderColor: '#eee', paddingLeft: item.indentLevel * 16 }}
+                    style={[notebookStyles.tocItem, { paddingLeft: item.indentLevel * 16 }]}
                   >
-                    <Text style={{ fontSize: 15 - item.indentLevel, fontWeight: item.indentLevel === 0 ? 'bold' : 'normal' }}>{item.text}</Text>
-                    <Text style={{ color: '#999', fontSize: 12 }}>ページ {item.pageNum + 1}</Text>
+                    <Text style={{ fontSize: 15 - item.indentLevel, fontWeight: item.indentLevel === 0 ? 'bold' : 'normal', color: notebookColors.ink }}>{item.text}</Text>
+                    <Text style={notebookStyles.tocItemPage}>ページ {item.pageNum + 1}</Text>
                   </TouchableOpacity>
                 )}
               />
@@ -1051,7 +1062,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               onPress={() => setTocVisible(false)}
               style={{ marginTop: 12, alignSelf: 'flex-end' }}
             >
-              <Text style={{ color: '#007AFF', fontSize: 16 }}>閉じる</Text>
+              <Text style={notebookStyles.modalCloseText}>閉じる</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1079,9 +1090,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           setPageListVisible(false);
         }}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ backgroundColor: 'white', width: '92%', maxHeight: '80%', borderRadius: 12, padding: 16 }}>
-            <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>ページ一覧</Text>
+        <View style={notebookStyles.modalBackdrop}>
+          <View style={[notebookStyles.modalCard, notebookStyles.pageListCard]}>
+            <Text style={notebookStyles.modalTitle}>ページ一覧</Text>
             <FlatList
               data={pagesElements}
               keyExtractor={(_, i) => `page-list-${i}`}
@@ -1093,14 +1104,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 return (
                   <TouchableOpacity
                     onPress={() => { setcurrentPageNumber(index); setPageListVisible(false); }}
-                    style={{
-                      width: '48%',
-                      marginBottom: 12,
-                      borderRadius: 8,
-                      overflow: 'hidden',
-                      borderWidth: 2,
-                      borderColor: isCurrentPage ? '#007AFF' : '#e0e0e0',
-                    }}
+                    style={[notebookStyles.pageListItem, isCurrentPage && notebookStyles.pageListItemActive]}
                   >
                     {thumbUri ? (
                       <Image
@@ -1109,28 +1113,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         resizeMode="cover"
                       />
                     ) : (
-                      <View style={{
-                        width: '100%',
-                        aspectRatio: 0.65,
-                        backgroundColor: '#f5f5f5',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                      }}>
+                      <View style={notebookStyles.pageListPlaceholder}>
                         <Ionicons name="document-outline" size={32} color="#ccc" />
-                        <Text style={{ color: '#bbb', fontSize: 11, marginTop: 4 }}>未保存</Text>
+                        <Text style={notebookStyles.pageListPlaceholderText}>未保存</Text>
                       </View>
                     )}
-                    <View style={{
-                      paddingVertical: 6,
-                      paddingHorizontal: 8,
-                      backgroundColor: isCurrentPage ? '#007AFF' : 'white',
-                    }}>
-                      <Text style={{
-                        fontSize: 13,
-                        fontWeight: 'bold',
-                        color: isCurrentPage ? 'white' : '#333',
-                        textAlign: 'center',
-                      }}>
+                    <View style={[notebookStyles.pageListLabel, isCurrentPage && notebookStyles.pageListLabelActive]}>
+                      <Text style={[notebookStyles.pageListLabelText, isCurrentPage && notebookStyles.pageListLabelTextActive]}>
                         ページ {index + 1}
                       </Text>
                     </View>
@@ -1142,7 +1131,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               onPress={() => setPageListVisible(false)}
               style={{ marginTop: 8, alignSelf: 'flex-end' }}
             >
-              <Text style={{ color: '#007AFF', fontSize: 16 }}>閉じる</Text>
+              <Text style={notebookStyles.modalCloseText}>閉じる</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1156,33 +1145,26 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         onRequestClose={() => setTypePickerVisible(false)}
       >
         <TouchableWithoutFeedback onPress={() => setTypePickerVisible(false)}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={notebookStyles.modalBackdrop}>
             <TouchableWithoutFeedback>
-              <View style={{ backgroundColor: 'white', borderRadius: 14, padding: 20, width: '75%' }}>
-                <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' }}>追加する要素を選択</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
+              <View style={[notebookStyles.modalCard, notebookStyles.typePickerCard]}>
+                <Text style={[notebookStyles.modalTitle, { textAlign: 'center' }]}>追加する要素を選択</Text>
+                <View style={notebookStyles.typePickerGrid}>
                   {ELEMENT_LABELS.map(({ label, type }) => (
                     <TouchableOpacity
                       key={type}
                       onPress={() => handleAddElement(type)}
-                      style={{
-                        width: '42%',
-                        paddingVertical: 12,
-                        borderRadius: 10,
-                        backgroundColor: '#007AFF',
-                        alignItems: 'center',
-                        marginBottom: 4,
-                      }}
+                      style={notebookStyles.typePickerOption}
                     >
-                      <Text style={{ color: 'white', fontSize: 15, fontWeight: 'bold' }}>{label}</Text>
+                      <Text style={notebookStyles.typePickerOptionText}>{label}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
                 <TouchableOpacity
                   onPress={() => setTypePickerVisible(false)}
-                  style={{ marginTop: 12, alignSelf: 'center' }}
+                  style={notebookStyles.typePickerCancel}
                 >
-                  <Text style={{ color: '#888', fontSize: 15 }}>キャンセル</Text>
+                  <Text style={notebookStyles.typePickerCancelText}>キャンセル</Text>
                 </TouchableOpacity>
               </View>
             </TouchableWithoutFeedback>

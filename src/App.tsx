@@ -44,7 +44,9 @@ export default function App() {
     'HiraMinProN-W3': require('../assets/fonts/HiraMinProN-W3-AlphaNum-01.otf'),
     'HiraMinProN-W6': require('../assets/fonts/HiraMinProN-W6-AlphaNum-03.otf'),
     'piroji': require('../assets/fonts/piroji.ttf'),
-    'pencil': require('../assets/fonts/pencil.ttf'),
+    'pencil': require('../assets/fonts/pencil_free.ttf'),
+    'sanari': require('../assets/fonts/SanariFontB002.ttf'),
+    'sanari-bold': require('../assets/fonts/SanariFontH002.ttf'),
   });
 
   useEffect(() => {

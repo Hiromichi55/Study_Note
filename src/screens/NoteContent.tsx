@@ -18,6 +18,12 @@ const space = 0.03;
 const interval = 30;
 const upperSpace = 2;
 const RULE_COLOR = 'rgba(196, 204, 218, 1)';
+const TITLE_RULE_COLOR = 'rgba(152, 173, 211, 1)';
+export const NOTE_OUTER_MARGIN = width * 0.01;
+const ACTIVE_BORDER = '#8A6F56';
+const ACTIVE_TINT = 'rgba(138, 111, 86, 0.10)';
+const TOOLBAR_BG = '#FCFAF6';
+const TOOLBAR_BORDER = '#DED2C3';
 
 export type NoteElement =
   | { type: 'chapter'; text: string }
@@ -29,22 +35,26 @@ export type NoteElement =
 
 type NoteElementType = NoteElement['type'];
 
-const FONT_MAP: Record<NoteElementType, { size: number; lineHeight: number }> = {
-  chapter: { size: 24, lineHeight: interval },
-  section: { size: 20, lineHeight: interval },
-  subsection: { size: 16, lineHeight: interval },
-  text: { size: 14, lineHeight: interval },
-  word: { size: 14, lineHeight: interval },
-  image: { size: 0, lineHeight: interval },
+const FONT_MAP: Record<NoteElementType, { size: number; lineHeight: number; family: string }> = {
+  chapter: { size: 30, lineHeight: interval, family: 'sanari-bold' },
+  section: { size: 26, lineHeight: interval, family: 'sanari-bold' },
+  subsection: { size: 22, lineHeight: interval, family: 'sanari-bold' },
+  text: { size: 20, lineHeight: interval, family: 'sanari' },
+  word: { size: 20, lineHeight: interval, family: 'sanari' },
+  image: { size: 0, lineHeight: interval, family: 'sanari' },
 };
 
 const COLOR_MAP = {
   red: '#B26260',
   pink: '#B25F87',
+  orange: '#B47B4F',
   yellow: '#BBA859',
   green: '#6DA055',
   blue: '#4B8ABA',
   cyan: '#55A99F',
+  purple: '#7A68B2',
+  brown: '#8A6A52',
+  gray: '#6F7A86',
   black: '#333333',
 } as const;
 
@@ -93,10 +103,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
     { label: '画像', type: 'image' },
   ];
 
-  const noteX = width * 0.01;
-  const noteY = height * 0;
+  const noteX = NOTE_OUTER_MARGIN;
+  const noteY = NOTE_OUTER_MARGIN;
   const noteWidth = width * 0.98;
-  const noteHeight = (height - headerHeight) * 0.87;
+  const noteHeight = (height - headerHeight) * 0.87 - noteY;
   const bottomMargin = Math.round((height - headerHeight) * 0.13);
 
   // 1画面に収まる最大行数（upperSpace 分のタイトル行を除く）
@@ -284,11 +294,14 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
   // ===================================================
   const renderElements = () => {
     const rendered: React.ReactElement[] = [];
+    const currentCount = elements?.length ?? 0;
+    const remaining = Math.max(0, maxRows - currentCount);
 
     // ── エレメントが存在する行 ──
     (elements ?? []).forEach((el, idx) => {
       const font = FONT_MAP[el.type];
       const estHeight = getElementHeight(el);
+      const isBottomElementBorder = remaining === 0 && idx === currentCount - 1;
 
       const debugStyle = IS_DEV
         ? { backgroundColor: 'rgba(255,0,0,0.15)', borderWidth: 1, borderColor: 'red' }
@@ -308,10 +321,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
             }}
             style={{
               height: 200,
-              borderBottomWidth: 1,
-              borderBottomColor: RULE_COLOR,
+              borderBottomWidth: isBottomElementBorder ? 1.5 : 1,
+              borderBottomColor: isBottomElementBorder ? TITLE_RULE_COLOR : RULE_COLOR,
               borderWidth: isEditing && activeIndex === idx ? 2 : 0,
-              borderColor: '#007AFF',
+              borderColor: ACTIVE_BORDER,
               ...debugStyle,
             }}
           >
@@ -339,9 +352,9 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
             style={{
               height: estHeight,
               flexDirection: 'row',
-              borderBottomWidth: 1,
-              borderBottomColor: RULE_COLOR,
-              backgroundColor: isEditing && activeIndex === idx ? 'rgba(0,122,255,0.08)' : 'transparent',
+              borderBottomWidth: isBottomElementBorder ? 1.5 : 1,
+              borderBottomColor: isBottomElementBorder ? TITLE_RULE_COLOR : RULE_COLOR,
+              backgroundColor: isEditing && activeIndex === idx ? ACTIVE_TINT : 'transparent',
               alignItems: 'stretch',
               ...debugStyle,
             }}
@@ -409,15 +422,16 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
           style={{
             height: estHeight,
             justifyContent: 'center',
-            borderBottomWidth: 1,
-            borderBottomColor: RULE_COLOR,
-            backgroundColor: isEditing && activeIndex === idx ? 'rgba(0,122,255,0.08)' : 'transparent',
+            borderBottomWidth: isBottomElementBorder ? 1.5 : 1,
+            borderBottomColor: isBottomElementBorder ? TITLE_RULE_COLOR : RULE_COLOR,
+            backgroundColor: isEditing && activeIndex === idx ? ACTIVE_TINT : 'transparent',
             ...debugStyle,
           }}
         >
           {isEditing ? (
             <TextInput
               value={'text' in el ? el.text : (el as any).text || ''}
+              scrollEnabled={false}
               onChangeText={(t) =>
                 handleInputWithEnter(t, idx, (next) => onElementChange?.(idx, { ...el, text: next } as any))
               }
@@ -426,7 +440,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
               style={{
                 fontSize: font.size,
                 lineHeight: font.lineHeight,
-                fontFamily: 'piroji',
+                fontFamily: font.family,
                 width: '90%',
                 padding: 0,
                 includeFontPadding: false,
@@ -455,13 +469,16 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
     });
 
     // 末尾に残り行分の罫線を常に追加（maxRowsを超えない範囲で）
-    const currentCount = elements?.length ?? 0;
-    const remaining = Math.max(0, maxRows - currentCount);
     for (let i = 0; i < remaining; i++) {
+      const isBottomEmptyLine = i === remaining - 1;
       rendered.push(
         <TouchableOpacity
           key={`empty-tap-${i}`}
-          style={{ height: interval, borderBottomWidth: 1, borderBottomColor: RULE_COLOR }}
+          style={{
+            height: interval,
+            borderBottomWidth: isBottomEmptyLine ? 1.5 : 1,
+            borderBottomColor: isBottomEmptyLine ? TITLE_RULE_COLOR : RULE_COLOR,
+          }}
           onPress={() => {
             if (!isEditing) {
               // 非編集モード：新要素追加 → 編集モード開始
@@ -488,12 +505,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
       <Animated.View
         style={{
           position: 'absolute',
-          top: 0,
+          top: noteY,
           left: noteX,
           right: noteX,
           bottom: bottomMargin,
-          backgroundColor: 'white',
-          shadowColor: '#000',
+          backgroundColor: '#FCFAF6',
+          shadowColor: '#4B3522',
           shadowOffset: { width: 6, height: 6 },
           shadowOpacity: 0.12,
           shadowRadius: 0,
@@ -512,8 +529,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, elements, onN
           contentContainerStyle={{ paddingHorizontal: noteWidth * space }}
         >
           {/* タイトル線エリア（2行分） */}
-          <View style={{ height: interval, borderBottomWidth: 1.5, borderBottomColor: 'rgba(152, 173, 211, 1)' }} />
-          <View style={{ height: interval, borderBottomWidth: 1.5, borderBottomColor: 'rgba(152, 173, 211, 1)' }} />
+          <View style={{ height: interval, borderBottomWidth: 1.5, borderBottomColor: TITLE_RULE_COLOR }} />
+          <View style={{ height: interval, borderBottomWidth: 1.5, borderBottomColor: TITLE_RULE_COLOR }} />
           {renderElements()}
         </ScrollView>
       </Animated.View>
@@ -550,16 +567,16 @@ export default NoteContent;
 // ヘルパー：ノート1画面あたりの最大行数を計算（外部から参照可能）
 // ----------------------------------------------------------------
 export const computeMaxRows = (headerHeight: number): number => {
-  const noteHeight = (height - headerHeight) * 0.87;
+  const noteHeight = (height - headerHeight) * 0.87 - NOTE_OUTER_MARGIN;
   return Math.max(1, Math.floor((noteHeight - upperSpace * interval) / interval));
 };
 
 const style = StyleSheet.create({
   keyboardToolbar: {
     minHeight: 48,
-    backgroundColor: '#f4f5f7',
+    backgroundColor: TOOLBAR_BG,
     borderTopWidth: 1,
-    borderTopColor: '#d7d7d7',
+    borderTopColor: TOOLBAR_BORDER,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
@@ -573,11 +590,11 @@ const style = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   toolbarButtonActive: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ACTIVE_BORDER,
   },
   toolbarButtonText: {
     fontSize: 13,
-    color: '#333',
+    color: '#342C24',
     fontWeight: '600',
   },
   toolbarButtonTextActive: {
@@ -608,10 +625,10 @@ export const generateDefaultBackground = async (
   basePaint.setColor(Skia.Color(bgColorLocal));
   canvas.drawRect(Skia.XYWHRect(0, 0, width, height), basePaint);
 
-  const noteX_local = width * 0.01;
-  const noteY_local = height * 0;
+  const noteX_local = NOTE_OUTER_MARGIN;
+  const noteY_local = NOTE_OUTER_MARGIN;
   const noteWidth_local = width * 0.98;
-  const noteHeight_local = (height - headerH) * 0.87;
+  const noteHeight_local = (height - headerH) * 0.87 - noteY_local;
 
   const radius = 0;
 
@@ -622,14 +639,14 @@ export const generateDefaultBackground = async (
   canvas.drawRRect(shadowRect, shadowPaint);
 
   const whitePaint = Skia.Paint();
-  whitePaint.setColor(Skia.Color('white'));
+  whitePaint.setColor(Skia.Color('#FCFAF6'));
   whitePaint.setStyle(PaintStyle.Fill);
   const whiteRect = Skia.RRectXY(Skia.XYWHRect(noteX_local, noteY_local, noteWidth_local, noteHeight_local), radius, radius);
   canvas.drawRRect(whiteRect, whitePaint);
 
   const linePaint = Skia.Paint();
   linePaint.setStrokeWidth(1.5);
-  linePaint.setColor(Skia.Color('rgba(152, 173, 211, 1)'));
+  linePaint.setColor(Skia.Color(TITLE_RULE_COLOR));
   linePaint.setStrokeWidth(1.5);
 
   const x1_title = width * space;
@@ -654,6 +671,15 @@ export const generateDefaultBackground = async (
     const y2 = y1;
     canvas.drawLine(x1, y1, x2, y2, linePaint);
   }
+
+  // 最下段の罫線はタイトル線と同じ太さ・色にする
+  linePaint.setColor(Skia.Color(TITLE_RULE_COLOR));
+  linePaint.setStrokeWidth(1.5);
+  const x1_bottom = width * space;
+  const y1_bottom = (row - 1) * interval;
+  const x2_bottom = width * (1 - space);
+  const y2_bottom = y1_bottom;
+  canvas.drawLine(x1_bottom, y1_bottom, x2_bottom, y2_bottom, linePaint);
 
   const image = surface.makeImageSnapshot();
   let bytes: Uint8Array;
