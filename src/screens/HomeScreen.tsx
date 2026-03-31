@@ -18,8 +18,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../App';
 import { Book } from '../context/LibraryContext';
 import { ENV } from '@config';
-import { homeStyles } from '../styles/homeStyle';
-import * as homeStyle from '../styles/homeStyle';
+import { BOOK_BTN_HEIGHT, homeStyles } from '../styles/homeStyles';
 import * as commonStyle from '../styles/commonStyle';
 import { logTable } from '../utils/logTable';
 import { initDB } from '../db/db';
@@ -249,15 +248,16 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         DEBUG_LAYOUT && { borderWidth: 0.5, borderColor: 'black' },
       ]}>
         <View style={homeStyles.titleRow}>
-          <Text style={homeStyles.screenCaption}>ノート本棚</Text>
+          <Text style={homeStyles.screenCaption}>ノート一覧</Text>
           <TouchableOpacity
             onPress={() => navigation.navigate('Wordbook')}
             style={homeStyles.wordbookQuickBtn}
           >
-            <Ionicons name="library-outline" size={16} color="#FFFFFF" />
+            <Ionicons name="albums-outline" size={16} color="#FFFFFF" />
             <Text style={homeStyles.wordbookQuickBtnText}>単語帳</Text>
           </TouchableOpacity>
         </View>
+
         <Text style={homeStyles.listHeaderDescription}>
           全 {bookData.length} 冊 ・ 追加 / 並び替え / 管理
         </Text>
@@ -275,8 +275,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         extraData={bookData}
         contentContainerStyle={homeStyles.verticalScrollContainer}
         getItemLayout={(data, index) => ({
-          length: homeStyle.BOOK_BTN_HEIGHT,
-          offset: homeStyle.BOOK_BTN_HEIGHT * index,
+          length: BOOK_BTN_HEIGHT,
+          offset: BOOK_BTN_HEIGHT * index,
           index,
         })}
         onScrollToIndexFailed={(info) => {
@@ -312,8 +312,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         style={homeStyles.addBookBtn}
       >
         <Ionicons
-          name="book"
-          size={commonStyle.screenWidth / 12}
+          name="add"
+          size={commonStyle.screenWidth / 10}
           color="white"
         />
       </TouchableOpacity>

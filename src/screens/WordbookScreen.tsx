@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, PanResponder } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +28,25 @@ const WordbookScreen: React.FC = () => {
   const { select, updateWord } = useEditor();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
 
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: '単語帳',
+      headerTitleStyle: { fontSize: 17, fontWeight: '700', color: '#342C24' },
+      headerStyle: { backgroundColor: '#E9DCCD' },
+      headerShadowVisible: false,
+      headerTintColor: '#342C24',
+      headerLeft: () => (
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 6 }}
+        >
+          <Ionicons name="chevron-back" size={24} color="#342C24" />
+          <Text style={{ fontSize: 17, color: '#342C24' }}>ノート一覧</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
   const [allCards, setAllCards] = useState<WordCard[]>([]);
   const [selectedBookId, setSelectedBookId] = useState<string>('all');
   const [current, setCurrent] = useState(0);
@@ -37,21 +56,6 @@ const WordbookScreen: React.FC = () => {
   const [shuffleNonce, setShuffleNonce] = useState(0);
   const [flaggedCards, setFlaggedCards] = useState<Set<string>>(new Set());
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gestureState) => {
-          return Math.abs(gestureState.dx) > 14 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
-        },
-        onPanResponderRelease: (_, gestureState) => {
-          if (gestureState.dx > 56 && Math.abs(gestureState.dy) < 32) {
-            navigation.navigate('Home');
-          }
-        },
-      }),
-    [navigation]
-  );
 
   const loadCards = useCallback(async () => {
     const [contents, words] = await Promise.all([
@@ -126,7 +130,28 @@ const WordbookScreen: React.FC = () => {
     return shuffled;
   }, [cards, orderMode, shuffleNonce]);
 
-  const currentCard = displayCards[current];
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          return Math.abs(gestureState.dx) > 14 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (Math.abs(gestureState.dy) >= 32 || displayCards.length === 0) return;
+          if (gestureState.dx > 56) {
+            setCurrent((prev) => Math.max(0, prev - 1));
+            setRevealed(false);
+          } else if (gestureState.dx < -56) {
+            setCurrent((prev) => Math.min(displayCards.length - 1, prev + 1));
+            setRevealed(false);
+          }
+        },
+      }),
+    [displayCards.length]
+  );
+
+  const safeCurrent = displayCards.length === 0 ? 0 : Math.min(current, displayCards.length - 1);
+  const currentCard = displayCards[safeCurrent] ?? null;
 
   const selectedBook = useMemo(() => {
     if (selectedBookId === 'all') return null;
@@ -188,7 +213,7 @@ const WordbookScreen: React.FC = () => {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F3ECE3', padding: 16 }} {...panResponder.panHandlers}>
+    <View style={{ flex: 1, backgroundColor: '#F5EFE6', padding: 16 }} {...panResponder.panHandlers}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -267,13 +292,17 @@ const WordbookScreen: React.FC = () => {
                   gap: 4,
                   borderRadius: 8,
                   borderWidth: 1,
-                  borderColor: flaggedCards.has(currentCard.wordId) ? '#D4A574' : '#D9CEC2',
-                  backgroundColor: flaggedCards.has(currentCard.wordId) ? '#F5E6D3' : '#EFEBE8',
+                  borderColor: currentCard && flaggedCards.has(currentCard.wordId) ? '#D4A574' : '#D9CEC2',
+                  backgroundColor: currentCard && flaggedCards.has(currentCard.wordId) ? '#F5E6D3' : '#EFEBE8',
                   paddingHorizontal: 8,
                   paddingVertical: 4,
                 }}
               >
-                <Ionicons name={flaggedCards.has(currentCard.wordId) ? 'flag' : 'flag-outline'} size={14} color={flaggedCards.has(currentCard.wordId) ? '#C17B3B' : '#8B7355'} />
+                <Ionicons
+                  name={currentCard && flaggedCards.has(currentCard.wordId) ? 'flag' : 'flag-outline'}
+                  size={14}
+                  color={currentCard && flaggedCards.has(currentCard.wordId) ? '#C17B3B' : '#8B7355'}
+                />
               </TouchableOpacity>
             </View>
             <Text style={{ fontSize: 24, color: '#3E332A', marginTop: 0, marginBottom: 20 }}>{promptText}</Text>
@@ -318,49 +347,52 @@ const WordbookScreen: React.FC = () => {
               </Text>
             </TouchableOpacity>
           </View>
-
-          <View style={{ marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <TouchableOpacity
-              onPress={() => move(-1)}
-              disabled={current === 0}
-              style={{
-                borderRadius: 10,
-                paddingVertical: 10,
-                paddingHorizontal: 16,
-                backgroundColor: current === 0 ? '#D9CEC2' : '#8A6A52',
-              }}
-            >
-              <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>前へ</Text>
-            </TouchableOpacity>
-
-            <Text style={{ color: '#5A4D42', fontWeight: '700' }}>
-              {current + 1} / {displayCards.length}
-            </Text>
-
-            <TouchableOpacity
-              onPress={() => move(1)}
-              disabled={current === displayCards.length - 1}
-              style={{
-                borderRadius: 10,
-                paddingVertical: 10,
-                paddingHorizontal: 16,
-                backgroundColor: current === displayCards.length - 1 ? '#D9CEC2' : '#8A6A52',
-              }}
-            >
-              <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>次へ</Text>
-            </TouchableOpacity>
-          </View>
         </>
       )}
+
+      <View style={{ marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <TouchableOpacity
+          onPress={() => move(-1)}
+          disabled={displayCards.length === 0 || current === 0}
+          style={{
+            borderRadius: 10,
+            paddingVertical: 10,
+            paddingHorizontal: 16,
+            backgroundColor: displayCards.length === 0 || current === 0 ? '#D9CEC2' : '#8A6A52',
+          }}
+        >
+          <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>前へ</Text>
+        </TouchableOpacity>
+
+        <Text style={{ color: '#5A4D42', fontWeight: '700' }}>
+          {displayCards.length === 0 ? '0 / 0' : `${safeCurrent + 1} / ${displayCards.length}`}
+        </Text>
+
+        <TouchableOpacity
+          onPress={() => move(1)}
+          disabled={displayCards.length === 0 || safeCurrent === displayCards.length - 1}
+          style={{
+            borderRadius: 10,
+            paddingVertical: 10,
+            paddingHorizontal: 16,
+            backgroundColor: displayCards.length === 0 || safeCurrent === displayCards.length - 1 ? '#D9CEC2' : '#8A6A52',
+          }}
+        >
+          <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>次へ</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* セパレーター */}
+      <View style={{ height: 1, backgroundColor: '#E0D5CB', marginTop: 16, marginBottom: 12 }} />
 
       <View
         style={{
           borderRadius: 14,
           borderWidth: 1,
-          borderColor: '#D4956D',
+          borderColor: '#D8C4B3',
           backgroundColor: '#F9EDE0',
           padding: 10,
-          marginTop: 10,
+          marginTop: 0,
           marginBottom: 8,
         }}
       >
@@ -412,7 +444,7 @@ const WordbookScreen: React.FC = () => {
           borderColor: '#C4D9E8',
           backgroundColor: '#EEF5FF',
           padding: 10,
-          marginTop: 10,
+          marginTop: 0,
           marginBottom: 8,
         }}
       >
@@ -458,7 +490,7 @@ const WordbookScreen: React.FC = () => {
           borderColor: '#C7D7C3',
           backgroundColor: '#EDF4EA',
           padding: 10,
-          marginBottom: 10,
+          marginTop: 0,
         }}
       >
         <Text style={{ fontSize: 12, fontWeight: '700', color: '#587055', marginBottom: 6 }}>出題順</Text>

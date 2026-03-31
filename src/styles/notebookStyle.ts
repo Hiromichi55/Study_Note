@@ -35,6 +35,10 @@ export const notebookStyles = StyleSheet.create({
     borderRadius: 100,
     paddingHorizontal: 6,
   },
+  headerBackLabel: {
+    fontSize: 17,
+    color: INK,
+  },
   menuBtnIcon: {
     width: 38,
     height: 38,
@@ -143,6 +147,15 @@ export const notebookStyles = StyleSheet.create({
     color: INK_SOFT,
     fontWeight: '700',
   },
+  noteTitleText: {
+    position: 'absolute',
+    top: 16,
+    left: 24,
+    maxWidth: '62%',
+    fontSize: 13,
+    color: INK_SOFT,
+    fontWeight: '700',
+  },
   sliderShell: {
     position: 'absolute',
     bottom: commonStyle.screenHeight * 0.02,
@@ -152,14 +165,14 @@ export const notebookStyles = StyleSheet.create({
     borderRadius: 18,
     justifyContent: 'center',
     paddingHorizontal: 12,
-    backgroundColor: 'rgba(252, 250, 246, 0.88)',
-    borderWidth: 1,
-    borderColor: PAPER_LINE,
-    shadowColor: SHADOW,
-    shadowOpacity: 1,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderColor: 'transparent',
+    shadowColor: 'transparent',
+    shadowOpacity: 0,
     shadowOffset: { width: 0, height: 8 },
     shadowRadius: 18,
-    elevation: 5,
+    elevation: 0,
   },
   searchResultsContainer: {
     position: 'absolute',
@@ -219,6 +232,10 @@ export const notebookStyles = StyleSheet.create({
     flex: 1,
     marginLeft: 8,
     fontSize: 16,
+    lineHeight: 20,
+    minHeight: 24,
+    paddingVertical: 0,
+    textAlignVertical: 'center',
     color: INK,
   },
   searchCloseButton: {
@@ -355,23 +372,56 @@ export const notebookStyles = StyleSheet.create({
   typePickerCard: {
     width: '78%',
   },
+  typePickerSection: {
+    marginBottom: 10,
+  },
+  typePickerSectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: INK_SOFT,
+    marginBottom: 6,
+    marginLeft: 2,
+  },
   typePickerGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
   },
+  typePickerGridOutline: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
   typePickerOption: {
     width: '48%',
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: ACCENT,
+    borderWidth: 1,
     alignItems: 'center',
     marginBottom: 8,
   },
+  typePickerOptionOutlineCompact: {
+    width: '31.5%',
+    marginBottom: 0,
+    paddingVertical: 10,
+  },
+  typePickerOptionOutline: {
+    backgroundColor: '#3F7A5A',
+    borderColor: '#2E5E44',
+  },
+  typePickerOptionContent: {
+    backgroundColor: '#8B5E3C',
+    borderColor: '#6C462A',
+  },
   typePickerOptionText: {
-    color: '#FFFDF9',
     fontSize: 15,
     fontWeight: '700',
+  },
+  typePickerOptionOutlineText: {
+    color: '#F4FFF6',
+  },
+  typePickerOptionContentText: {
+    color: '#FFF8F0',
   },
   typePickerCancel: {
     marginTop: 12,
