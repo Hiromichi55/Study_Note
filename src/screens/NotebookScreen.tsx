@@ -1241,6 +1241,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       },
       headerShadowVisible: false,
       headerTintColor: notebookColors.ink,
+      headerRightContainerStyle: { paddingRight: 2 },
       headerLeft: () => (
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -1250,93 +1251,124 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         </TouchableOpacity>
       ),
       headerTitle: () => (
-        <TouchableOpacity onPress={() => { setTocVisible(true); console.log('目次ボタン押下'); }}>
-          <Text style={notebookStyles.outlineBtn}>目次</Text>
+        <TouchableOpacity
+          onPress={() => { setTocVisible(true); console.log('目次ボタン押下'); }}
+          activeOpacity={0.75}
+          style={notebookStyles.outlineBtnWrap}
+        >
+          <Text style={notebookStyles.outlineBtn}>目次 ▾</Text>
         </TouchableOpacity>
       ),
       headerRight: () =>
         editing ? (
-          // 編集中: チェックボタン（保存）
-          <TouchableOpacity
-            onPress={() => { console.log('保存ボタン押下'); handleSave(); }}
-            style={notebookStyles.menuBtn}
-          >
-            <Ionicons name="checkmark" size={24} color={notebookColors.ink} />
-          </TouchableOpacity>
+          // 編集中: はてな + チェックボタン（保存）
+          <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 8 }}>
+            <TouchableOpacity
+              onPress={() => setShowHelpOverlay((prev) => !prev)}
+              style={[
+                notebookStyles.menuBtn,
+                notebookStyles.menuBtnIcon,
+                showHelpOverlay && notebookStyles.menuBtnIconActive,
+              ]}
+            >
+              <Ionicons
+                name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'}
+                size={20}
+                color={showHelpOverlay ? '#FFFFFF' : notebookColors.ink}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => { console.log('保存ボタン押下'); handleSave(); }}
+              style={notebookStyles.menuBtn}
+            >
+              <Ionicons name="checkmark" size={24} color={notebookColors.ink} />
+            </TouchableOpacity>
+          </View>
         ) : (
           // 通常: ミートボールメニュー
-          <Menu
-            key={menuVisible ? 'open' : 'closed'}
-            visible={menuVisible}
-            onDismiss={closeMenu}
-            anchor={
+          <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 8 }}>
+            <View>
               <TouchableOpacity
-                onPress={() => { console.log('メニューボタン押下'); openMenu(); }}
-                style={[notebookStyles.menuBtn, getDebugStyle('rgba(0, 255, 0, 0.15)')]}>
-                <Ionicons name="ellipsis-horizontal" size={24} color={notebookColors.ink} />
+                onPress={() => setShowHelpOverlay((prev) => !prev)}
+                style={[
+                  notebookStyles.menuBtn,
+                  notebookStyles.menuBtnIcon,
+                  showHelpOverlay && notebookStyles.menuBtnIconActive,
+                ]}
+              >
+                <Ionicons
+                  name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'}
+                  size={20}
+                  color={showHelpOverlay ? '#FFFFFF' : notebookColors.ink}
+                />
               </TouchableOpacity>
-            }
-            contentStyle={notebookStyles.menuOptionsContainer}
-          >
-          <Menu.Item
-            onPress={() => {
-              console.log('メニュー/検索ボタン押下');
-              closeMenu();
-              setShowSearch(!showSearch);
-            }}
-            title="検索"
-            leadingIcon="magnify"
-            titleStyle={MENU_ITEM_TITLE_STYLE}
-          />
-          <Menu.Item
-            onPress={() => {
-              closeMenu();
-              setShowHelpOverlay((prev) => !prev);
-            }}
-            title={showHelpOverlay ? 'はてなを閉じる' : 'はてな'}
-            leadingIcon={showHelpOverlay ? 'help-circle' : 'help-circle-outline'}
-            titleStyle={MENU_ITEM_TITLE_STYLE}
-          />
-          <Menu.Item
-            onPress={() => {
-              console.log('メニュー/章節番号トグル押下');
-              closeMenu();
-              setOutlineNumberingEnabled((prev) => !prev);
-            }}
-            title={outlineNumberingEnabled ? '章・節番号を非表示' : '章・節番号を表示'}
-            leadingIcon={outlineNumberingEnabled ? 'eye-off' : 'eye'}
-            titleStyle={MENU_ITEM_TITLE_STYLE}
-          />
-          <Menu.Item
-            onPress={() => {
-              console.log('メニュー/ページ削除ボタン押下');
-              closeMenu();
-              Alert.alert('ページを削除', 'このページを削除しますか？', [
-                { text: 'キャンセル', style: 'cancel' },
-                { text: '削除', style: 'destructive', onPress: deleteCurrentPage },
-              ]);
-            }}
-            title="ページ削除"
-            leadingIcon="trash-can"
-            titleStyle={MENU_ITEM_TITLE_STYLE}
-          />
-          {/* <Menu.Item
-            onPress={() => {
-              console.log('メニュー/本削除ボタン押下');
-              closeMenu();
-              Alert.alert('本を削除', 'この本とすべてのノートを削除しますか？', [
-                { text: 'キャンセル', style: 'cancel' },
-                { text: '削除', style: 'destructive', onPress: deleteBookHandler },
-              ]);
-            }}
-            title="本削除"
-            titleStyle={notebookStyles.deleteOption}
-            leadingIcon="delete"
-          /> */}
-        </Menu>
+            </View>
+            <View>
+              <Menu
+                key={menuVisible ? 'open' : 'closed'}
+                visible={menuVisible}
+                onDismiss={closeMenu}
+                anchor={
+                  <TouchableOpacity
+                    onPress={() => { console.log('メニューボタン押下'); openMenu(); }}
+                    style={[notebookStyles.menuBtn, notebookStyles.menuBtnIcon, getDebugStyle('rgba(0, 255, 0, 0.15)')]}> 
+                    <Ionicons name="ellipsis-horizontal" size={24} color={notebookColors.ink} />
+                  </TouchableOpacity>
+                }
+                contentStyle={notebookStyles.menuOptionsContainer}
+              >
+              <Menu.Item
+                onPress={() => {
+                  console.log('メニュー/検索ボタン押下');
+                  closeMenu();
+                  setShowSearch(!showSearch);
+                }}
+                title="検索"
+                leadingIcon="magnify"
+                titleStyle={MENU_ITEM_TITLE_STYLE}
+              />
+              <Menu.Item
+                onPress={() => {
+                  console.log('メニュー/章節番号トグル押下');
+                  closeMenu();
+                  setOutlineNumberingEnabled((prev) => !prev);
+                }}
+                title={outlineNumberingEnabled ? '章・節番号を非表示' : '章・節番号を表示'}
+                leadingIcon={outlineNumberingEnabled ? 'eye-off' : 'eye'}
+                titleStyle={MENU_ITEM_TITLE_STYLE}
+              />
+              <Menu.Item
+                onPress={() => {
+                  console.log('メニュー/ページ削除ボタン押下');
+                  closeMenu();
+                  Alert.alert('ページを削除', 'このページを削除しますか？', [
+                    { text: 'キャンセル', style: 'cancel' },
+                    { text: '削除', style: 'destructive', onPress: deleteCurrentPage },
+                  ]);
+                }}
+                title="ページ削除"
+                leadingIcon="trash-can"
+                titleStyle={MENU_ITEM_TITLE_STYLE}
+              />
+              {/* <Menu.Item
+                onPress={() => {
+                  console.log('メニュー/本削除ボタン押下');
+                  closeMenu();
+                  Alert.alert('本を削除', 'この本とすべてのノートを削除しますか？', [
+                    { text: 'キャンセル', style: 'cancel' },
+                    { text: '削除', style: 'destructive', onPress: deleteBookHandler },
+                  ]);
+                }}
+                title="本削除"
+                titleStyle={notebookStyles.deleteOption}
+                leadingIcon="delete"
+              /> */}
+            </Menu>
+            </View>
+          </View>
         ),
     });
-  }, [navigation, menuVisible, editing, currentPageNumber]);
+  }, [navigation, menuVisible, editing, currentPageNumber, showHelpOverlay]);
 
   if (!book) return <Text>{MESSAGES.NOT_FOUND_BOOK}</Text>;
 

@@ -14,9 +14,12 @@
     },
     "ios": {
       "supportsTablet": true,
+      "buildNumber": "1",
       "bundleIdentifier": "com.anonymous.MyApp",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "ノートに画像を追加するために写真へのアクセスを許可してください",
+        "NSCameraUsageDescription": "ノートに画像を追加するためにカメラへのアクセスを許可してください"
       }
     },
     "android": {
@@ -26,7 +29,13 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.MyApp"
+      "versionCode": 1,
+      "package": "com.anonymous.MyApp",
+      "permissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -34,7 +43,14 @@
     "plugins": [
       "expo-font",
       "expo-sqlite",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ノートに画像を追加するために写真へのアクセスを許可してください",
+          "cameraPermission": "ノートに写真を撮影するためにカメラへのアクセスを許可してください"
+        }
+      ]
     ],
     "extra": {
       "eas": {

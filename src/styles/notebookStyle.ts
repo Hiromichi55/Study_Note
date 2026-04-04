@@ -24,10 +24,24 @@ export const notebookColors = {
 };
 
 export const notebookStyles = StyleSheet.create({
+  outlineBtnWrap: {
+    backgroundColor: '#FFFDF9',
+    borderWidth: 1,
+    borderColor: '#DCCAB4',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
+  },
   outlineBtn: {
-    fontSize: 17,
+    fontSize: 15,
     color: INK,
     fontWeight: '700',
+    letterSpacing: 0.2,
   },
   menuBtn: {
     alignItems: 'center',
@@ -40,12 +54,17 @@ export const notebookStyles = StyleSheet.create({
     color: INK,
   },
   menuBtnIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: ACCENT_SOFT,
+  },
+  menuBtnIconActive: {
+    backgroundColor: '#6E5844',
+    borderWidth: 1,
+    borderColor: '#6E5844',
   },
   menuOptionsContainer: {
     backgroundColor: '#FFFDF9',

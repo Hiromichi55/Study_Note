@@ -2,7 +2,6 @@ import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, PanResponder, StyleSheet, TouchableWithoutFeedback } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { Menu } from 'react-native-paper';
 import { useLibrary } from '../context/LibraryContext';
 import { useEditor, Content, Word } from '../context/EditorContext';
 import { RootStackParamList } from '../App';
@@ -24,21 +23,11 @@ type WordCard = {
   meaning: string;
 };
 
-const MENU_ITEM_TITLE_STYLE = {
-  fontSize: 14,
-  color: '#4E4034',
-  fontWeight: '600' as const,
-};
-
 const WordbookScreen: React.FC = () => {
   const { state: libraryState } = useLibrary();
   const { select, updateWord } = useEditor();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
-  const [menuVisible, setMenuVisible] = useState(false);
   const [showHelpOverlay, setShowHelpOverlay] = useState(false);
-
-  const openMenu = () => setMenuVisible(true);
-  const closeMenu = () => setMenuVisible(false);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -47,6 +36,7 @@ const WordbookScreen: React.FC = () => {
       headerStyle: { backgroundColor: '#E9DCCD' },
       headerShadowVisible: false,
       headerTintColor: '#342C24',
+      headerRightContainerStyle: { paddingRight: 2 },
       headerLeft: () => (
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -56,45 +46,17 @@ const WordbookScreen: React.FC = () => {
         </TouchableOpacity>
       ),
       headerRight: () => (
-        <Menu
-          key={menuVisible ? 'open' : 'closed'}
-          visible={menuVisible}
-          onDismiss={closeMenu}
-          anchor={
-            <TouchableOpacity
-              onPress={openMenu}
-              style={{ alignItems: 'center', justifyContent: 'center', borderRadius: 100, paddingHorizontal: 6 }}
-            >
-              <Ionicons name="ellipsis-horizontal" size={24} color="#342C24" />
-            </TouchableOpacity>
-          }
-          contentStyle={{
-            backgroundColor: '#FFFDF9',
-            marginTop: 40,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: '#E8DDD0',
-            paddingVertical: 6,
-            shadowColor: '#000000',
-            shadowOpacity: 0.12,
-            shadowOffset: { width: 0, height: 4 },
-            shadowRadius: 10,
-            elevation: 6,
-          }}
-        >
-          <Menu.Item
-            onPress={() => {
-              closeMenu();
-              setShowHelpOverlay((prev) => !prev);
-            }}
-            title={showHelpOverlay ? 'はてなを閉じる' : 'はてな'}
-            leadingIcon={showHelpOverlay ? 'help-circle' : 'help-circle-outline'}
-            titleStyle={MENU_ITEM_TITLE_STYLE}
-          />
-        </Menu>
+        <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 8 }}>
+          <TouchableOpacity
+            onPress={() => setShowHelpOverlay((prev) => !prev)}
+            style={{ alignItems: 'center', justifyContent: 'center', borderRadius: 100, paddingHorizontal: 6 }}
+          >
+            <Ionicons name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'} size={22} color="#342C24" />
+          </TouchableOpacity>
+        </View>
       ),
     });
-  }, [navigation, menuVisible, showHelpOverlay]);
+  }, [navigation, showHelpOverlay]);
 
   const [allCards, setAllCards] = useState<WordCard[]>([]);
   const [selectedBookId, setSelectedBookId] = useState<string>('all');
@@ -154,7 +116,6 @@ const WordbookScreen: React.FC = () => {
     useCallback(() => {
       void loadCards();
       return () => {
-        setMenuVisible(false);
         setShowHelpOverlay(false);
       };
     }, [loadCards])

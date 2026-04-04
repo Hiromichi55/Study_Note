@@ -3,9 +3,12 @@
 // ==========================================
 
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Image, Dimensions, StyleSheet, TextInput, TouchableOpacity, Keyboard, Platform, Animated, ScrollView } from 'react-native';
+import { View, Text, Image, Dimensions, StyleSheet, TextInput, TouchableOpacity, Keyboard, Platform, Animated, ScrollView, Alert, ActionSheetIOS } from 'react-native';
 import { Skia, PaintStyle } from '@shopify/react-native-skia';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { Ionicons } from '@expo/vector-icons';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { ENV } from '@config';
 
@@ -152,7 +155,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   // 要素1つの表示高さを返す
   const getElementHeight = (el: NoteElement): number => {
     const font = FONT_MAP[el.type];
-    if (el.type === 'image') return 200;
+    if (el.type === 'image') return IMAGE_SQUARE_SIZE;
     const contentWidth = noteWidth * (1 - 2 * space);
     if (el.type === 'word') {
       const rw = contentWidth * 0.75 - 12;
@@ -414,6 +417,79 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     }, 0);
   };
 
+  // 画像は横いっぱいの正方形（iOS の allowsEditing が常に 1:1 のため正方形に統一）
+  const IMAGE_SQUARE_SIZE = Math.round(noteWidth * (1 - 2 * space));
+
+  const processPickedImage = async (src: string, idx: number) => {
+    // 元画像の中央から 1:1 でクロップ
+    const info = await manipulateAsync(src, [], { format: SaveFormat.JPEG });
+    const origW = info.width;
+    const origH = info.height;
+    const cropSide = Math.min(origW, origH);
+    const originX = Math.round((origW - cropSide) / 2);
+    const originY = Math.round((origH - cropSide) / 2);
+    const cropped = await manipulateAsync(
+      src,
+      [{ crop: { originX, originY, width: cropSide, height: cropSide } }],
+      { compress: 0.85, format: SaveFormat.JPEG }
+    );
+    const dest = `${FileSystem.documentDirectory}note_img_${Date.now()}.jpg`;
+    await FileSystem.copyAsync({ from: cropped.uri, to: dest });
+    const current = elements?.[idx];
+    if (current?.type === 'image') {
+      onElementChange?.(idx, { type: 'image', uri: dest });
+    }
+  };
+
+  const launchImagePicker = async (useCamera: boolean, idx: number) => {
+    const result = useCamera
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: true })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: true });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    await processPickedImage(result.assets[0].uri, idx);
+  };
+
+  const pickImageForElement = async (idx: number) => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: ['キャンセル', '写真ライブラリ', 'カメラで撮影'], cancelButtonIndex: 0 },
+        async (buttonIndex) => {
+          if (buttonIndex === 1) await launchImagePicker(false, idx);
+          if (buttonIndex === 2) await launchImagePicker(true, idx);
+        }
+      );
+    } else {
+      Alert.alert('画像を選択', '', [
+        { text: 'キャンセル', style: 'cancel' },
+        { text: '写真ライブラリ', onPress: () => launchImagePicker(false, idx) },
+        { text: 'カメラで撮影', onPress: () => launchImagePicker(true, idx) },
+      ]);
+    }
+  };
+
+  const showImageEditMenu = (idx: number, hasImage: boolean) => {
+    if (Platform.OS === 'ios') {
+      const options = hasImage
+        ? ['キャンセル', '写真ライブラリ', 'カメラで撮影', '画像を削除']
+        : ['キャンセル', '写真ライブラリ', 'カメラで撮影', '要素を削除'];
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, cancelButtonIndex: 0, destructiveButtonIndex: 3 },
+        async (buttonIndex) => {
+          if (buttonIndex === 1) await launchImagePicker(false, idx);
+          if (buttonIndex === 2) await launchImagePicker(true, idx);
+          if (buttonIndex === 3) onDeleteElement?.(idx);
+        }
+      );
+    } else {
+      Alert.alert(hasImage ? '画像の操作' : '画像を追加', '', [
+        { text: 'キャンセル', style: 'cancel' },
+        { text: '写真ライブラリ', onPress: () => launchImagePicker(false, idx) },
+        { text: 'カメラで撮影', onPress: () => launchImagePicker(true, idx) },
+        { text: hasImage ? '画像を削除' : '要素を削除', style: 'destructive', onPress: () => onDeleteElement?.(idx) },
+      ]);
+    }
+  };
+
   const handleInputWithEnter = (
     value: string,
     index: number,
@@ -498,13 +574,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   return;
                 }
                 setActiveIndex(idx);
-                setTimeout(() => {
-                  focusElementInput(idx);
-                }, 0);
               })
             }
             style={{
-              height: 200,
+              height: IMAGE_SQUARE_SIZE,
               ...lineStyle,
               borderWidth: isEditing && effectiveActiveIndex === idx ? 2 : 0,
               borderColor: ACTIVE_BORDER,
@@ -512,11 +585,36 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
             }}
           >
             {el.uri ? (
-              <Image source={{ uri: el.uri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+              <>
+                <Image source={{ uri: el.uri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                {isEditing && (
+                  <TouchableOpacity
+                    onPress={() => showImageEditMenu(idx, true)}
+                    style={{
+                      position: 'absolute', bottom: 8, right: 8,
+                      backgroundColor: 'rgba(0,0,0,0.45)',
+                      borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+                      flexDirection: 'row', alignItems: 'center', gap: 4,
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 12 }}>変更 / 削除</Text>
+                  </TouchableOpacity>
+                )}
+              </>
             ) : (
-              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#8A7D6D', fontSize: 13 }}>画像が未設定です</Text>
-              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!isEditing) { onEditStart?.(idx); }
+                  else { showImageEditMenu(idx, false); }
+                }}
+                activeOpacity={0.7}
+                style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              >
+                <Ionicons name="image-outline" size={28} color={isEditing ? ACTIVE_BORDER : '#C0B4A8'} />
+                <Text style={{ color: isEditing ? ACTIVE_BORDER : '#C0B4A8', fontSize: 12, fontFamily: 'sanari' }}>
+                  {isEditing ? 'タップして画像を追加' : '画像が未設定です'}
+                </Text>
+              </TouchableOpacity>
             )}
           </View>
         );

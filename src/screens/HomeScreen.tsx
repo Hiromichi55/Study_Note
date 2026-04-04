@@ -84,7 +84,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const [showBookOptions, setShowBookOptions] = useState(false);
   const [showTitleInputModal, setShowTitleInputModal] = useState(false);
   const [selectedColorForNewBook, setSelectedColorForNewBook] = useState<Book['color'] | null>(null);
-  const [newBookTitle, setNewBookTitle] = useState('NEW');
+  const [newBookTitle, setNewBookTitle] = useState('');
   const [menuVisibleBookId, setMenuVisibleBookId] = useState<string | null>(null);
   const [renameModalVisible, setRenameModalVisible] = useState(false);
   const [renamingBookId, setRenamingBookId] = useState<string | null>(null);
@@ -93,9 +93,37 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const [recoloringBookId, setRecoloringBookId] = useState<string | null>(null);
   const [showHelpOverlay, setShowHelpOverlay] = useState(false);
   const [settingsMenuVisible, setSettingsMenuVisible] = useState(false);
+  const helpIconWrapRef = useRef<View>(null);
   const settingsIconWrapRef = useRef<View>(null);
+  const wordbookQuickBtnWrapRef = useRef<View>(null);
+  const firstBookMenuWrapRef = useRef<View>(null);
+  const addBookBtnWrapRef = useRef<View>(null);
   const [settingsAnchor, setSettingsAnchor] = useState({ x: commonStyle.screenWidth - 44, y: 92, width: 32, height: 32 });
+  const [helpAnchors, setHelpAnchors] = useState({
+    settings: settingsAnchor,
+    wordbook: { x: commonStyle.screenWidth - 120, y: 130, width: 100, height: 32 },
+    bookMenu: { x: commonStyle.screenWidth - 64, y: 240, width: 44, height: 44 },
+    help: { x: commonStyle.screenWidth - 88, y: 92, width: 32, height: 32 },
+    addBook: { x: commonStyle.screenWidth - 84, y: commonStyle.screenHeight - 122, width: commonStyle.screenWidth / 6, height: commonStyle.screenWidth / 6 },
+  });
   const swipeHandledRef = useRef(false);
+
+  const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+  const measureView = (ref: React.RefObject<View | null>, key: keyof typeof helpAnchors) => {
+    ref.current?.measureInWindow((x, y, width, height) => {
+      if (width <= 0 || height <= 0) return;
+      setHelpAnchors((prev) => ({ ...prev, [key]: { x, y, width, height } }));
+    });
+  };
+
+  const refreshHelpAnchors = () => {
+    measureView(helpIconWrapRef, 'help');
+    measureView(settingsIconWrapRef, 'settings');
+    measureView(wordbookQuickBtnWrapRef, 'wordbook');
+    measureView(firstBookMenuWrapRef, 'bookMenu');
+    measureView(addBookBtnWrapRef, 'addBook');
+  };
 
   const panResponder = useRef(
     PanResponder.create({
@@ -149,6 +177,14 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     }, [])
   );
 
+  useEffect(() => {
+    if (!showHelpOverlay) return;
+    const timer = setTimeout(() => {
+      refreshHelpAnchors();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [showHelpOverlay, bookData.length]);
+
   const handleDeleteBook = (bookId: string, title: string) => {
     Alert.alert(
       '本を削除',
@@ -175,7 +211,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const closeTitleInputModal = () => {
     setShowTitleInputModal(false);
     setSelectedColorForNewBook(null);
-    setNewBookTitle('NEW');
+    setNewBookTitle('');
   };
 
   const handleAddBookWithTitle = async () => {
@@ -184,7 +220,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     const newId = Date.now().toString();
     const newBook: Book = {
       book_id: newId,
-      title: newBookTitle.trim() || 'NEW',
+      title: newBookTitle.trim(),
       color: selectedColorForNewBook,
       order_index: state.books.length,
     };
@@ -290,12 +326,17 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           visible={menuVisibleBookId === item.book_id}
           onDismiss={() => setMenuVisibleBookId(null)}
           anchor={
-            <TouchableOpacity
-              style={homeStyles.bookMenuButton}
-              onPress={() => setMenuVisibleBookId(menuVisibleBookId === item.book_id ? null : item.book_id)}
+            <View
+              ref={item.order_index === 0 ? firstBookMenuWrapRef : undefined}
+              collapsable={false}
             >
-              <Ionicons name="ellipsis-horizontal" size={commonStyle.screenWidth / 19} color="#6B6258" />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={homeStyles.bookMenuButton}
+                onPress={() => setMenuVisibleBookId(menuVisibleBookId === item.book_id ? null : item.book_id)}
+              >
+                <Ionicons name="ellipsis-horizontal" size={commonStyle.screenWidth / 19} color="#6B6258" />
+              </TouchableOpacity>
+            </View>
           }
           contentStyle={homeStyles.bookMenuContent}
         >
@@ -349,7 +390,18 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         DEBUG_LAYOUT && { borderWidth: 0.5, borderColor: 'black' },
       ]}>
         <View style={[homeStyles.titleRow, { marginBottom: 10 }]}>
-          <Text style={homeStyles.screenCaption}>ノート一覧</Text>
+          <Text style={[homeStyles.screenCaption, { flex: 1 }]}>ノート一覧</Text>
+          <View ref={helpIconWrapRef} collapsable={false}>
+            <TouchableOpacity
+              onPress={() => {
+                if (!showHelpOverlay) refreshHelpAnchors();
+                setShowHelpOverlay((prev) => !prev);
+              }}
+              style={{ padding: 4, marginRight: 6 }}
+            >
+              <Ionicons name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'} size={commonStyle.screenWidth / 13.8} color="#6B6258" />
+            </TouchableOpacity>
+          </View>
           <View ref={settingsIconWrapRef} collapsable={false}>
             <TouchableOpacity
               onPress={() => {
@@ -361,7 +413,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               }}
               style={{ padding: 4 }}
             >
-              <Ionicons name="settings-outline" size={commonStyle.screenWidth / 13} color="#6B6258" />
+              <Ionicons name="ellipsis-horizontal" size={commonStyle.screenWidth / 13} color="#6B6258" />
             </TouchableOpacity>
           </View>
         </View>
@@ -370,13 +422,15 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           <Text style={homeStyles.listHeaderDescription}>
             全 {bookData.length} 冊 ・ 追加 / 並び替え / 管理
           </Text>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Wordbook')}
-            style={[homeStyles.wordbookQuickBtn, showHelpOverlay && localStyles.wordbookQuickBtnHelpMode]}
-          >
-            <Ionicons name="albums-outline" size={16} color={showHelpOverlay ? '#4E4034' : '#FFFFFF'} />
-            <Text style={[homeStyles.wordbookQuickBtnText, showHelpOverlay && localStyles.wordbookQuickBtnTextHelpMode]}>単語帳へ</Text>
-          </TouchableOpacity>
+          <View ref={wordbookQuickBtnWrapRef} collapsable={false}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Wordbook')}
+              style={[homeStyles.wordbookQuickBtn, showHelpOverlay && localStyles.wordbookQuickBtnHelpMode]}
+            >
+              <Ionicons name="albums-outline" size={16} color={showHelpOverlay ? '#4E4034' : '#FFFFFF'} />
+              <Text style={[homeStyles.wordbookQuickBtnText, showHelpOverlay && localStyles.wordbookQuickBtnTextHelpMode]}>単語帳へ</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -423,42 +477,76 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         }
       />
 
-      <TouchableOpacity
-        onPress={() => setShowHelpOverlay((prev) => !prev)}
-        style={homeStyles.manualBtn}
-      >
-        <Ionicons
-          name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'}
-          size={commonStyle.screenWidth / 15}
-          color="white"
-        />
-      </TouchableOpacity>
-
       {showHelpOverlay && (
         <TouchableWithoutFeedback onPress={() => setShowHelpOverlay(false)}>
           <View style={localStyles.helpOverlay} pointerEvents="auto">
 
-          <View style={[localStyles.helpBubble, { top: 94, right: 12, maxWidth: commonStyle.screenWidth * 0.45 }]}> 
+          <View
+            style={[
+              localStyles.helpBubble,
+              {
+                top: helpAnchors.settings.y + helpAnchors.settings.height + 8,
+                left: clamp(helpAnchors.settings.x + helpAnchors.settings.width - commonStyle.screenWidth * 0.45, 12, commonStyle.screenWidth - commonStyle.screenWidth * 0.45 - 12),
+                maxWidth: commonStyle.screenWidth * 0.45,
+              },
+            ]}
+          >
             <Text style={localStyles.helpTitle}>設定アイコン</Text>
-            <Text style={localStyles.helpText}>ライセンス情報確認</Text>
+            <Text style={localStyles.helpText}>詳細情報確認</Text>
           </View>
 
-          <View style={[localStyles.helpBubble, { top: 164, right: 12, maxWidth: commonStyle.screenWidth * 0.45 }]}> 
+          <View
+            style={[
+              localStyles.helpBubble,
+              {
+                top: helpAnchors.wordbook.y + helpAnchors.wordbook.height + 8,
+                left: clamp(helpAnchors.wordbook.x + helpAnchors.wordbook.width - commonStyle.screenWidth * 0.45, 12, commonStyle.screenWidth - commonStyle.screenWidth * 0.45 - 12),
+                maxWidth: commonStyle.screenWidth * 0.45,
+              },
+            ]}
+          >
             <Text style={localStyles.helpTitle}>単語帳へ</Text>
             <Text style={localStyles.helpText}>ノートに追加した単語帳</Text>
           </View>
 
-          <View style={[localStyles.helpBubble, { top: 248, right: 12, maxWidth: commonStyle.screenWidth * 0.56 }]}> 
+          <View
+            style={[
+              localStyles.helpBubble,
+              {
+                top: helpAnchors.bookMenu.y + helpAnchors.bookMenu.height + 8,
+                left: clamp(helpAnchors.bookMenu.x + helpAnchors.bookMenu.width - commonStyle.screenWidth * 0.56, 12, commonStyle.screenWidth - commonStyle.screenWidth * 0.56 - 12),
+                maxWidth: commonStyle.screenWidth * 0.56,
+              },
+            ]}
+          >
             <Text style={localStyles.helpTitle}>本のメニュー</Text>
             <Text style={localStyles.helpText}>名前を変更/削除</Text>
           </View>
 
-          <View style={[localStyles.helpBubble, { bottom: commonStyle.screenHeight * 0.13, left: 18, maxWidth: commonStyle.screenWidth * 0.5 }]}> 
+          <View
+            style={[
+              localStyles.helpBubble,
+              {
+                top: helpAnchors.help.y + helpAnchors.help.height + 8,
+                left: clamp(helpAnchors.help.x + helpAnchors.help.width - commonStyle.screenWidth * 0.5, 12, commonStyle.screenWidth - commonStyle.screenWidth * 0.5 - 12),
+                maxWidth: commonStyle.screenWidth * 0.5,
+              },
+            ]}
+          >
             <Text style={localStyles.helpTitle}>はてなボタン</Text>
             <Text style={localStyles.helpText}>説明表示の切り替え。</Text>
           </View>
 
-          <View style={[localStyles.helpBubble, { bottom: commonStyle.screenHeight * 0.11, right: 18, maxWidth: commonStyle.screenWidth * 0.48 }]}> 
+          <View
+            style={[
+              localStyles.helpBubble,
+              {
+                top: helpAnchors.addBook.y - 74,
+                left: clamp(helpAnchors.addBook.x + helpAnchors.addBook.width - commonStyle.screenWidth * 0.48, 12, commonStyle.screenWidth - commonStyle.screenWidth * 0.48 - 12),
+                maxWidth: commonStyle.screenWidth * 0.48,
+              },
+            ]}
+          >
             <Text style={localStyles.helpTitle}>追加ボタン</Text>
             <Text style={localStyles.helpText}>新しい本を作成。</Text>
           </View>
@@ -467,6 +555,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       )}
 
       <TouchableOpacity
+        ref={addBookBtnWrapRef}
         onPress={() => {
           console.log('本を追加ボタン押下');
           setShowBookOptions(prev => !prev);
@@ -544,7 +633,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
                 }}
               >
                 <Ionicons name="information-circle-outline" size={18} color="#6B6258" />
-                <Text style={localStyles.settingsItemText}>ライセンス情報</Text>
+                <Text style={localStyles.settingsItemText}>詳細情報</Text>
               </TouchableOpacity>
             </View>
           </View>
