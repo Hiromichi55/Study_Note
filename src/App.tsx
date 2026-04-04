@@ -102,7 +102,7 @@ function ProductionApp() {
             <Stack.Screen
               name="License"
               component={LicensesScreen as any}
-              options={{ title: 'ライセンス情報', headerBackTitle: 'ノート一覧' }}
+              options={{ title: '詳細情報', headerBackTitle: 'ノート一覧' }}
             />
           </Stack.Navigator>
         </NavigationContainer>
