@@ -195,7 +195,7 @@ const HomeScreenTest = ({ navigation }: any) => (
 // ===== 画面遷移パラメータ型 =====
 export type RootStackParamList = {
   Home: undefined;
-  Notebook: { bookId: string; initialPage?: number };
+  Notebook: { bookId: string; initialPage?: number; source?: 'home' | 'wordbook' };
   Wordbook: undefined;
-  Edit: { bookId: string }; 
+  Edit: { bookId: string };
 };

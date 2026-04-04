@@ -39,17 +39,18 @@ interface Props {
 }
 
 const NOTE_BG_COLOR_MAP: Record<string, string> = {
-  red: '#B26260',
-  pink: '#B25F87',
-  orange: '#B47B4F',
-  yellow: '#BBA859',
-  green: '#6DA055',
-  blue: '#4B8ABA',
-  cyan: '#55A99F',
-  purple: '#7A68B2',
-  brown: '#8A6A52',
-  gray: '#6F7A86',
-  black: '#333333',
+  red: '#B6504A',
+  pink: '#B98196',
+  orange: '#DB8A3E',
+  yellow: '#D2BA39',
+  green: '#5D9C6A',
+  cyan: '#2499A7',
+  blue: '#4A78AC',
+  purple: '#8A6EA8',
+  brown: '#886B57',
+  gray: '#7A7A7A',
+  olive: '#768830',
+  black: '#1F1F1F',
 };
 
 const hexToRgb = (hex: string): [number, number, number] => {
@@ -76,40 +77,61 @@ const OUTLINE_PREFIX_RE = /^\s*\d+(?:\.\d+)*\.\s*/;
 
 const stripOutlinePrefix = (text: string): string => text.replace(OUTLINE_PREFIX_RE, '').trimStart();
 
-const applyOutlineNumbering = (elements: NoteElement[]): NoteElement[] => {
+const applyOutlineNumbering = (elements: NoteElement[], withNumbering: boolean = true): NoteElement[] => {
   let chapter = 0;
   let section = 0;
   let subsection = 0;
 
+  if (!withNumbering) {
+    return elements
+      .filter((el): el is NoteElement => Boolean(el && (el as any).type))
+      .map((el) => {
+        if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
+          const body = stripOutlinePrefix(el.text || '');
+          return { ...el, text: body, autoNumberingDisabled: true };
+        }
+        return el;
+      });
+  }
+
   return elements
     .filter((el): el is NoteElement => Boolean(el && (el as any).type))
     .map((el) => {
-    if (el.type === 'chapter') {
-      chapter += 1;
-      section = 0;
-      subsection = 0;
-      const body = stripOutlinePrefix(el.text || '');
-      return { ...el, text: `${chapter}.${body}` };
-    }
+      if (el.type === 'chapter') {
+        chapter += 1;
+        section = 0;
+        subsection = 0;
+        const body = stripOutlinePrefix(el.text || '');
+        if (el.autoNumberingDisabled) {
+          return { ...el, text: body, autoNumberingDisabled: true };
+        }
+        return { ...el, text: `${chapter}.${body}`, autoNumberingDisabled: false };
+      }
 
-    if (el.type === 'section') {
-      if (chapter === 0) chapter = 1;
-      section += 1;
-      subsection = 0;
-      const body = stripOutlinePrefix(el.text || '');
-      return { ...el, text: `${chapter}.${section}.${body}` };
-    }
+      if (el.type === 'section') {
+        if (chapter === 0) chapter = 1;
+        section += 1;
+        subsection = 0;
+        const body = stripOutlinePrefix(el.text || '');
+        if (el.autoNumberingDisabled) {
+          return { ...el, text: body, autoNumberingDisabled: true };
+        }
+        return { ...el, text: `${chapter}.${section}.${body}`, autoNumberingDisabled: false };
+      }
 
-    if (el.type === 'subsection') {
-      if (chapter === 0) chapter = 1;
-      if (section === 0) section = 1;
-      subsection += 1;
-      const body = stripOutlinePrefix(el.text || '');
-      return { ...el, text: `${chapter}.${section}.${subsection}.${body}` };
-    }
+      if (el.type === 'subsection') {
+        if (chapter === 0) chapter = 1;
+        if (section === 0) section = 1;
+        subsection += 1;
+        const body = stripOutlinePrefix(el.text || '');
+        if (el.autoNumberingDisabled) {
+          return { ...el, text: body, autoNumberingDisabled: true };
+        }
+        return { ...el, text: `${chapter}.${section}.${subsection}.${body}`, autoNumberingDisabled: false };
+      }
 
-    return el;
-  });
+      return el;
+    });
 };
 
 const NotebookScreen: React.FC<Props> = ({ route }) => {
@@ -143,6 +165,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const floatingButtonIcon = notebookColors.ink;
   const [isSavingPage, setIsSavingPage] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [outlineNumberingEnabled, setOutlineNumberingEnabled] = useState(true);
   const [currentPageNumber, setcurrentPageNumber] = useState(0);
   const searchInputRef = useRef<TextInput>(null);
   const noteContentRef = useRef<any>(null);
@@ -311,11 +334,33 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // ===== インプレース編集ハンドラー =====
   const handleElementChange = (index: number, newEl: NoteElement) => {
+    if (!outlineNumberingEnabled && (newEl.type === 'chapter' || newEl.type === 'section' || newEl.type === 'subsection')) {
+      setOutlineNumberingEnabled(true);
+    }
+
+    const prevEl = pagesElementsRef.current[currentPageNumber]?.[index];
+    const hasPrefixAfter = OUTLINE_PREFIX_RE.test((newEl as any).text || '');
+
+    let nextEl: NoteElement = newEl;
+    if (newEl.type === 'chapter' || newEl.type === 'section' || newEl.type === 'subsection') {
+      const autoDisabledBefore = (prevEl as any)?.autoNumberingDisabled === true;
+      if (hasPrefixAfter) {
+        nextEl = { ...newEl, autoNumberingDisabled: false };
+      } else {
+        nextEl = { ...newEl, autoNumberingDisabled: true };
+      }
+
+      // preserve explicit disable when prefix was already removed and user continues editing without prefix
+      if (!hasPrefixAfter && autoDisabledBefore) {
+        nextEl.autoNumberingDisabled = true;
+      }
+    }
+
     setPagesElements(prev => {
       const next = [...prev];
       if (!next[currentPageNumber]) next[currentPageNumber] = [];
-      const updated = next[currentPageNumber].map((el, i) => i === index ? newEl : el);
-      next[currentPageNumber] = applyOutlineNumbering(updated);
+      const updated = next[currentPageNumber].map((el, i) => (i === index ? nextEl : el));
+      next[currentPageNumber] = applyOutlineNumbering(updated, outlineNumberingEnabled);
       return next;
     });
   };
@@ -325,7 +370,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       const next = [...prev];
       if (!next[currentPageNumber]) return next;
       const updated = next[currentPageNumber].filter((_, i) => i !== index);
-      next[currentPageNumber] = applyOutlineNumbering(updated);
+      next[currentPageNumber] = applyOutlineNumbering(updated, outlineNumberingEnabled);
       return next;
     });
   };
@@ -340,7 +385,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       if (!next[currentPageNumber]) next[currentPageNumber] = [];
       const arr = [...next[currentPageNumber]];
       arr.splice(afterIndex, 0, newEl);
-      next[currentPageNumber] = applyOutlineNumbering(arr);
+      next[currentPageNumber] = applyOutlineNumbering(arr, outlineNumberingEnabled);
       return next;
     });
   };
@@ -358,7 +403,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       if (!next[currentPageNumber]) next[currentPageNumber] = [];
       const arr = [...next[currentPageNumber]];
       arr.splice(addAfterIndex, 0, newEl);
-      next[currentPageNumber] = applyOutlineNumbering(arr);
+      next[currentPageNumber] = applyOutlineNumbering(arr, outlineNumberingEnabled);
       return next;
     });
     setTypePickerVisible(false);
@@ -581,7 +626,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       const elements: NoteElement[] = all.map(item => {
         if (item.kind === 'outline') {
           const o = item.data as typeof outlines[0];
-          return { type: o.type as 'chapter' | 'section' | 'subsection', text: o.outline };
+          const slimText = stripOutlinePrefix(o.outline || '');
+          const hasPrefix = OUTLINE_PREFIX_RE.test(o.outline || '');
+          return {
+            type: o.type as 'chapter' | 'section' | 'subsection',
+            text: slimText,
+            autoNumberingDisabled: !hasPrefix,
+          };
         }
         if (item.kind === 'text') {
           return { type: 'text' as const, text: (item.data as typeof texts[0]).text };
@@ -598,7 +649,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       // pagesElements を更新して UI が NoteElement を使えるようにする
       setPagesElements(prev => {
         const next = [...prev];
-        next[pageNumber] = applyOutlineNumbering(elements);
+next[pageNumber] = applyOutlineNumbering(elements, outlineNumberingEnabled);
         return next;
       });
 
@@ -669,7 +720,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       newPagesElements[p] = all.map(item => {
         if (item.kind === 'outline') {
           const o = item.data as typeof outlines[0];
-          return { type: o.type as 'chapter' | 'section' | 'subsection', text: o.outline };
+          const slimText = stripOutlinePrefix(o.outline || '');
+          const hasPrefix = OUTLINE_PREFIX_RE.test(o.outline || '');
+          return {
+            type: o.type as 'chapter' | 'section' | 'subsection',
+            text: slimText,
+            autoNumberingDisabled: !hasPrefix,
+          };
         }
         if (item.kind === 'text') {
           return { type: 'text' as const, text: (item.data as typeof texts[0]).text };
@@ -681,7 +738,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         const img = item.data as typeof images[0];
         return { type: 'image' as const, uri: (img as any).image_path || (img as any).image || '' };
       });
-      newPagesElements[p] = applyOutlineNumbering(newPagesElements[p]);
+      newPagesElements[p] = applyOutlineNumbering(newPagesElements[p], outlineNumberingEnabled);
     }
 
     // 一括で State を更新（順序が確実に保証される）
@@ -742,6 +799,22 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     };
     saveThumbnails();
   }, [pagesElements.length]);
+
+  useEffect(() => {
+    setPagesElements(prev =>
+      prev.map(page => {
+        const normalized = page.map(el => {
+          if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
+            return outlineNumberingEnabled
+              ? { ...el, autoNumberingDisabled: false }
+              : { ...el, autoNumberingDisabled: true };
+          }
+          return el;
+        });
+        return applyOutlineNumbering(normalized, outlineNumberingEnabled);
+      })
+    );
+  }, [outlineNumberingEnabled]);
 
   useEffect(() => {
     const loadContents = async () => {
@@ -831,15 +904,18 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       },
       headerShadowVisible: false,
       headerTintColor: notebookColors.ink,
-      headerLeft: () => (
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={[notebookStyles.menuBtn, { flexDirection: 'row', alignItems: 'center', gap: 2 }]}
-        >
-          <Ionicons name="chevron-back" size={24} color={notebookColors.ink} />
-          <Text style={notebookStyles.headerBackLabel}>ノート一覧</Text>
-        </TouchableOpacity>
-      ),
+      headerLeft: () => {
+        const backLabel = route.params?.source === 'wordbook' ? '単語帳' : 'ノート一覧';
+        return (
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={[notebookStyles.menuBtn, { flexDirection: 'row', alignItems: 'center', gap: 2 }]}
+          >
+            <Ionicons name="chevron-back" size={24} color={notebookColors.ink} />
+            <Text style={notebookStyles.headerBackLabel}>{backLabel}</Text>
+          </TouchableOpacity>
+        );
+      },
       headerTitle: () => (
         <TouchableOpacity onPress={() => { setTocVisible(true); console.log('目次ボタン押下'); }}>
           <Text style={notebookStyles.outlineBtn}>目次</Text>
@@ -877,6 +953,15 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             }}
             title="検索"
             leadingIcon="magnify"
+          />
+          <Menu.Item
+            onPress={() => {
+              console.log('メニュー/章節番号トグル押下');
+              closeMenu();
+              setOutlineNumberingEnabled((prev) => !prev);
+            }}
+            title={outlineNumberingEnabled ? '章・節番号を非表示' : '章・節番号を表示'}
+            leadingIcon={outlineNumberingEnabled ? 'eye-off' : 'eye'}
           />
           <Menu.Item
             onPress={() => {

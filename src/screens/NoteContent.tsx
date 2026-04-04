@@ -26,10 +26,13 @@ const TOOLBAR_BG = '#FCFAF6';
 const TOOLBAR_BORDER = '#DED2C3';
 const RESERVED_TOP_LINES = 1;
 
+const OUTLINE_PREFIX_RE = /^\s*\d+(?:\.\d+)*\.\s*/;
+const stripOutlinePrefix = (text: string) => text.replace(OUTLINE_PREFIX_RE, '').trimStart();
+
 export type NoteElement =
-  | { type: 'chapter'; text: string }
-  | { type: 'section'; text: string }
-  | { type: 'subsection'; text: string }
+  | { type: 'chapter'; text: string; autoNumberingDisabled?: boolean }
+  | { type: 'section'; text: string; autoNumberingDisabled?: boolean }
+  | { type: 'subsection'; text: string; autoNumberingDisabled?: boolean }
   | { type: 'text'; text: string }
   | { type: 'word'; word: string; meaning: string }
   | { type: 'image'; uri: string };
@@ -40,29 +43,30 @@ const isValidElement = (el: NoteElement | undefined | null): el is NoteElement =
 
 type NoteElementType = NoteElement['type'];
 
-const BODY_FONT = { size: 20, lineHeight: interval, family: 'sanari' } as const;
+const BODY_FONT = { size: 18, lineHeight: interval, family: 'sanari' } as const;
 
 const FONT_MAP: Record<NoteElementType, { size: number; lineHeight: number; family: string }> = {
-  chapter: { size: 30, lineHeight: interval, family: 'sanari-bold' },
-  section: { size: 26, lineHeight: interval, family: 'sanari-bold' },
-  subsection: { size: 22, lineHeight: interval, family: 'sanari-bold' },
+  chapter: { size: 28, lineHeight: interval, family: 'sanari-bold' },
+  section: { size: 24, lineHeight: interval, family: 'sanari-bold' },
+  subsection: { size: 20, lineHeight: interval, family: 'sanari-bold' },
   text: BODY_FONT,
   word: BODY_FONT,
   image: { size: 0, lineHeight: interval, family: 'sanari' },
 };
 
 const COLOR_MAP = {
-  red: '#B26260',
-  pink: '#B25F87',
-  orange: '#B47B4F',
-  yellow: '#BBA859',
-  green: '#6DA055',
-  blue: '#4B8ABA',
-  cyan: '#55A99F',
-  purple: '#7A68B2',
-  brown: '#8A6A52',
-  gray: '#6F7A86',
-  black: '#333333',
+  red: '#B6504A',
+  pink: '#B98196',
+  orange: '#DB8A3E',
+  yellow: '#D2BA39',
+  green: '#5D9C6A',
+  cyan: '#2499A7',
+  blue: '#4A78AC',
+  purple: '#8A6EA8',
+  brown: '#886B57',
+  gray: '#7A7A7A',
+  black: '#1F1F1F',
+  olive: '#768830',
 } as const;
 
 type Props = {
@@ -111,6 +115,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   activeIndexRef.current = effectiveActiveIndex;
   elementsRef.current = elements;
 
+  useEffect(() => {
+    if (effectiveActiveIndex !== null && isEditing) {
+      focusElementInput(effectiveActiveIndex);
+    }
+  }, [effectiveActiveIndex, isEditing]);
+
   const TOOLBAR_TYPES: { label: string; type: NoteElement['type'] }[] = [
     { label: '文章', type: 'text' },
     { label: '章', type: 'chapter' },
@@ -146,6 +156,13 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     const text = 'text' in el ? el.text : '';
     const cpp = Math.max(10, Math.floor(contentWidth / Math.max(1, font.size)));
     return Math.max(font.lineHeight, Math.max(1, Math.ceil(text.length / cpp)) * font.lineHeight);
+  };
+
+  const getCharsPerLine = (el: NoteElement) => {
+    const font = FONT_MAP[el.type];
+    if (el.type === 'image') return Infinity;
+    const contentWidth = noteWidth * (1 - 2 * space);
+    return Math.max(1, Math.floor(contentWidth / Math.max(1, font.size)));
   };
 
   // アクティブ要素のY位置（ScrollView内）を計算するヘルパー
@@ -297,7 +314,37 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     const key = target.type === 'word' ? getInputKey(index, 'word') : getInputKey(index, 'main');
     const ref = inputRefs.current[key];
     if (!ref) return;
-    ref.focus();
+
+    setActiveIndex(index);
+    setTimeout(() => {
+      try {
+        ref.focus();
+      } catch (error) {
+        // ignore focus errors
+      }
+      setTimeout(() => {
+        try {
+          ref.focus();
+          if (typeof (ref as any).setNativeProps === 'function') {
+            (ref as any).setNativeProps({ selection: { start: 9999, end: 9999 } });
+          }
+        } catch (error) {
+          // ignore focus/setNativeProps errors
+        }
+      }, 30);
+    }, 30);
+  };
+
+  const focusPrevElement = (index: number) => {
+    if (!elements) return;
+    for (let i = index - 1; i >= 0; i--) {
+      const prevEl = elements[i];
+      if (!isValidElement(prevEl)) continue;
+      if (prevEl.type === 'image') continue;
+      setActiveIndex(i);
+      setTimeout(() => focusElementInput(i), 30);
+      return;
+    }
   };
 
   const focusNextElement = (index: number) => {
@@ -307,7 +354,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       if (!isValidElement(nextEl)) continue;
       if (nextEl.type === 'image') continue;
       setActiveIndex(i);
-      focusElementInput(i);
+      setTimeout(() => focusElementInput(i), 30);
       return;
     }
     // 末尾でも maxRows に達していなければ新しい行を追加
@@ -336,6 +383,9 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     }
     if (el.type === 'word') {
       return { type, text: [el.word, el.meaning].filter(Boolean).join(' ') } as NoteElement;
+    }
+    if (type === 'chapter' || type === 'section' || type === 'subsection') {
+      return { type, text: el.text || '', autoNumberingDisabled: false } as NoteElement;
     }
     return { type, text: el.text || '' } as NoteElement;
   };
@@ -464,65 +514,83 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
               ...debugStyle,
             }}
           >
-            <View style={{ width: colLeftWidth, height: '100%', paddingHorizontal: 6, paddingVertical: 4, borderRightWidth: 1, borderRightColor: RULE_COLOR }}>
+            <View style={{ width: colLeftWidth, height: '100%', paddingHorizontal: 6, paddingVertical: 0, borderRightWidth: 1, borderRightColor: RULE_COLOR }}>
               {isEditing ? (
                 <TextInput
                   value={el.word}
                   onChangeText={(t) =>
                     handleInputWithEnter(t, idx, (next) => onElementChange?.(idx, { ...el, word: next }))
                   }
+                  onKeyPress={({ nativeEvent }) => {
+                    if (nativeEvent.key === 'Enter') {
+                      focusNextElement(idx);
+                    }
+                  }}
                   ref={(ref) => { inputRefs.current[getInputKey(idx, 'word')] = ref; }}
                   autoFocus={effectiveActiveIndex === idx}
                   onFocus={() => setActiveIndex(idx)}
                   style={{
                     fontSize: font.size,
-                    lineHeight: font.size + 4,
+                    lineHeight: interval,
                     fontFamily: font.family,
                     width: '100%',
                     height: '100%',
                     padding: 0,
-                    paddingTop: 0,
-                    paddingBottom: 0,
                     textAlignVertical: 'top',
                     includeFontPadding: false,
                   }}
                   multiline
-                  blurOnSubmit={false}
+                  blurOnSubmit={true}
                   submitBehavior="submit"
                   returnKeyType="next"
-                  onSubmitEditing={() => focusNextElement(idx)}
+                  onSubmitEditing={() => {
+                    const currentValue = inputRefs.current[getInputKey(idx, 'word')]?.props?.value;
+                    if (typeof currentValue === 'string') {
+                      handleInputWithEnter(currentValue, idx, (next) => onElementChange?.(idx, { ...el, word: next }));
+                    }
+                    focusNextElement(idx);
+                  }}
                   placeholder="単語"
                 />
               ) : (
                 <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}>{el.word}</Text>
               )}
             </View>
-            <View style={{ flex: 1, height: '100%', paddingHorizontal: 6, paddingVertical: 4, justifyContent: 'flex-start' }}>
+            <View style={{ flex: 1, height: '100%', paddingHorizontal: 6, paddingVertical: 0, justifyContent: 'flex-start' }}>
               {isEditing ? (
                 <TextInput
                   value={(el as any).meaning}
                   onChangeText={(t) =>
                     handleInputWithEnter(t, idx, (next) => onElementChange?.(idx, { ...el, meaning: next } as any))
                   }
+                  onKeyPress={({ nativeEvent }) => {
+                    if (nativeEvent.key === 'Enter') {
+                      focusNextElement(idx);
+                    }
+                  }}
                   ref={(ref) => { inputRefs.current[getInputKey(idx, 'meaning')] = ref; }}
                   onFocus={() => setActiveIndex(idx)}
                   style={{
                     fontSize: font.size,
-                    lineHeight: font.size + 4,
+                    lineHeight: interval,
                     fontFamily: font.family,
                     width: '100%',
                     height: '100%',
                     padding: 0,
-                    paddingTop: 0,
-                    paddingBottom: 0,
                     textAlignVertical: 'top',
                     includeFontPadding: false,
                   }}
                   multiline
-                  blurOnSubmit={false}
+                  blurOnSubmit={true}
                   submitBehavior="submit"
                   returnKeyType="next"
-                  onSubmitEditing={() => focusNextElement(idx)}
+                  onSubmitEditing={() => {
+                    const currentValue = inputRefs.current[getInputKey(idx, 'meaning')]?.props?.value;
+                    if (typeof currentValue === 'string') {
+                      handleInputWithEnter(currentValue, idx, (next) => onElementChange?.(idx, { ...el, meaning: next } as any));
+                    }
+                    focusNextElement(idx);
+                  }}
                   placeholder="説明"
                 />
               ) : (
@@ -535,6 +603,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       }
 
       // text / chapter / section / subsection
+      const isOutlineType = el.type === 'chapter' || el.type === 'section' || el.type === 'subsection';
       const lineStyle = getRuleStyle(idx, isBottomElementBorder);
       rendered.push(
         <View
@@ -561,14 +630,34 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
             ...debugStyle,
           }}
         >
-          <View style={{ flex: 1, paddingHorizontal: 6, paddingTop: 4, paddingBottom: 0, justifyContent: 'flex-start' }}>
+          <View style={{ flex: 1, paddingHorizontal: 6, paddingTop: 0, paddingBottom: 0, justifyContent: 'flex-start' }}>
             {isEditing ? (
               <TextInput
-                value={'text' in el ? el.text : (el as any).text || ''}
-                scrollEnabled={false}
-                onChangeText={(t) =>
-                  handleInputWithEnter(t, idx, (next) => onElementChange?.(idx, { ...el, text: next } as any))
+                value={
+                  'text' in el
+                    ? el.text
+                    : (el as any).text || ''
                 }
+                scrollEnabled={false}
+                onChangeText={(t) => {
+                  handleInputWithEnter(t, idx, (next) => onElementChange?.(idx, { ...el, text: next } as any));
+                  const maxChars = getCharsPerLine(el);
+                  if (t.length >= maxChars) {
+                    focusNextElement(idx);
+                  }
+                }}
+                onKeyPress={({ nativeEvent }) => {
+                  if (nativeEvent.key === 'Enter') {
+                    focusNextElement(idx);
+                    return;
+                  }
+                  if (nativeEvent.key === 'Backspace') {
+                    const current = 'text' in el ? el.text : (el as any).text || '';
+                    if (current.length === 0) {
+                      focusPrevElement(idx);
+                    }
+                  }
+                }}
                 ref={(ref) => { inputRefs.current[getInputKey(idx, 'main')] = ref; }}
                 autoFocus={effectiveActiveIndex === idx}
                 onFocus={() => setActiveIndex(idx)}
@@ -577,18 +666,22 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   lineHeight: font.lineHeight,
                   fontFamily: font.family,
                   width: '100%',
-                  minHeight: font.lineHeight,
+                  height: '100%',
                   padding: 0,
-                  paddingTop: 0,
-                  paddingBottom: 0,
                   textAlignVertical: 'top',
                   includeFontPadding: false,
                 }}
                 multiline
-                blurOnSubmit={false}
+                blurOnSubmit={true}
                 submitBehavior="submit"
                 returnKeyType="next"
-                onSubmitEditing={() => focusNextElement(idx)}
+                onSubmitEditing={() => {
+                  const currentValue = inputRefs.current[getInputKey(idx, 'main')]?.props?.value;
+                  if (typeof currentValue === 'string') {
+                    handleInputWithEnter(currentValue, idx, (next) => onElementChange?.(idx, { ...el, text: next } as any));
+                  }
+                  focusNextElement(idx);
+                }}
               />
             ) : (
               <Text

@@ -10,7 +10,9 @@ import {
   TextInput,
   Modal,
   PanResponder,
+  StyleSheet,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { Menu } from 'react-native-paper';
 import { useLibrary } from '../context/LibraryContext';
@@ -54,20 +56,21 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const [bookData, setBookData] = useState<Book[]>([]);
   const flatListRef = useRef<any>(null);
 
-  const colorOptions: Book['color'][] = ['red', 'pink', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'brown', 'gray', 'black'];
+  const colorOptions: Book['color'][] = ['red', 'pink', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'brown', 'gray', 'olive', 'black'];
 
   const bookIconColors: Record<string, string> = {
-    red: '#B26260',
-    pink: '#B25F87',
-    orange: '#B47B4F',
-    yellow: '#BBA859',
-    green: '#6DA055',
-    blue: '#4B8ABA',
-    cyan: '#55A99F',
-    purple: '#7A68B2',
-    brown: '#8A6A52',
-    gray: '#6F7A86',
-    black: 'black'
+    red: '#B6504A',
+    pink: '#B98196',
+    orange: '#DB8A3E',
+    yellow: '#D2BA39',
+    green: '#5D9C6A',
+    cyan: '#2499A7',
+    blue: '#4A78AC',
+    purple: '#8A6EA8',
+    brown: '#886B57',
+    gray: '#7A7A7A',
+    olive: '#768830',
+    black: '#1F1F1F',
   };
   const [showBookOptions, setShowBookOptions] = useState(false);
   const [menuVisibleBookId, setMenuVisibleBookId] = useState<string | null>(null);
@@ -163,14 +166,42 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     setRenameText('');
   };
 
-  const renderItem = ({ item, drag, isActive }: RenderItemParams<Book>) => (
-    <Animated.View
-      style={[
-        homeStyles.bookCardWrap,
-        { opacity: isActive ? 0.82 : 1, transform: [{ scale: isActive ? 0.985 : 1 }] },
-      ]}
+  const renderRightActions = (bookId: string, title: string) => (
+    <View style={localStyles.rightActionContainer}>
+      <TouchableOpacity
+        style={localStyles.swipeDeleteButton}
+        onPress={() => {
+        Alert.alert('本の削除', `「${title}」を削除しますか？`, [
+          { text: 'キャンセル', style: 'cancel' },
+          {
+            text: '削除',
+            style: 'destructive',
+            onPress: async () => {
+              await deleteBook(bookId);
+            },
+          },
+        ]);
+      }}
     >
-      <View style={homeStyles.bookBtn}>
+      <Ionicons name="trash-outline" size={24} color="#fff" />
+    </TouchableOpacity>
+  </View>
+  );
+
+  const renderItem = ({ item, drag, isActive }: RenderItemParams<Book>) => (
+    <Swipeable
+      renderRightActions={() => renderRightActions(item.book_id, item.title)}
+      overshootRight={false}
+      rightThreshold={40}
+      containerStyle={{ overflow: 'hidden', borderRadius: 24 }}
+    >
+      <Animated.View
+        style={[
+          homeStyles.bookCardWrap,
+          { opacity: isActive ? 0.82 : 1, transform: [{ scale: isActive ? 0.985 : 1 }] },
+        ]}
+      >
+        <View style={homeStyles.bookBtn}>
         <View style={[homeStyles.bookSpine, { backgroundColor: bookIconColors[item.color] }]} />
         <TouchableOpacity
           onLongPress={drag}
@@ -236,6 +267,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         </Menu>
       </View>
     </Animated.View>
+  </Swipeable>
   );
 
   return (
@@ -408,5 +440,25 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     </View>
   );
 };
+
+const localStyles = StyleSheet.create({
+  rightActionContainer: {
+    width: 80,
+    marginBottom: 14,
+    borderTopRightRadius: 24,
+    borderBottomRightRadius: 24,
+    borderTopLeftRadius: 24,
+    borderBottomLeftRadius: 24,
+    backgroundColor: '#6E5844',
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  swipeDeleteButton: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});
 
 export default HomeScreen;

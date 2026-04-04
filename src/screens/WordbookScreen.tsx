@@ -177,12 +177,12 @@ const WordbookScreen: React.FC = () => {
 
   const promptText = useMemo(() => {
     if (!currentCard) return '';
-    return mode === 'hideWord' ? (currentCard.meaning || '意味が未入力です') : (currentCard.word || '単語が未入力です');
+    return mode === 'hideWord' ? (currentCard.meaning || '---') : (currentCard.word || 'ー');
   }, [currentCard, mode]);
 
   const answerText = useMemo(() => {
     if (!currentCard) return '';
-    return mode === 'hideWord' ? (currentCard.word || '単語が未入力です') : (currentCard.meaning || '意味が未入力です');
+    return mode === 'hideWord' ? (currentCard.word || '---') : (currentCard.meaning || 'ー');
   }, [currentCard, mode]);
 
   const move = (delta: number) => {
@@ -326,7 +326,7 @@ const WordbookScreen: React.FC = () => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => navigation.navigate('Notebook', { bookId: currentCard.bookId, initialPage: currentCard.page })}
+              onPress={() => navigation.navigate('Notebook', { bookId: currentCard.bookId, initialPage: currentCard.page, source: 'wordbook' })}
               style={{
                 marginTop: 10,
                 alignSelf: 'flex-end',
@@ -420,7 +420,7 @@ const WordbookScreen: React.FC = () => {
               backgroundColor: filterMode === 'flagged' ? '#A15A2E' : '#F4D4B8',
             }}
           >
-            <Text style={{ color: filterMode === 'flagged' ? '#FFFFFF' : '#6E4423', fontWeight: '700' }}>旗のみ</Text>
+            <Text style={{ color: filterMode === 'flagged' ? '#FFFFFF' : '#6E4423', fontWeight: '700' }}>フラグのみ</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setFilterMode('unflagged')}
@@ -432,7 +432,7 @@ const WordbookScreen: React.FC = () => {
               backgroundColor: filterMode === 'unflagged' ? '#A15A2E' : '#F4D4B8',
             }}
           >
-            <Text style={{ color: filterMode === 'unflagged' ? '#FFFFFF' : '#6E4423', fontWeight: '700' }}>未旗</Text>
+            <Text style={{ color: filterMode === 'unflagged' ? '#FFFFFF' : '#6E4423', fontWeight: '700' }}>未フラグ</Text>
           </TouchableOpacity>
         </View>
       </View>
