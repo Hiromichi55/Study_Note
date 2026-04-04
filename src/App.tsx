@@ -13,10 +13,8 @@ import { MESSAGES } from './constants/messages';
 import HomeScreenProduction from './screens/HomeScreen';
 import NotebookScreen from './screens/NotebookScreen';
 import WordbookScreen from './screens/WordbookScreen';
+import LicensesScreen from './screens/LicensesScreen';
 import { ENV } from '@config';
-
-// ===== 開発フラグ =====
-const IS_DEV = ENV.IS_DEV; // true: テスト用, false: 本番用
 
 // ===== DB 全テーブル出力関数 =====
 async function dumpDatabase(editor: ReturnType<typeof useEditor>) {
@@ -65,7 +63,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <EditorProvider>
-        {IS_DEV ? <TestApp /> : <ProductionApp />}
+        <ProductionApp />
       </EditorProvider>
     </GestureHandlerRootView>
   );
@@ -76,6 +74,7 @@ function ProductionApp() {
   return (
     <LibraryProvider>
       <PaperProvider>
+        {ENV.ENABLE_DB_LOGGER && <StartupDBLogger />}
         <NavigationContainer>
           <Stack.Navigator
             initialRouteName="Home"
@@ -99,6 +98,11 @@ function ProductionApp() {
               name="Wordbook"
               component={WordbookScreen as any}
               options={{ title: '単語帳' }}
+            />
+            <Stack.Screen
+              name="License"
+              component={LicensesScreen as any}
+              options={{ title: 'ライセンス情報', headerBackTitle: 'ノート一覧' }}
             />
           </Stack.Navigator>
         </NavigationContainer>
@@ -197,5 +201,6 @@ export type RootStackParamList = {
   Home: undefined;
   Notebook: { bookId: string; initialPage?: number; source?: 'home' | 'wordbook' };
   Wordbook: undefined;
+  License: undefined;
   Edit: { bookId: string };
 };

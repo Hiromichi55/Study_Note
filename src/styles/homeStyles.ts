@@ -80,7 +80,7 @@ export const homeStyles = StyleSheet.create({
   verticalScrollContainer: {
     width: commonStyle.screenWidth * 0.92,
     paddingTop: 8,
-    paddingBottom: commonStyle.screenHeight * 0.18,
+    paddingBottom: BOOK_BTN_HEIGHT * 1.5 + commonStyle.screenHeight * 0.12,
   },
   listHeaderStrip: {
     flexDirection: 'row',
@@ -207,6 +207,15 @@ export const homeStyles = StyleSheet.create({
   bookMenuContent: {
     backgroundColor: '#FFFDF9',
     marginTop: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E8DDD0',
+    paddingVertical: 6,
+    shadowColor: '#000000',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 6,
   },
   bottomMenuContainer: {
     position: 'absolute',

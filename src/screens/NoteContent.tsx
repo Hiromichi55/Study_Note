@@ -24,7 +24,10 @@ const ACTIVE_BORDER = '#8A6F56';
 const ACTIVE_TINT = 'rgba(138, 111, 86, 0.10)';
 const TOOLBAR_BG = '#FCFAF6';
 const TOOLBAR_BORDER = '#DED2C3';
+const WORD_ACCENT_COLOR = '#D13A3A';
 const RESERVED_TOP_LINES = 1;
+// TextInput と Text のベースライン差分を吸収するため、編集時だけ上に寄せる
+const EDITOR_TEXT_NUDGE_Y = Platform.OS === 'android' ? -4 : -2;
 
 const OUTLINE_PREFIX_RE = /^\s*\d+(?:\.\d+)*\.\s*/;
 const stripOutlinePrefix = (text: string) => text.replace(OUTLINE_PREFIX_RE, '').trimStart();
@@ -43,12 +46,13 @@ const isValidElement = (el: NoteElement | undefined | null): el is NoteElement =
 
 type NoteElementType = NoteElement['type'];
 
-const BODY_FONT = { size: 18, lineHeight: interval, family: 'sanari' } as const;
+const BODY_FONT = { size: 15, lineHeight: interval, family: 'sanari' } as const;
 
+// ノート要素タイプごとのフォントスタイル・文字の大きさ
 const FONT_MAP: Record<NoteElementType, { size: number; lineHeight: number; family: string }> = {
-  chapter: { size: 28, lineHeight: interval, family: 'sanari-bold' },
-  section: { size: 24, lineHeight: interval, family: 'sanari-bold' },
-  subsection: { size: 20, lineHeight: interval, family: 'sanari-bold' },
+  chapter: { size: 22, lineHeight: interval, family: 'sanari-bold' },
+  section: { size: 18, lineHeight: interval, family: 'sanari-bold' },
+  subsection: { size: 15, lineHeight: interval, family: 'sanari-bold' },
   text: BODY_FONT,
   word: BODY_FONT,
   image: { size: 0, lineHeight: interval, family: 'sanari' },
@@ -99,6 +103,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [displayWordLines, setDisplayWordLines] = useState<Record<number, number>>({});
+  const measuredWordLinesRef = useRef<Record<number, number>>({});
   const inputRefs = useRef<Record<string, TextInput | null>>({});
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(0);
@@ -109,6 +115,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   // キーボードリスナー内で最新値を参照するためのref
   const activeIndexRef = useRef<number | null>(null);
   const elementsRef = useRef<NoteElement[] | undefined>(undefined);
+  const pendingFocusAfterAddRef = useRef<number | null>(null);
   const effectiveActiveIndex = isEditing && activeIndex === null && initialFocusIndex !== undefined && initialFocusIndex !== null
     ? initialFocusIndex
     : activeIndex;
@@ -116,10 +123,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   elementsRef.current = elements;
 
   useEffect(() => {
-    if (effectiveActiveIndex !== null && isEditing) {
-      focusElementInput(effectiveActiveIndex);
+    if (isEditing) {
+      setDisplayWordLines({});
+      return;
     }
-  }, [effectiveActiveIndex, isEditing]);
+    setDisplayWordLines({ ...measuredWordLinesRef.current });
+  }, [isEditing, elements]);
 
   const TOOLBAR_TYPES: { label: string; type: NoteElement['type'] }[] = [
     { label: '文章', type: 'text' },
@@ -146,16 +155,21 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     if (el.type === 'image') return 200;
     const contentWidth = noteWidth * (1 - 2 * space);
     if (el.type === 'word') {
-      const lw = contentWidth * 0.25 - 12;
       const rw = contentWidth * 0.75 - 12;
-      const ll = Math.ceil((el.word || '').length / Math.max(6, Math.floor(lw / Math.max(1, font.size))));
-      const rl = Math.ceil(((el as any).meaning || '').length / Math.max(6, Math.floor(rw / Math.max(1, font.size))));
-      const rawH = Math.max(ll, rl) * font.lineHeight + 8;
-      return Math.max(font.lineHeight, Math.ceil(rawH / font.lineHeight) * font.lineHeight);
+      const meaning = ((el as any).meaning || '') as string;
+      const meaningCharsPerLine = Math.max(6, Math.floor(rw / Math.max(1, font.size)));
+      const meaningLines = meaning
+        .split('\n')
+        .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / meaningCharsPerLine)), 0);
+      return Math.max(font.lineHeight, meaningLines * font.lineHeight);
     }
+
     const text = 'text' in el ? el.text : '';
-    const cpp = Math.max(10, Math.floor(contentWidth / Math.max(1, font.size)));
-    return Math.max(font.lineHeight, Math.max(1, Math.ceil(text.length / cpp)) * font.lineHeight);
+    // TextInput 内の左右余白と折り返し誤差を見込んで安全側に寄せる
+    const availableWidth = Math.max(1, contentWidth - 12);
+    const cpp = Math.max(8, Math.floor(availableWidth / Math.max(1, font.size)) - 1);
+    const linesByNewLine = text.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / cpp)), 0);
+    return Math.max(font.lineHeight, linesByNewLine * font.lineHeight);
   };
 
   const getCharsPerLine = (el: NoteElement) => {
@@ -271,6 +285,17 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     }, 100);
   }, [effectiveActiveIndex, keyboardVisible, keyboardHeight, isEditing, elements]);
 
+  // 新しい要素が追加された直後にフォーカスを当てる（Enter で末尾行追加した場合）
+  useEffect(() => {
+    const pending = pendingFocusAfterAddRef.current;
+    if (pending === null) return;
+    if (!elements || elements.length <= pending) return;
+    pendingFocusAfterAddRef.current = null;
+    requestAnimationFrame(() => {
+      focusElementInput(pending);
+    });
+  }, [elements?.length]);
+
   const getInputKey = (index: number, field: 'main' | 'word' | 'meaning' = 'main') => `${index}:${field}`;
 
   const handleRowResponderGrant = (e: any) => {
@@ -315,24 +340,13 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     const ref = inputRefs.current[key];
     if (!ref) return;
 
-    setActiveIndex(index);
-    setTimeout(() => {
+    requestAnimationFrame(() => {
       try {
         ref.focus();
       } catch (error) {
         // ignore focus errors
       }
-      setTimeout(() => {
-        try {
-          ref.focus();
-          if (typeof (ref as any).setNativeProps === 'function') {
-            (ref as any).setNativeProps({ selection: { start: 9999, end: 9999 } });
-          }
-        } catch (error) {
-          // ignore focus/setNativeProps errors
-        }
-      }, 30);
-    }, 30);
+    });
   };
 
   const focusPrevElement = (index: number) => {
@@ -359,12 +373,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     }
     // 末尾でも maxRows に達していなければ新しい行を追加
     if (elements.length < maxRows) {
-      onTapEmpty?.(index + 1);
-      setTimeout(() => {
-        const nextIndex = index + 1;
-        setActiveIndex(nextIndex);
-        focusElementInput(nextIndex);
-      }, 0);
+      const nextIndex = index + 1;
+      pendingFocusAfterAddRef.current = nextIndex;
+      setActiveIndex(nextIndex);
+      onTapEmpty?.(nextIndex);
     }
     // maxRows を超える場合は何もしない（上限に達しているため）
   };
@@ -431,11 +443,40 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       return { borderBottomWidth: 1, borderBottomColor: RULE_COLOR };
     };
 
+    const renderInnerRuleLines = (rowHeight: number, isBottomElementBorder: boolean) => {
+      const lineCount = Math.max(1, Math.round(rowHeight / interval));
+      const lines: React.ReactElement[] = [];
+
+      for (let line = 1; line <= lineCount; line++) {
+        const isLastLine = line === lineCount;
+        lines.push(
+          <View
+            key={`rule-${line}`}
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: line * interval - (isLastLine ? (isBottomElementBorder ? 1.5 : 1) : 1),
+              borderBottomWidth: isLastLine ? (isBottomElementBorder ? 1.5 : 1) : 1,
+              borderBottomColor: isLastLine && isBottomElementBorder ? TITLE_RULE_COLOR : RULE_COLOR,
+            }}
+          />
+        );
+      }
+
+      return lines;
+    };
+
     // ── エレメントが存在する行 ──
     (elements ?? []).forEach((el, idx) => {
       if (!isValidElement(el)) return;
       const font = FONT_MAP[el.type];
-      const estHeight = getElementHeight(el);
+      let estHeight = getElementHeight(el);
+      if (el.type === 'word') {
+        const measuredLines = displayWordLines[idx] ?? 0;
+        estHeight = Math.max(estHeight, Math.max(1, measuredLines) * font.lineHeight);
+      }
       const isBottomElementBorder = remaining === 0 && idx === currentCount - 1;
 
       const debugStyle = IS_DEV
@@ -514,6 +555,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
               ...debugStyle,
             }}
           >
+            {renderInnerRuleLines(estHeight, isBottomElementBorder)}
             <View style={{ width: colLeftWidth, height: '100%', paddingHorizontal: 6, paddingVertical: 0, borderRightWidth: 1, borderRightColor: RULE_COLOR }}>
               {isEditing ? (
                 <TextInput
@@ -533,11 +575,13 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     fontSize: font.size,
                     lineHeight: interval,
                     fontFamily: font.family,
+                    color: WORD_ACCENT_COLOR,
                     width: '100%',
                     height: '100%',
                     padding: 0,
                     textAlignVertical: 'top',
                     includeFontPadding: false,
+                    transform: [{ translateY: EDITOR_TEXT_NUDGE_Y }],
                   }}
                   multiline
                   blurOnSubmit={true}
@@ -553,7 +597,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   placeholder="単語"
                 />
               ) : (
-                <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}>{el.word}</Text>
+                <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, color: WORD_ACCENT_COLOR, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}>{el.word}</Text>
               )}
             </View>
             <View style={{ flex: 1, height: '100%', paddingHorizontal: 6, paddingVertical: 0, justifyContent: 'flex-start' }}>
@@ -570,6 +614,13 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   }}
                   ref={(ref) => { inputRefs.current[getInputKey(idx, 'meaning')] = ref; }}
                   onFocus={() => setActiveIndex(idx)}
+                  onContentSizeChange={(e) => {
+                    const h = e.nativeEvent.contentSize.height;
+                    // 1行入力でもフォントメトリクス分だけ高さが少し大きく出るため、
+                    // 切り上げではなく四捨五入で行数判定する。
+                    const measuredLines = Math.max(1, Math.round(h / interval));
+                    measuredWordLinesRef.current[idx] = measuredLines;
+                  }}
                   style={{
                     fontSize: font.size,
                     lineHeight: interval,
@@ -579,6 +630,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     padding: 0,
                     textAlignVertical: 'top',
                     includeFontPadding: false,
+                    transform: [{ translateY: EDITOR_TEXT_NUDGE_Y }],
                   }}
                   multiline
                   blurOnSubmit={true}
@@ -591,10 +643,22 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     }
                     focusNextElement(idx);
                   }}
-                  placeholder="説明"
+                  placeholder="意味"
                 />
               ) : (
-                <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}>{(el as any).meaning}</Text>
+                <Text
+                  onTextLayout={(e) => {
+                    if (isEditing) return;
+                    const lines = Math.max(1, e.nativeEvent.lines?.length ?? 1);
+                    setDisplayWordLines((prev) => {
+                      if (prev[idx] === lines) return prev;
+                      return { ...prev, [idx]: lines };
+                    });
+                  }}
+                  style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}
+                >
+                  {(el as any).meaning}
+                </Text>
               )}
             </View>
           </View>
@@ -626,10 +690,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           style={{
             height: estHeight,
             ...lineStyle,
-              backgroundColor: isEditing && effectiveActiveIndex === idx ? ACTIVE_TINT : 'transparent',
+            backgroundColor: isEditing && effectiveActiveIndex === idx ? ACTIVE_TINT : 'transparent',
+            position: 'relative',
             ...debugStyle,
           }}
         >
+          {renderInnerRuleLines(estHeight, isBottomElementBorder)}
           <View style={{ flex: 1, paddingHorizontal: 6, paddingTop: 0, paddingBottom: 0, justifyContent: 'flex-start' }}>
             {isEditing ? (
               <TextInput
@@ -670,6 +736,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   padding: 0,
                   textAlignVertical: 'top',
                   includeFontPadding: false,
+                  transform: [{ translateY: EDITOR_TEXT_NUDGE_Y }],
                 }}
                 multiline
                 blurOnSubmit={true}

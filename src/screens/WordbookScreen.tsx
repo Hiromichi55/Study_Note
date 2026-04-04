@@ -1,7 +1,8 @@
 import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, PanResponder } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, PanResponder, StyleSheet, TouchableWithoutFeedback } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { Menu } from 'react-native-paper';
 import { useLibrary } from '../context/LibraryContext';
 import { useEditor, Content, Word } from '../context/EditorContext';
 import { RootStackParamList } from '../App';
@@ -23,10 +24,21 @@ type WordCard = {
   meaning: string;
 };
 
+const MENU_ITEM_TITLE_STYLE = {
+  fontSize: 14,
+  color: '#4E4034',
+  fontWeight: '600' as const,
+};
+
 const WordbookScreen: React.FC = () => {
   const { state: libraryState } = useLibrary();
   const { select, updateWord } = useEditor();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [showHelpOverlay, setShowHelpOverlay] = useState(false);
+
+  const openMenu = () => setMenuVisible(true);
+  const closeMenu = () => setMenuVisible(false);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -38,14 +50,51 @@ const WordbookScreen: React.FC = () => {
       headerLeft: () => (
         <TouchableOpacity
           onPress={() => navigation.goBack()}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 6 }}
+          style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}
         >
           <Ionicons name="chevron-back" size={24} color="#342C24" />
-          <Text style={{ fontSize: 17, color: '#342C24' }}>ノート一覧</Text>
         </TouchableOpacity>
       ),
+      headerRight: () => (
+        <Menu
+          key={menuVisible ? 'open' : 'closed'}
+          visible={menuVisible}
+          onDismiss={closeMenu}
+          anchor={
+            <TouchableOpacity
+              onPress={openMenu}
+              style={{ alignItems: 'center', justifyContent: 'center', borderRadius: 100, paddingHorizontal: 6 }}
+            >
+              <Ionicons name="ellipsis-horizontal" size={24} color="#342C24" />
+            </TouchableOpacity>
+          }
+          contentStyle={{
+            backgroundColor: '#FFFDF9',
+            marginTop: 40,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: '#E8DDD0',
+            paddingVertical: 6,
+            shadowColor: '#000000',
+            shadowOpacity: 0.12,
+            shadowOffset: { width: 0, height: 4 },
+            shadowRadius: 10,
+            elevation: 6,
+          }}
+        >
+          <Menu.Item
+            onPress={() => {
+              closeMenu();
+              setShowHelpOverlay((prev) => !prev);
+            }}
+            title={showHelpOverlay ? 'はてなを閉じる' : 'はてな'}
+            leadingIcon={showHelpOverlay ? 'help-circle' : 'help-circle-outline'}
+            titleStyle={MENU_ITEM_TITLE_STYLE}
+          />
+        </Menu>
+      ),
     });
-  }, [navigation]);
+  }, [navigation, menuVisible, showHelpOverlay]);
 
   const [allCards, setAllCards] = useState<WordCard[]>([]);
   const [selectedBookId, setSelectedBookId] = useState<string>('all');
@@ -104,6 +153,10 @@ const WordbookScreen: React.FC = () => {
   useFocusEffect(
     useCallback(() => {
       void loadCards();
+      return () => {
+        setMenuVisible(false);
+        setShowHelpOverlay(false);
+      };
     }, [loadCards])
   );
 
@@ -214,6 +267,32 @@ const WordbookScreen: React.FC = () => {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#F5EFE6', padding: 16 }} {...panResponder.panHandlers}>
+      {showHelpOverlay && (
+        <TouchableWithoutFeedback onPress={() => setShowHelpOverlay(false)}>
+          <View pointerEvents="auto" style={{ ...StyleSheet.absoluteFillObject, zIndex: 20, backgroundColor: 'rgba(39, 30, 22, 0.14)' }}>
+          <View style={{ position: 'absolute', top: 14, right: 12, maxWidth: '48%', backgroundColor: 'rgba(255, 253, 249, 0.99)', borderRadius: 12, borderWidth: 1.5, borderColor: '#DCCAB4', paddingHorizontal: 12, paddingVertical: 10 }}>
+            <Text style={{ fontSize: 13, color: '#3E3125', fontWeight: '700', marginBottom: 4 }}>右上メニュー</Text>
+            <Text style={{ fontSize: 12, color: '#4E4034', lineHeight: 17 }}>はてなの表示切り替え</Text>
+          </View>
+
+          <View style={{ position: 'absolute', top: 96, left: 16, maxWidth: '52%', backgroundColor: 'rgba(255, 253, 249, 0.99)', borderRadius: 12, borderWidth: 1.5, borderColor: '#DCCAB4', paddingHorizontal: 12, paddingVertical: 10 }}>
+            <Text style={{ fontSize: 13, color: '#3E3125', fontWeight: '700', marginBottom: 4 }}>本のフィルター</Text>
+            <Text style={{ fontSize: 12, color: '#4E4034', lineHeight: 17 }}>対象の本を選択</Text>
+          </View>
+
+          <View style={{ position: 'absolute', top: 212, right: 16, maxWidth: '48%', backgroundColor: 'rgba(255, 253, 249, 0.99)', borderRadius: 12, borderWidth: 1.5, borderColor: '#DCCAB4', paddingHorizontal: 12, paddingVertical: 10 }}>
+            <Text style={{ fontSize: 13, color: '#3E3125', fontWeight: '700', marginBottom: 4 }}>問題カード</Text>
+            <Text style={{ fontSize: 12, color: '#4E4034', lineHeight: 17 }}>タップで答え表示。フラグで後から復習。</Text>
+          </View>
+
+          <View style={{ position: 'absolute', bottom: 68, right: 16, maxWidth: '52%', backgroundColor: 'rgba(255, 253, 249, 0.99)', borderRadius: 12, borderWidth: 1.5, borderColor: '#DCCAB4', paddingHorizontal: 12, paddingVertical: 10 }}>
+            <Text style={{ fontSize: 13, color: '#3E3125', fontWeight: '700', marginBottom: 4 }}>出題設定</Text>
+            <Text style={{ fontSize: 12, color: '#4E4034', lineHeight: 17 }}>復習フィルター、出題形式、出題順を切り替えて学習</Text>
+          </View>
+          </View>
+        </TouchableWithoutFeedback>
+      )}
+
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
