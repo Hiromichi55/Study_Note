@@ -12,6 +12,22 @@ export type Book = {
   title: string;
   color: 'blue' | 'cyan' | 'green' | 'red' | 'yellow' | 'black' | 'orange' | 'purple' | 'brown' | 'gray' | 'pink' | 'olive'; // 本の色
   order_index: number; // 並び順を管理するためのフィールド
+  created_at?: string;
+  updated_at?: string;
+};
+
+const parseBookUpdatedAt = (value?: string): number => {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const sortBooksByUpdatedAt = (books: Book[]): Book[] => {
+  return [...books].sort((a, b) => {
+    const diff = parseBookUpdatedAt(b.updated_at) - parseBookUpdatedAt(a.updated_at);
+    if (diff !== 0) return diff;
+    return (a.order_index ?? 0) - (b.order_index ?? 0);
+  });
 };
 
 const SHOWCASE_BOOKS: Book[] = [
@@ -42,7 +58,8 @@ type Action =
   | { type: 'SET_LOADING'; isLoading: boolean }
   | { type: 'DELETE_BOOK'; bookId: string }
   | { type: 'RENAME_BOOK'; bookId: string; title: string }
-  | { type: 'RECOLOR_BOOK'; bookId: string; color: Book['color'] };
+  | { type: 'RECOLOR_BOOK'; bookId: string; color: Book['color'] }
+  | { type: 'TOUCH_BOOK'; bookId: string; updatedAt: string };
 
 const initialState: State = { 
   books: initialBooks,
@@ -57,6 +74,7 @@ const LibraryContext = createContext<{
   deleteBook: (bookId: string) => Promise<void>;
   renameBook: (bookId: string, title: string) => Promise<void>;
   recolorBook: (bookId: string, color: Book['color']) => Promise<void>;
+  touchBook: (bookId: string) => Promise<void>;
 }>({
   state: initialState,
   dispatch: () => null,
@@ -65,22 +83,46 @@ const LibraryContext = createContext<{
   deleteBook: async () => {},
   renameBook: async () => {},
   recolorBook: async () => {},
+  touchBook: async () => {},
 });
 
 function libraryReducer(state: State, action: Action): State {
   switch (action.type) {
     case 'SET_BOOKS':
-      return { ...state, books: action.books };
+      return { ...state, books: sortBooksByUpdatedAt(action.books) };
     case 'ADD_BOOK':
-      return { ...state, books: [...state.books, action.book] };
+      return { ...state, books: sortBooksByUpdatedAt([...state.books, action.book]) };
     case 'SET_LOADING':
       return { ...state, isLoading: action.isLoading };
     case 'DELETE_BOOK':
       return { ...state, books: state.books.filter(b => b.book_id !== action.bookId) };
     case 'RENAME_BOOK':
-      return { ...state, books: state.books.map(b => b.book_id === action.bookId ? { ...b, title: action.title } : b) };
+      return {
+        ...state,
+        books: sortBooksByUpdatedAt(
+          state.books.map(b =>
+            b.book_id === action.bookId ? { ...b, title: action.title, updated_at: new Date().toISOString() } : b
+          )
+        ),
+      };
     case 'RECOLOR_BOOK':
-      return { ...state, books: state.books.map(b => b.book_id === action.bookId ? { ...b, color: action.color } : b) };
+      return {
+        ...state,
+        books: sortBooksByUpdatedAt(
+          state.books.map(b =>
+            b.book_id === action.bookId ? { ...b, color: action.color, updated_at: new Date().toISOString() } : b
+          )
+        ),
+      };
+    case 'TOUCH_BOOK':
+      return {
+        ...state,
+        books: sortBooksByUpdatedAt(
+          state.books.map(b =>
+            b.book_id === action.bookId ? { ...b, updated_at: action.updatedAt } : b
+          )
+        ),
+      };
     default:
       return state;
   }
@@ -132,15 +174,18 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
               id TEXT PRIMARY KEY NOT NULL,
               title TEXT NOT NULL,
               color TEXT NOT NULL,
-              order_index INTEGER DEFAULT 0
+              order_index INTEGER DEFAULT 0,
+              created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+              updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
           `);
 
+          const nowIso = new Date().toISOString();
           // 初期データを挿入
           for (const b of initialBooks) {
             await database.runAsync(
-              'INSERT INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
-              [b.book_id, b.title, b.color, b.order_index]
+              'INSERT INTO books (id, title, color, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+              [b.book_id, b.title, b.color, b.order_index, nowIso, nowIso]
             );
           }
 
@@ -149,11 +194,20 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
             [BOOKS_MODE_META_KEY, ENV.APP_MODE]
           );
         }
-
-
+        const bookTableInfo = await database.getAllAsync('PRAGMA table_info(books);');
+        const hasUpdatedAt = (bookTableInfo as any[]).some((col) => String(col?.name) === 'updated_at');
+        const hasCreatedAt = (bookTableInfo as any[]).some((col) => String(col?.name) === 'created_at');
+        if (!hasUpdatedAt) {
+          await database.runAsync('ALTER TABLE books ADD COLUMN updated_at TEXT;');
+          await database.runAsync("UPDATE books SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP);");
+        }
+        if (!hasCreatedAt) {
+          await database.runAsync('ALTER TABLE books ADD COLUMN created_at TEXT;');
+          await database.runAsync('UPDATE books SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP);');
+        }
 
         // データ読み込み
-        const result = await database.getAllAsync('SELECT * FROM books;');
+        const result = await database.getAllAsync('SELECT * FROM books ORDER BY datetime(updated_at) DESC, order_index ASC;');
         logTable('Booksテーブル読込', result as Record<string, any>[]);
 
         let books: Book[] = result.map((row: any) => ({
@@ -161,21 +215,27 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           title: String(row.title),
           color: (row.color || 'blue') as Book['color'],  // ✅ 明示的に型を指定
           order_index: Number(row.order_index || 0),
+          created_at: row.created_at ? String(row.created_at) : undefined,
+          updated_at: row.updated_at ? String(row.updated_at) : undefined,
         }));
 
         // ✅ データベースが空なら初期データを挿入
         if (books.length === 0) {
+          const nowIso = new Date().toISOString();
           for (const book of initialBooks) {
             await database.runAsync(
-              'INSERT INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
-              [book.book_id, book.title, book.color, book.order_index]
+              'INSERT INTO books (id, title, color, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+              [book.book_id, book.title, book.color, book.order_index, nowIso, nowIso]
             );
           }
           await database.runAsync(
             'INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?);',
             [BOOKS_MODE_META_KEY, ENV.APP_MODE]
           );
-          books = initialBooks; // 上書き
+          books = initialBooks.map((book) => {
+            const nowIso = new Date().toISOString();
+            return { ...book, created_at: nowIso, updated_at: nowIso };
+          }); // 上書き
         }
 
         dispatch({ type: 'SET_BOOKS', books });
@@ -197,11 +257,13 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     try {
+      const updatedAt = new Date().toISOString();
+      const createdAt = book.created_at ?? updatedAt;
       await db.runAsync(
-        'INSERT OR REPLACE INTO books (id, title, color, order_index) VALUES (?, ?, ?, ?)',
-        [book.book_id, book.title || '', book.color, book.order_index]
+        'INSERT OR REPLACE INTO books (id, title, color, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [book.book_id, book.title || '', book.color, book.order_index, createdAt, book.updated_at ?? updatedAt]
       );
-      dispatch({ type: 'ADD_BOOK', book });
+      dispatch({ type: 'ADD_BOOK', book: { ...book, created_at: createdAt, updated_at: book.updated_at ?? updatedAt } });
     } catch (error) {
       console.error('本の追加エラー:', error);
     }
@@ -271,7 +333,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
     try {
-      await db.runAsync('UPDATE books SET title = ? WHERE id = ?', [title, bookId]);
+      await db.runAsync('UPDATE books SET title = ?, updated_at = ? WHERE id = ?', [title, new Date().toISOString(), bookId]);
       dispatch({ type: 'RENAME_BOOK', bookId, title });
     } catch (error) {
       console.error('本のタイトル変更エラー:', error);
@@ -285,15 +347,29 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
     try {
-      await db.runAsync('UPDATE books SET color = ? WHERE id = ?', [color, bookId]);
+      await db.runAsync('UPDATE books SET color = ?, updated_at = ? WHERE id = ?', [color, new Date().toISOString(), bookId]);
       dispatch({ type: 'RECOLOR_BOOK', bookId, color });
     } catch (error) {
       console.error('本の色変更エラー:', error);
     }
   };
 
+  const touchBook = async (bookId: string) => {
+    if (!db) {
+      console.error('Database not initialized');
+      return;
+    }
+    try {
+      const updatedAt = new Date().toISOString();
+      await db.runAsync('UPDATE books SET updated_at = ? WHERE id = ?', [updatedAt, bookId]);
+      dispatch({ type: 'TOUCH_BOOK', bookId, updatedAt });
+    } catch (error) {
+      console.error('本の更新日時変更エラー:', error);
+    }
+  };
+
   return (
-    <LibraryContext.Provider value={{ state, dispatch, addBook, reorderBooks, deleteBook, renameBook, recolorBook }}>
+    <LibraryContext.Provider value={{ state, dispatch, addBook, reorderBooks, deleteBook, renameBook, recolorBook, touchBook }}>
       {children}
     </LibraryContext.Provider>
   );

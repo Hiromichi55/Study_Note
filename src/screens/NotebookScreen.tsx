@@ -229,7 +229,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const isTest = ENV.SCREEN_DEV;
   const navigation = useNavigation<any>();
   const { bookId, initialPage } = route.params;
-  const { state, dispatch, deleteBook } = useLibrary();
+  const { state, dispatch, deleteBook, touchBook } = useLibrary();
 
   const book = state.books.find((b) => b.book_id === bookId);
   const noteBgHex = NOTE_BG_COLOR_MAP[book?.color ?? 'red'] ?? NOTE_BG_COLOR_MAP.red;
@@ -794,6 +794,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       Keyboard.dismiss();
       const pageNumber = await savePageToDB(); // ref から最新ページ番号取得
       if (pageNumber !== undefined) {
+        await touchBook(bookId);
         // 保存後は全ページを再読み込みして DB との整合性を確保
         await loadAllPages();
         setEditing(false);
@@ -1265,21 +1266,17 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 8 }}>
             <TouchableOpacity
               onPress={() => setShowHelpOverlay((prev) => !prev)}
-              style={[
-                notebookStyles.menuBtn,
-                notebookStyles.menuBtnIcon,
-                showHelpOverlay && notebookStyles.menuBtnIconActive,
-              ]}
+              style={[notebookStyles.menuBtn, notebookStyles.menuBtnPlainIcon]}
             >
               <Ionicons
                 name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'}
-                size={20}
-                color={showHelpOverlay ? '#FFFFFF' : notebookColors.ink}
+                size={22}
+                color={showHelpOverlay ? '#6E5844' : notebookColors.ink}
               />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => { console.log('保存ボタン押下'); handleSave(); }}
-              style={notebookStyles.menuBtn}
+              style={[notebookStyles.menuBtn, notebookStyles.menuBtnPlainIcon]}
             >
               <Ionicons name="checkmark" size={24} color={notebookColors.ink} />
             </TouchableOpacity>
@@ -1290,16 +1287,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             <View>
               <TouchableOpacity
                 onPress={() => setShowHelpOverlay((prev) => !prev)}
-                style={[
-                  notebookStyles.menuBtn,
-                  notebookStyles.menuBtnIcon,
-                  showHelpOverlay && notebookStyles.menuBtnIconActive,
-                ]}
+                style={[notebookStyles.menuBtn, notebookStyles.menuBtnPlainIcon]}
               >
                 <Ionicons
                   name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'}
-                  size={20}
-                  color={showHelpOverlay ? '#FFFFFF' : notebookColors.ink}
+                  size={22}
+                  color={showHelpOverlay ? '#6E5844' : notebookColors.ink}
                 />
               </TouchableOpacity>
             </View>

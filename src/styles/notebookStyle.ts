@@ -49,6 +49,13 @@ export const notebookStyles = StyleSheet.create({
     borderRadius: 100,
     paddingHorizontal: 6,
   },
+  menuBtnPlainIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerBackLabel: {
     fontSize: 17,
     color: INK,

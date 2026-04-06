@@ -80,7 +80,7 @@ export const homeStyles = StyleSheet.create({
   verticalScrollContainer: {
     width: commonStyle.screenWidth * 0.92,
     paddingTop: 8,
-    paddingBottom: BOOK_BTN_HEIGHT * 1.5 + commonStyle.screenHeight * 0.12,
+    paddingBottom: commonStyle.screenWidth / 6 + commonStyle.screenHeight * 0.045,
   },
   listHeaderStrip: {
     flexDirection: 'row',

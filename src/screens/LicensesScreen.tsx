@@ -82,7 +82,7 @@ const LicenseScreen: React.FC = () => {
       <Text style={styles.description}>現在インストールされているアプリのバージョン情報です。</Text>
 
       <View style={styles.card}>
-        <Text style={styles.name}>Study Note</Text>
+        <Text style={styles.name}>らくらく美ノート</Text>
         <Text style={styles.meta}>Version: {appVersion}</Text>
         <Text style={styles.meta}>Build: {buildVersion}</Text>
       </View>

@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import Animated from 'react-native-reanimated';
 import {
   View,
@@ -13,6 +12,8 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  FlatList,
+  ListRenderItemInfo,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -39,11 +40,90 @@ interface Props {
 // ✅ 開発用フラグ
 const DEBUG_LAYOUT = ENV.SCREEN_DEV; // true: レイアウトデバッグ用枠線表示
 
-const BOOK_SUBTITLE = 'タップで開く / 長押しで並び替え';
 const MENU_ITEM_TITLE_STYLE = {
   fontSize: 14,
   color: '#4E4034',
   fontWeight: '600' as const,
+};
+
+const formatUpdatedAtLabel = (value?: string): string => {
+  if (!value) return '更新日時なし';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '更新日時なし';
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  
+  const dateYear = date.getFullYear();
+  const dateMonth = date.getMonth() + 1;
+  const dateDate = date.getDate();
+  const todayYear = today.getFullYear();
+  const todayMonth = today.getMonth() + 1;
+  const todayDate = today.getDate();
+  const yesterdayYear = yesterday.getFullYear();
+  const yesterdayMonth = yesterday.getMonth() + 1;
+  const yesterdayDate = yesterday.getDate();
+  
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mi = String(date.getMinutes()).padStart(2, '0');
+  
+  if (dateYear === todayYear && dateMonth === todayMonth && dateDate === todayDate) {
+    return `今日 ${hh}:${mi}`;
+  }
+  if (dateYear === yesterdayYear && dateMonth === yesterdayMonth && dateDate === yesterdayDate) {
+    return `昨日 ${hh}:${mi}`;
+  }
+  
+  const yyyy = String(dateYear);
+  const mm = String(dateMonth).padStart(2, '0');
+  const dd = String(dateDate).padStart(2, '0');
+  return `${yyyy}/${mm}/${dd} ${hh}:${mi}`;
+};
+
+type SortMode =
+  | 'manual'
+  | 'updated_desc'
+  | 'updated_asc'
+  | 'created_desc'
+  | 'created_asc'
+  | 'title_asc'
+  | 'title_desc';
+
+const parseDateOrZero = (value?: string): number => {
+  const parsed = Date.parse(value ?? '');
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const sortLabelByMode: Record<SortMode, string> = {
+  manual: '手動順',
+  updated_desc: '更新日時(新しい順)',
+  updated_asc: '更新日時(古い順)',
+  created_desc: '作成日時(新しい順)',
+  created_asc: '作成日時(古い順)',
+  title_asc: 'タイトル(A-Z)',
+  title_desc: 'タイトル(Z-A)',
+};
+
+const sortBooks = (books: Book[], sortMode: SortMode): Book[] => {
+  const copied = [...books];
+  switch (sortMode) {
+    case 'manual':
+      return copied.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+    case 'updated_desc':
+      return copied.sort((a, b) => parseDateOrZero(b.updated_at) - parseDateOrZero(a.updated_at));
+    case 'updated_asc':
+      return copied.sort((a, b) => parseDateOrZero(a.updated_at) - parseDateOrZero(b.updated_at));
+    case 'created_desc':
+      return copied.sort((a, b) => parseDateOrZero(b.created_at) - parseDateOrZero(a.created_at));
+    case 'created_asc':
+      return copied.sort((a, b) => parseDateOrZero(a.created_at) - parseDateOrZero(b.created_at));
+    case 'title_asc':
+      return copied.sort((a, b) => a.title.localeCompare(b.title, 'ja'));
+    case 'title_desc':
+      return copied.sort((a, b) => b.title.localeCompare(a.title, 'ja'));
+    default:
+      return copied;
+  }
 };
 
 const getBookBadgeStyle = (color: Book['color'], baseColor: string) => {
@@ -60,10 +140,9 @@ const getBookBadgeStyle = (color: Book['color'], baseColor: string) => {
 };
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
-  const { state, addBook, reorderBooks, deleteBook, renameBook, recolorBook } = useLibrary();
+  const { state, addBook, deleteBook, renameBook, recolorBook } = useLibrary();
   const [bookData, setBookData] = useState<Book[]>([]);
   const flatListRef = useRef<any>(null);
-  const isDraggingRef = useRef(false);
 
   const colorOptions: Book['color'][] = ['red', 'orange', 'pink', 'yellow', 'green', 'olive', 'cyan', 'blue', 'purple', 'brown', 'gray', 'black'];
 
@@ -93,6 +172,9 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const [recoloringBookId, setRecoloringBookId] = useState<string | null>(null);
   const [showHelpOverlay, setShowHelpOverlay] = useState(false);
   const [settingsMenuVisible, setSettingsMenuVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>('updated_desc');
   const helpIconWrapRef = useRef<View>(null);
   const settingsIconWrapRef = useRef<View>(null);
   const wordbookQuickBtnWrapRef = useRef<View>(null);
@@ -160,13 +242,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   ).current;
 
   useEffect(() => {
-    // ドラッグ中は useEffect をスキップ
-    // ドラッグ中は onDragEnd で setBookData が呼ばれているため、
-    // state.books の変更による setBookData は不要
-    if (isDraggingRef.current) return;
-    
-    setBookData(state.books);
-  }, [state.books]);
+    setBookData(sortBooks(state.books, sortMode));
+  }, [state.books, sortMode]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -223,10 +300,12 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       title: newBookTitle.trim(),
       color: selectedColorForNewBook,
       order_index: state.books.length,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
     await addBook(newBook);
     const database = await initDB();
-    const updatedBooks = [...state.books, newBook];
+    const updatedBooks = sortBooks([...state.books, newBook], sortMode);
     setBookData(updatedBooks);
 
     closeTitleInputModal();
@@ -278,7 +357,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   </View>
   );
 
-  const BookItem = React.memo(({ item, drag, isActive }: RenderItemParams<Book>) => (
+  const BookItem = React.memo(({ item }: { item: Book }) => (
     <Swipeable
       renderRightActions={() => renderRightActions(item.book_id, item.title)}
       overshootRight={false}
@@ -288,14 +367,12 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       <Animated.View
         style={[
           homeStyles.bookCardWrap,
-          { opacity: isActive ? 0.82 : 1, transform: [{ scale: isActive ? 0.985 : 1 }] },
+          { opacity: 1, transform: [{ scale: 1 }] },
         ]}
       >
         <View style={homeStyles.bookBtn}>
         <View style={[homeStyles.bookSpine, { backgroundColor: bookIconColors[item.color] }]} />
         <TouchableOpacity
-          onLongPress={drag}
-          disabled={isActive}
           onPress={() => {
             console.log(`本を選択:bookId = ${item.book_id}`);
             navigation.navigate('Notebook', { bookId: item.book_id });
@@ -319,7 +396,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           </View>
           <View style={homeStyles.bookTextBlock}>
             <Text numberOfLines={1} style={homeStyles.bookTitle}>{item.title}</Text>
-            <Text style={homeStyles.bookSubtitle}>{BOOK_SUBTITLE}</Text>
+            <Text style={homeStyles.bookSubtitle}>{`${formatUpdatedAtLabel(item.updated_at)}`}</Text>
           </View>
         </TouchableOpacity>
         <Menu
@@ -376,8 +453,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   </Swipeable>
   ));
 
-  const renderItem = (params: RenderItemParams<Book>) => (
-    <BookItem {...params} />
+  const renderItem = ({ item }: ListRenderItemInfo<Book>) => (
+    <BookItem item={item} />
   );
 
   return (
@@ -420,7 +497,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text style={homeStyles.listHeaderDescription}>
-            全 {bookData.length} 冊 ・ 追加 / 並び替え / 管理
+            全 {bookData.length} 冊
           </Text>
           <View ref={wordbookQuickBtnWrapRef} collapsable={false}>
             <TouchableOpacity
@@ -434,28 +511,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </View>
 
-      <DraggableFlatList
+      <FlatList
         ref={flatListRef}
         data={bookData}
         keyExtractor={(item) => item.book_id}
         renderItem={renderItem}
-        onDragEnd={({ data }) => {
-          isDraggingRef.current = true;
-          // data の order_index を先に正しく修正してから setBookData に渡す
-          // これにより、useEffect で state.books と完全に同じ内容になり、
-          // 不要な setBookData が呼ばれるのを防ぐ
-          const correctedData = data.map((book, index) => ({
-            ...book,
-            order_index: index,
-          }));
-          // UI を即座に更新
-          setBookData(correctedData);
-          // DB を非同期で更新
-          reorderBooks(data).finally(() => {
-            // reorderBooks が完了したら、useEffect を再度有効化
-            isDraggingRef.current = false;
-          });
-        }}
         extraData={bookData}
         contentContainerStyle={homeStyles.verticalScrollContainer}
         getItemLayout={(data, index) => ({
@@ -629,6 +689,16 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               <TouchableOpacity
                 style={localStyles.settingsItem}
                 onPress={() => {
+                  setIsSearching(true);
+                  setSettingsMenuVisible(false);
+                }}
+              >
+                <Ionicons name="search" size={18} color="#6B6258" />
+                <Text style={localStyles.settingsItemText}>本を検索</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={localStyles.settingsItem}
+                onPress={() => {
                   navigation.navigate('License');
                 }}
               >
@@ -777,6 +847,84 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
                       style={homeStyles.renamePrimaryButton}
                     >
                       <Text style={homeStyles.renamePrimaryButtonText}>変更</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={isSearching}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setIsSearching(false);
+          setSearchQuery('');
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1, justifyContent: 'center' }}
+        >
+          <TouchableWithoutFeedback onPress={() => {
+            setIsSearching(false);
+            setSearchQuery('');
+          }}>
+            <View style={homeStyles.modalBackdropCenter}>
+              <TouchableWithoutFeedback>
+                <View style={homeStyles.renameModalCard}>
+                  <Text style={homeStyles.renameModalTitle}>本を検索</Text>
+                  <TextInput
+                    style={homeStyles.renameInput}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    autoFocus
+                    placeholder="本のタイトルで検索"
+                    placeholderTextColor="#A09588"
+                  />
+                  <View style={{ maxHeight: 300, marginVertical: 10 }}>
+                    {searchQuery.trim() !== '' && (
+                      <FlatList
+                        data={bookData.filter(book => 
+                          book.title.toLowerCase().includes(searchQuery.toLowerCase())
+                        )}
+                        keyExtractor={(item) => item.book_id}
+                        renderItem={({ item }) => (
+                          <TouchableOpacity
+                            onPress={() => {
+                              setIsSearching(false);
+                              setSearchQuery('');
+                              navigation.navigate('Notebook', { bookId: item.book_id });
+                            }}
+                            style={{ paddingVertical: 8, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#E8DDD0' }}
+                          >
+                            <Text style={{ fontSize: 14, color: '#4E4034' }}>{item.title}</Text>
+                          </TouchableOpacity>
+                        )}
+                      />
+                    )}
+                  </View>
+                  <View style={homeStyles.renameActionRow}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setIsSearching(false);
+                        setSearchQuery('');
+                      }}
+                      style={homeStyles.renameGhostButton}
+                    >
+                      <Text style={homeStyles.renameGhostButtonText}>キャンセル</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setIsSearching(false);
+                        setSearchQuery('');
+                      }}
+                      style={homeStyles.renamePrimaryButton}
+                    >
+                      <Text style={homeStyles.renamePrimaryButtonText}>閉じる</Text>
                     </TouchableOpacity>
                   </View>
                 </View>

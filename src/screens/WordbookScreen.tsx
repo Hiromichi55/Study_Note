@@ -1,5 +1,5 @@
 import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, PanResponder, StyleSheet, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, PanResponder, StyleSheet, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLibrary } from '../context/LibraryContext';
@@ -23,9 +23,12 @@ type WordCard = {
   meaning: string;
 };
 
+const toVerticalLabel = (label: string) => label.split('').join('\n');
+
 const WordbookScreen: React.FC = () => {
   const { state: libraryState } = useLibrary();
   const { select, updateWord } = useEditor();
+  const { height: windowHeight } = useWindowDimensions();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const [showHelpOverlay, setShowHelpOverlay] = useState(false);
 
@@ -199,6 +202,24 @@ const WordbookScreen: React.FC = () => {
     return mode === 'hideWord' ? (currentCard.word || '---') : (currentCard.meaning || 'ー');
   }, [currentCard, mode]);
 
+  const promptBoxMaxHeight = useMemo(() => {
+    if (windowHeight <= 700) return 104;
+    if (windowHeight <= 760) return 116;
+    if (windowHeight <= 850) return 132;
+    return 148;
+  }, [windowHeight]);
+
+  const questionCardMinHeight = useMemo(() => {
+    if (windowHeight <= 700) return 250;
+    if (windowHeight <= 760) return 268;
+    if (windowHeight <= 850) return 300;
+    return 340;
+  }, [windowHeight]);
+
+  const promptBottomGap = useMemo(() => (windowHeight <= 760 ? 14 : 22), [windowHeight]);
+
+  const promptBoxHeight = promptBoxMaxHeight;
+
   const move = (delta: number) => {
     if (displayCards.length === 0) return;
     const next = Math.max(0, Math.min(displayCards.length - 1, current + delta));
@@ -255,44 +276,51 @@ const WordbookScreen: React.FC = () => {
       )}
 
       <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ maxHeight: 50, marginBottom: 6 }}
-        contentContainerStyle={{ gap: 8, alignItems: 'center' }}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 12 }}
       >
-        <TouchableOpacity
-          onPress={() => setSelectedBookId('all')}
-          style={{
-            borderRadius: 999,
-            height: 34,
-            paddingHorizontal: 12,
-            justifyContent: 'center',
-            backgroundColor: selectedBookId === 'all' ? '#6A523B' : '#E5D7C7',
-          }}
+
+      <View style={{ height: 40, justifyContent: 'center', marginBottom: 4 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={{ gap: 10, alignItems: 'center', paddingRight: 8 }}
         >
-          <Text style={{ color: selectedBookId === 'all' ? '#FFFFFF' : '#4C4138', fontWeight: '700' }} numberOfLines={1}>
-            すべての本
-          </Text>
-        </TouchableOpacity>
-        {libraryState.books.map((b) => (
           <TouchableOpacity
-            key={b.book_id}
-            onPress={() => setSelectedBookId(b.book_id)}
+            onPress={() => setSelectedBookId('all')}
             style={{
               borderRadius: 999,
-              height: 34,
-              maxWidth: 160,
-              paddingHorizontal: 12,
+              height: 30,
+              paddingHorizontal: 10,
               justifyContent: 'center',
-              backgroundColor: selectedBookId === b.book_id ? '#6A523B' : '#E5D7C7',
+              backgroundColor: selectedBookId === 'all' ? '#6A523B' : '#E5D7C7',
             }}
           >
-            <Text style={{ color: selectedBookId === b.book_id ? '#FFFFFF' : '#4C4138', fontWeight: '700' }} numberOfLines={1} ellipsizeMode="tail">
-              {b.title}
+            <Text style={{ fontSize: 14, color: selectedBookId === 'all' ? '#FFFFFF' : '#4C4138', fontWeight: '700' }} numberOfLines={1}>
+              すべての本
             </Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+          {libraryState.books.map((b) => (
+            <TouchableOpacity
+              key={b.book_id}
+              onPress={() => setSelectedBookId(b.book_id)}
+              style={{
+                borderRadius: 999,
+                height: 30,
+                maxWidth: 180,
+                paddingHorizontal: 10,
+                justifyContent: 'center',
+                backgroundColor: selectedBookId === b.book_id ? '#6A523B' : '#E5D7C7',
+              }}
+            >
+              <Text style={{ fontSize: 14, color: selectedBookId === b.book_id ? '#FFFFFF' : '#4C4138', fontWeight: '700' }} numberOfLines={1} ellipsizeMode="tail">
+                {b.title}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       {displayCards.length === 0 ? (
         <View
@@ -302,7 +330,7 @@ const WordbookScreen: React.FC = () => {
             borderColor: '#D6C5B2',
             backgroundColor: '#FFF9F2',
             padding: 16,
-            minHeight: 260,
+            minHeight: 300,
             justifyContent: 'center',
             alignItems: 'center',
           }}
@@ -318,8 +346,8 @@ const WordbookScreen: React.FC = () => {
               borderWidth: 1,
               borderColor: '#D6C5B2',
               backgroundColor: '#FFF9F2',
-              padding: 16,
-              minHeight: 260,
+              padding: 18,
+              minHeight: questionCardMinHeight,
             }}
           >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -345,25 +373,54 @@ const WordbookScreen: React.FC = () => {
                 />
               </TouchableOpacity>
             </View>
-            <Text style={{ fontSize: 24, color: '#3E332A', marginTop: 0, marginBottom: 20 }}>{promptText}</Text>
+
+            <View
+              style={{
+                height: promptBoxHeight,
+                marginTop: 2,
+                marginBottom: promptBottomGap,
+              }}
+            >
+              <ScrollView
+                showsVerticalScrollIndicator={true}
+                contentContainerStyle={{ justifyContent: 'center', minHeight: '100%' }}
+              >
+                <Text style={{ fontSize: 22, lineHeight: 32, color: '#3E332A' }}>{promptText}</Text>
+              </ScrollView>
+            </View>
 
             <Text style={{ fontSize: 14, color: '#7D7064' }}>答え</Text>
-            <TouchableOpacity
-              onPress={() => setRevealed((v) => !v)}
-              activeOpacity={0.85}
+            <View
               style={{
                 marginTop: 8,
                 borderRadius: 12,
                 borderWidth: 1,
                 borderColor: '#E1D2C3',
                 backgroundColor: '#FCF6EE',
-                padding: 12,
-                minHeight: 72,
+                paddingHorizontal: 14,
+                paddingVertical: 16,
+                height: 120,
                 justifyContent: 'center',
+                overflow: 'hidden',
               }}
             >
-              <Text style={{ fontSize: 20, color: '#3E332A' }}>{revealed ? answerText : 'タップして表示'}</Text>
-            </TouchableOpacity>
+              {revealed ? (
+                <ScrollView
+                  showsVerticalScrollIndicator={true}
+                  contentContainerStyle={{ justifyContent: 'center', minHeight: '100%' }}
+                >
+                  <Text style={{ fontSize: 22, lineHeight: 32, color: '#3E332A' }}>{answerText}</Text>
+                </ScrollView>
+              ) : (
+                <TouchableOpacity
+                  onPress={() => setRevealed(true)}
+                  activeOpacity={0.85}
+                  style={{ flex: 1, justifyContent: 'center' }}
+                >
+                  <Text style={{ fontSize: 22, lineHeight: 32, color: '#3E332A' }}>タップして表示</Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
             <TouchableOpacity
               onPress={() => navigation.navigate('Notebook', { bookId: currentCard.bookId, initialPage: currentCard.page, source: 'wordbook' })}
@@ -434,10 +491,14 @@ const WordbookScreen: React.FC = () => {
           padding: 10,
           marginTop: 0,
           marginBottom: 8,
+          flexDirection: 'row',
+          alignItems: 'center',
         }}
       >
-        <Text style={{ fontSize: 12, fontWeight: '700', color: '#8B5A3C', marginBottom: 6 }}>復習フィルター</Text>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Text style={{ width: 28, fontSize: 11, lineHeight: 12, textAlign: 'center', fontWeight: '700', color: '#8B5A3C', marginRight: 10 }}>
+          {toVerticalLabel('フラグ')}
+        </Text>
+        <View style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity
             onPress={() => setFilterMode('all')}
             style={{
@@ -486,10 +547,14 @@ const WordbookScreen: React.FC = () => {
           padding: 10,
           marginTop: 0,
           marginBottom: 8,
+          flexDirection: 'row',
+          alignItems: 'center',
         }}
       >
-        <Text style={{ fontSize: 12, fontWeight: '700', color: '#4A6B92', marginBottom: 6 }}>出題形式</Text>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Text style={{ width: 28, fontSize: 11, lineHeight: 12, textAlign: 'center', fontWeight: '700', color: '#4A6B92', marginRight: 10 }}>
+          {toVerticalLabel('答え方')}
+        </Text>
+        <View style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity
             onPress={() => {
               setMode('hideWord');
@@ -531,10 +596,14 @@ const WordbookScreen: React.FC = () => {
           backgroundColor: '#EDF4EA',
           padding: 10,
           marginTop: 0,
+          flexDirection: 'row',
+          alignItems: 'center',
         }}
       >
-        <Text style={{ fontSize: 12, fontWeight: '700', color: '#587055', marginBottom: 6 }}>出題順</Text>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Text style={{ width: 28, fontSize: 11, lineHeight: 12, textAlign: 'center', fontWeight: '700', color: '#587055', marginRight: 10 }}>
+          {toVerticalLabel('出題順')}
+        </Text>
+        <View style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity
             onPress={() => setOrderMode('sequential')}
             style={{
@@ -548,7 +617,10 @@ const WordbookScreen: React.FC = () => {
             <Text style={{ color: orderMode === 'sequential' ? '#FFFFFF' : '#355033', fontWeight: '700' }}>順番</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => setOrderMode('random')}
+            onPress={() => {
+              setOrderMode('random');
+              setShuffleNonce((v) => v + 1);
+            }}
             style={{
               flex: 1,
               borderRadius: 12,
@@ -561,22 +633,7 @@ const WordbookScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
       </View>
-
-      {orderMode === 'random' && (
-        <TouchableOpacity
-          onPress={() => setShuffleNonce((v) => v + 1)}
-          style={{
-            alignSelf: 'flex-end',
-            borderRadius: 10,
-            paddingHorizontal: 12,
-            paddingVertical: 7,
-            backgroundColor: '#EADCCB',
-            marginBottom: 8,
-          }}
-        >
-          <Text style={{ color: '#4C4138', fontWeight: '700' }}>再シャッフル</Text>
-        </TouchableOpacity>
-      )}
+      </ScrollView>
     </View>
   );
 };
