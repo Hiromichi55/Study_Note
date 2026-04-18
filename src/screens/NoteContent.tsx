@@ -110,6 +110,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [displayWordLines, setDisplayWordLines] = useState<Record<number, number>>({});
   const [displayTextLines, setDisplayTextLines] = useState<Record<number, number>>({});
+  const [measuredTextLines, setMeasuredTextLines] = useState<Record<number, number>>({});
   const measuredWordLinesRef = useRef<Record<number, number>>({});
   const measuredTextLinesRef = useRef<Record<number, number>>({});
   const inputRefs = useRef<Record<string, TextInput | null>>({});
@@ -177,13 +178,46 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     }
 
     const text = 'text' in el ? el.text : '';
-    // TextInput 内の左右余白と折り返し誤差を見込んで安全側に寄せる
-    const availableWidth = Math.max(1, contentWidth - 12);
-    const cpp = Math.max(8, Math.floor(availableWidth / Math.max(1, font.size)) - 1);
-    const linesByNewLine = text.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / cpp)), 0);
+    const linesByNewLine = Math.max(1, text.split('\n').length);
     return Math.max(font.lineHeight, linesByNewLine * font.lineHeight);
   };
 
+  const getCharsPerLine = (el: NoteElement) => {
+    const font = FONT_MAP[el.type];
+    if (el.type === 'image') return Infinity;
+    const contentWidth = noteWidth * (1 - 2 * space);
+    return Math.max(1, Math.floor(contentWidth / Math.max(1, font.size)));
+  };
+
+  const estimateLinesByChars = (type: NoteElementType, value: string) => {
+    if (type === 'image' || type === 'word') return 1;
+    const font = FONT_MAP[type];
+    const contentWidth = noteWidth * (1 - 2 * space);
+    const availableWidth = Math.max(1, contentWidth - 12);
+    const cpp = Math.max(8, Math.floor(availableWidth / Math.max(1, font.size)) - 1);
+    return value.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / cpp)), 0);
+  };
+
+  const getRowHeight = (el: NoteElement, idx: number): number => {
+    const font = FONT_MAP[el.type];
+    if (el.type === 'image') return 200;
+    if (el.type === 'word') {
+      const measuredLines = displayWordLines[idx] ?? 0;
+      return Math.max(getElementHeight(el), Math.max(1, measuredLines) * font.lineHeight);
+    }
+    const measuredLines = measuredTextLines[idx] ?? 0;
+    const fallbackLines = Math.max(1, ('text' in el ? el.text : ((el as any).text || '')).split('\n').length);
+    const resolvedLines = measuredLines || fallbackLines;
+    return Math.max(font.lineHeight, resolvedLines * font.lineHeight);
+  };
+
+  const updateMeasuredTextLines = (idx: number, nextLines: number) => {
+    const lines = Math.max(1, nextLines);
+    setMeasuredTextLines((prev) => {
+      if (prev[idx] === lines) return prev;
+      return { ...prev, [idx]: lines };
+    });
+  };
   // アクティブ要素のY位置（ScrollView内）を計算するヘルパー
   const getActiveElementY = (curIdx: number | null, curElements: NoteElement[] | undefined): number => {
     if (curIdx === null || !curElements) return noteHeight; // 不明なら最下部扱い
@@ -191,7 +225,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     for (let i = 0; i < curIdx && i < curElements.length; i++) {
       const el = curElements[i];
       if (!isValidElement(el)) continue;
-      y += getElementHeight(el);
+      y += getRowHeight(el, i);
     }
     return y;
   };
@@ -267,7 +301,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     const coveredByKb = Math.max(0, keyboardHeight - bottomMargin);
     const visibleHeight = noteHeight - coveredByKb;
     const elementTop = getActiveElementY(effectiveActiveIndex, elements);
-    const elementBottom = elementTop + getElementHeight(activeElement);
+    const elementBottom = elementTop + getRowHeight(activeElement, effectiveActiveIndex);
     const currentScrollY = scrollOffsetRef.current;
     const visibleTop = currentScrollY;
     const visibleBottom = currentScrollY + visibleHeight;
@@ -823,6 +857,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       const isOutlineType = el.type === 'chapter' || el.type === 'section' || el.type === 'subsection';
       const isOverflow = overflowStartIndex !== null && idx >= overflowStartIndex;
       const textRowHeightStyle = { height: estHeight };
+      const mainText = 'text' in el ? el.text : (el as any).text || '';
       rendered.push(
         <View
           key={idx}
@@ -841,6 +876,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
               }, 0);
             })
           }
+          onLayout={(e) => {
+            if (!isEditing) return;
+            const h = Math.round(e.nativeEvent.layout.height);
+            const measuredLines = Math.max(1, Math.ceil(h / font.lineHeight));
+            updateMeasuredTextLines(idx, measuredLines);
+          }}
           style={{
             ...textRowHeightStyle,
             backgroundColor: isOverflow
@@ -857,11 +898,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           <View style={{ flex: 1, paddingHorizontal: 6, paddingTop: 0, paddingBottom: 0, justifyContent: 'flex-start' }}>
             {isEditing ? (
               <TextInput
-                value={
-                  'text' in el
-                    ? el.text
-                    : (el as any).text || ''
-                }
+                value={mainText}
                 scrollEnabled={false}
                 onChangeText={(t) => {
                   const newlineIndex = t.indexOf('\n');
@@ -895,10 +932,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   selectionRef.current[getInputKey(idx, 'main')] = nativeEvent.selection;
                 }}
                 onContentSizeChange={(e) => {
-                  const h = e.nativeEvent.contentSize.height;
-                  // 端末ごとの小さなメトリクス差は round で吸収し、行数の過不足を抑える。
-                  const measuredLines = Math.max(1, Math.round(h / font.lineHeight));
+                  const h = Math.round(e.nativeEvent.contentSize.height);
+                  const measuredLines = Math.max(1, Math.ceil(h / font.lineHeight));
                   measuredTextLinesRef.current[idx] = measuredLines;
+                  updateMeasuredTextLines(idx, measuredLines);
                   if (isEditing) {
                     setDisplayTextLines((prev) => {
                       if (prev[idx] === measuredLines) return prev;
@@ -915,7 +952,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   fontFamily: font.family,
                   backgroundColor: 'transparent',
                   width: '100%',
-                  height: '100%',
+                  minHeight: font.lineHeight,
                   padding: 0,
                   textAlignVertical: 'top',
                   includeFontPadding: false,
@@ -931,6 +968,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
               />
             ) : (
               <Text
+                onTextLayout={(e) => {
+                  const lines = Math.max(1, e.nativeEvent.lines?.length ?? 1);
+                  updateMeasuredTextLines(idx, lines);
+                }}
                 style={{
                   fontSize: font.size,
                   lineHeight: font.lineHeight,
@@ -940,7 +981,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   includeFontPadding: false,
                 }}
               >
-                {'text' in el ? el.text : (el as any).text || ''}
+                {mainText}
               </Text>
             )}
           </View>

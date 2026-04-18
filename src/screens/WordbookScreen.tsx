@@ -39,26 +39,15 @@ const WordbookScreen: React.FC = () => {
       headerStyle: { backgroundColor: '#E9DCCD' },
       headerShadowVisible: false,
       headerTintColor: '#342C24',
-      headerLeftContainerStyle: { paddingLeft: 2 },
-      headerRightContainerStyle: { paddingRight: 2 },
       headerLeft: () => (
-        <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 8 }}>
-          <TouchableOpacity
-            onPress={() => setShowHelpOverlay((prev) => !prev)}
-            style={{ alignItems: 'center', justifyContent: 'center', borderRadius: 100, paddingHorizontal: 6 }}
-          >
-            <Ionicons name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'} size={22} color="#342C24" />
-          </TouchableOpacity>
-        </View>
-      ),
-      headerRight: () => (
         <TouchableOpacity
           onPress={() => navigation.goBack()}
-          style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}
+          style={{ alignItems: 'center', justifyContent: 'center', borderRadius: 100, paddingHorizontal: 6, marginLeft: 4 }}
         >
-          <Ionicons name="chevron-forward" size={24} color="#342C24" />
+          <Ionicons name="chevron-back" size={24} color="#342C24" />
         </TouchableOpacity>
       ),
+      headerRightContainerStyle: { paddingRight: 10 },
     });
   }, [navigation, showHelpOverlay]);
 

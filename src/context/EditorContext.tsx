@@ -2,6 +2,8 @@ import React, { createContext, useReducer, useContext, useEffect, useRef, useSta
 import * as SQLite from 'expo-sqlite';
 import { initDB } from '../db/db';
 import { ENV } from '@config';
+import * as FileSystem from 'expo-file-system/legacy';
+import { Asset } from 'expo-asset';
 
 const isDelete = ENV.INIT_DB; // trueのとき: コンテンツ系テーブルを全削除して再作成
 
@@ -227,6 +229,58 @@ const CONTENT_MODE_META_KEY = 'content_seed_mode';
 
 const makeSeedId = (prefix: string, bookId: string, page: number) => `${prefix}_${bookId}_${page}`;
 
+const getOrCreateDefaultSeedThumbnailPath = async (): Promise<string> => {
+  try {
+    const baseDir = FileSystem.documentDirectory;
+    if (!baseDir) return '';
+    const thumbDir = `${baseDir}thumbnails/`;
+    const destPath = `${thumbDir}default_note.png`;
+
+    await FileSystem.makeDirectoryAsync(thumbDir, { intermediates: true });
+    const info = await FileSystem.getInfoAsync(destPath);
+    if (!info.exists) {
+      const asset = Asset.fromModule(require('../../assets/images/note.png'));
+      await asset.downloadAsync();
+      if (asset.localUri) {
+        await FileSystem.copyAsync({ from: asset.localUri, to: destPath });
+      }
+    }
+    return destPath;
+  } catch (e) {
+    console.warn('default thumbnail creation failed', e);
+    return '';
+  }
+};
+
+const ensurePageImagesForAllPages = async (database: SQLite.SQLiteDatabase, defaultThumbPath: string) => {
+  const pages = await database.getAllAsync('SELECT DISTINCT book_id, page FROM contents ORDER BY book_id ASC, page ASC;');
+  for (const row of pages as any[]) {
+    const bookId = String(row.book_id);
+    const page = Number(row.page);
+    const existing = await database.getAllAsync(
+      'SELECT page_image_id, image_path FROM page_images WHERE book_id = ? AND page_order = ? LIMIT 1;',
+      [bookId, page]
+    );
+    const existingRow = (existing[0] as any) ?? null;
+
+    if (!existingRow) {
+      await database.runAsync(
+        'INSERT INTO page_images (page_image_id, image_path, page_order, book_id) VALUES (?, ?, ?, ?)',
+        [makeSeedId('pageimg', bookId, page), defaultThumbPath, page, bookId]
+      );
+      continue;
+    }
+
+    const imagePath = String(existingRow.image_path ?? '');
+    if (!imagePath && defaultThumbPath) {
+      await database.runAsync(
+        'UPDATE page_images SET image_path = ? WHERE page_image_id = ?',
+        [defaultThumbPath, String(existingRow.page_image_id)]
+      );
+    }
+  }
+};
+
 const seedInitialPages = async (database: SQLite.SQLiteDatabase) => {
   const countRows = await database.getAllAsync('SELECT COUNT(*) AS count FROM contents;');
   const contentCount = Number((countRows[0] as any)?.count ?? 0);
@@ -234,6 +288,8 @@ const seedInitialPages = async (database: SQLite.SQLiteDatabase) => {
 
   const books = await database.getAllAsync('SELECT id, title FROM books;');
   if (!books || books.length === 0) return;
+
+  const defaultThumbPath = await getOrCreateDefaultSeedThumbnailPath();
 
   for (const row of books as any[]) {
     const bookId = String(row.id);
@@ -272,7 +328,7 @@ const seedInitialPages = async (database: SQLite.SQLiteDatabase) => {
       );
       await database.runAsync(
         'INSERT OR IGNORE INTO page_images (page_image_id, image_path, page_order, book_id) VALUES (?, ?, ?, ?)',
-        [makeSeedId('pageimg', bookId, page), '', page, bookId]
+        [makeSeedId('pageimg', bookId, page), defaultThumbPath, page, bookId]
       );
     }
   }
@@ -561,6 +617,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // コンテンツが空の場合のみ、起動モードに応じた初期ページを投入する
       await seedInitialPages(database);
+      const defaultThumbPath = await getOrCreateDefaultSeedThumbnailPath();
+      await ensurePageImagesForAllPages(database, defaultThumbPath);
 
       await database.runAsync(
         'INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?);',

@@ -45,14 +45,6 @@ const WordListScreen: React.FC = () => {
         </TouchableOpacity>
       ),
       headerRightContainerStyle: { paddingRight: 10 },
-      headerRight: () => (
-        <TouchableOpacity
-          onPress={() => setShowHelpOverlay((prev) => !prev)}
-          style={{ alignItems: 'center', justifyContent: 'center', borderRadius: 100, paddingHorizontal: 6 }}
-        >
-          <Ionicons name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'} size={22} color="#342C24" />
-        </TouchableOpacity>
-      ),
     });
   }, [navigation, showHelpOverlay]);
 

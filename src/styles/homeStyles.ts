@@ -1,7 +1,7 @@
 import { StyleSheet } from 'react-native';
 import * as commonStyle from './commonStyle';
 
-export const BOOK_BTN_HEIGHT = commonStyle.screenHeight / 8.8;
+export const BOOK_BTN_HEIGHT = commonStyle.screenHeight / 10.5;
 export const BOOK_BTN_WIDTH = commonStyle.screenWidth / 1.12;
 export const font = commonStyle.screenHeight / 36;
 
@@ -74,7 +74,7 @@ export const homeStyles = StyleSheet.create({
   },
   wordbookQuickBtnText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
   },
   verticalScrollContainer: {

@@ -339,6 +339,25 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
     try {
+      // books 以外は外部キーCASCADEを使っていないため、手動で関連データを削除する
+      await db.runAsync(
+        'DELETE FROM outlines WHERE content_id IN (SELECT content_id FROM contents WHERE book_id = ?)',
+        [bookId]
+      );
+      await db.runAsync(
+        'DELETE FROM texts WHERE content_id IN (SELECT content_id FROM contents WHERE book_id = ?)',
+        [bookId]
+      );
+      await db.runAsync(
+        'DELETE FROM words WHERE content_id IN (SELECT content_id FROM contents WHERE book_id = ?)',
+        [bookId]
+      );
+      await db.runAsync(
+        'DELETE FROM images WHERE content_id IN (SELECT content_id FROM contents WHERE book_id = ?)',
+        [bookId]
+      );
+      await db.runAsync('DELETE FROM page_images WHERE book_id = ?', [bookId]);
+      await db.runAsync('DELETE FROM contents WHERE book_id = ?', [bookId]);
       await db.runAsync('DELETE FROM books WHERE id = ?', [bookId]);
       dispatch({ type: 'DELETE_BOOK', bookId });
     } catch (error) {

@@ -17,6 +17,7 @@ import { RouteProp, useNavigation, usePreventRemove } from '@react-navigation/na
 import { useLibrary } from '../context/LibraryContext';
 import { MESSAGES } from '../constants/messages';
 import { Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
 import { notebookColors, notebookStyles } from '../styles/notebookStyle';
@@ -1166,37 +1167,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     didApplyInitialPageRef.current = true;
   }, [initialPage, pagesElements.length]);
 
-  // 初期2ページのサムネイルを自動生成（初回ロード時のみ）
-  useEffect(() => {
-    const saveThumbnails = async () => {
-      try {
-        if (pagesElements.length >= 2) {
-          const pageImages = await getPageImagesByBookId(bookId);
-          
-          // 初回時はサムネイル生成をスキップ（page_images はすでに作成済み、image_pathは空）
-          const isInitialLoad = pageImages.every(img => !img.image_path);
-          if (isInitialLoad) {
-            return; // UI更新なしでスキップ
-          }
-          
-          // 2回目以降のみサムネイル生成処理を実行
-          for (let p = 0; p < 2; p++) {
-            const exists = pageImages.find(img => Number(img.page_order) === p && img.image_path);
-            if (!exists) {
-              setTimeout(() => {
-                setcurrentPageNumber(p);
-                setTimeout(() => saveThumbnailAsync(p), 300);
-              }, 100);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('初期サムネイル生成エラー:', e);
-      }
-    };
-    saveThumbnails();
-  }, [pagesElements.length]);
-
   useEffect(() => {
     setPagesElements(prev => {
       const normalizedPages = prev.map(page =>
@@ -1300,7 +1270,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   useLayoutEffect(() => {
     navigation.setOptions({
       headerStyle: {
-        backgroundColor: notebookColors.paper,
+        backgroundColor: '#E9DCCD',
       },
       headerShadowVisible: false,
       headerTintColor: notebookColors.ink,
@@ -1324,40 +1294,18 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       ),
       headerRight: () =>
         editing ? (
-          // 編集中: はてな + チェックボタン（保存）
+          // 編集中: チェックボタン（保存）
           <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 8 }}>
-            <TouchableOpacity
-              onPress={() => setShowHelpOverlay((prev) => !prev)}
-              style={[notebookStyles.menuBtn, notebookStyles.menuBtnPlainIcon]}
-            >
-              <Ionicons
-                name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'}
-                size={22}
-                color={showHelpOverlay ? '#6E5844' : notebookColors.ink}
-              />
-            </TouchableOpacity>
             <TouchableOpacity
               onPress={() => { console.log('保存ボタン押下'); handleSave(); }}
               style={[notebookStyles.menuBtn, notebookStyles.menuBtnPlainIcon]}
             >
-              <Ionicons name="checkmark" size={24} color={notebookColors.ink} />
+              <Ionicons name="checkmark" size={24} color="white" />
             </TouchableOpacity>
           </View>
         ) : (
           // 通常: ミートボールメニュー
           <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 8 }}>
-            <View>
-              <TouchableOpacity
-                onPress={() => setShowHelpOverlay((prev) => !prev)}
-                style={[notebookStyles.menuBtn, notebookStyles.menuBtnPlainIcon]}
-              >
-                <Ionicons
-                  name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'}
-                  size={22}
-                  color={showHelpOverlay ? '#6E5844' : notebookColors.ink}
-                />
-              </TouchableOpacity>
-            </View>
             <View>
               <Menu
                 key={menuVisible ? 'open' : 'closed'}
@@ -1367,7 +1315,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   <TouchableOpacity
                     onPress={() => { console.log('メニューボタン押下'); openMenu(); }}
                     style={[notebookStyles.menuBtn, notebookStyles.menuBtnIcon, getDebugStyle('rgba(0, 255, 0, 0.15)')]}> 
-                    <Ionicons name="ellipsis-horizontal" size={24} color={notebookColors.ink} />
+                    <Ionicons name="ellipsis-horizontal" size={18} color="white" />
                   </TouchableOpacity>
                 }
                 contentStyle={notebookStyles.menuOptionsContainer}
@@ -1402,7 +1350,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   ]);
                 }}
                 title="ページ削除"
-                leadingIcon="trash-can"
+                leadingIcon={({ size }) => (
+                  <MaterialCommunityIcons name="trash-can" size={size} color="#B45145" />
+                )}
                 titleStyle={notebookStyles.deleteOption}
               />
               {/* <Menu.Item
@@ -1718,8 +1668,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 </Text>
               </TouchableOpacity>
             </View>
+            <View style={{ flex: 1, minHeight: 0 }}>
             {tocItems.length === 0 ? (
-              <Text style={notebookStyles.modalEmptyText}>見出しがありません</Text>
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                <Text style={notebookStyles.modalEmptyText}>見出しがありません</Text>
+              </View>
             ) : (
               isTocExpanded ? (
                 <FlatList
@@ -1790,6 +1743,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 />
               )
             )}
+            </View>
             <TouchableOpacity
               onPress={() => setTocVisible(false)}
               style={{ marginTop: 12, alignSelf: 'flex-end' }}

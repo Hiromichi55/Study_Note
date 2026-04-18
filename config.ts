@@ -4,7 +4,7 @@
 export type AppMode = 'development' | 'showcase' | 'production';
 
 // 切り替えはここだけ変更する
-const APP_MODE: AppMode = 'showcase'; // 'development' | 'showcase' | 'production'
+const APP_MODE: AppMode = 'production'; // 'development' | 'showcase' | 'production'
 // 'development': 開発用モード。DBは毎回初期化され、レイアウトのガイドやテーブルログなども表示される。開発者向け。
 // 'showcase': デモ用モード。DBは毎回初期化されるが、レイアウトのガイドやテーブルログは表示されない。デモやレビュー用。
 // 'production': 本番用モード。DBは初回のみ初期化され、その後はデータが保持される。レイアウトのガイドやテーブルログも表示されない。ユーザー向け。

@@ -182,16 +182,13 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const [recolorModalVisible, setRecolorModalVisible] = useState(false);
   const [recoloringBookId, setRecoloringBookId] = useState<string | null>(null);
   const [showHelpOverlay, setShowHelpOverlay] = useState(false);
-  const [settingsMenuVisible, setSettingsMenuVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('updated_desc');
   const helpIconWrapRef = useRef<View>(null);
   const settingsIconWrapRef = useRef<View>(null);
   const wordbookQuickBtnWrapRef = useRef<View>(null);
   const firstBookMenuWrapRef = useRef<View>(null);
   const addBookBtnWrapRef = useRef<View>(null);
-  const [settingsAnchor, setSettingsAnchor] = useState({ x: commonStyle.screenWidth - 44, y: 92, width: 32, height: 32 });
+  const settingsAnchor = { x: commonStyle.screenWidth - 44, y: 92, width: 32, height: 32 };
   const [helpAnchors, setHelpAnchors] = useState({
     settings: settingsAnchor,
     wordbook: { x: commonStyle.screenWidth - 120, y: 130, width: 100, height: 32 },
@@ -222,11 +219,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        if (showBookOptions || renameModalVisible || menuVisibleBookId !== null || settingsMenuVisible) return false;
+        if (showBookOptions || renameModalVisible || menuVisibleBookId !== null) return false;
         return Math.abs(gestureState.dx) > 16 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2;
       },
       onMoveShouldSetPanResponderCapture: (_, gestureState) => {
-        if (showBookOptions || renameModalVisible || menuVisibleBookId !== null || settingsMenuVisible) return false;
+        if (showBookOptions || renameModalVisible || menuVisibleBookId !== null) return false;
         return Math.abs(gestureState.dx) > 16 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2;
       },
       onPanResponderGrant: () => {
@@ -269,7 +266,6 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   useFocusEffect(
     React.useCallback(() => {
       return () => {
-        setSettingsMenuVisible(false);
         setShowHelpOverlay(false);
       };
     }, [])
@@ -347,15 +343,6 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     setRenameText('');
   };
 
-  const openSettingsMenu = () => {
-    settingsIconWrapRef.current?.measureInWindow((x, y, width, height) => {
-      if (width > 0 && height > 0) {
-        setSettingsAnchor({ x, y, width, height });
-      }
-      setSettingsMenuVisible(true);
-    });
-  };
-
   const renderRightActions = (bookId: string, title: string) => (
     <View style={localStyles.rightActionContainer}>
       <TouchableOpacity
@@ -388,7 +375,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       >
         <MaterialCommunityIcons
           name={item.is_pinned ? 'pin-off' : 'pin'}
-          size={22}
+          size={24}
           color="#fff"
         />
       </TouchableOpacity>
@@ -442,7 +429,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         </TouchableOpacity>
         {item.is_pinned && (
           <View pointerEvents="none" style={localStyles.pinnedBadge}>
-            <MaterialCommunityIcons name="pin" size={12} color="#A5672A" />
+            <MaterialCommunityIcons name="pin" size={16} color="#A5672A" />
           </View>
         )}
         <Menu
@@ -499,7 +486,9 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               handleDeleteBook(item.book_id, item.title);
             }}
             title="本を削除"
-            leadingIcon="trash-can"
+            leadingIcon={({ size }) => (
+              <MaterialCommunityIcons name="trash-can" size={size} color="#B45145" />
+            )}
             titleStyle={DELETE_MENU_ITEM_TITLE_STYLE}
           />
         </Menu>
@@ -523,29 +512,12 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       ]}>
         <View style={[homeStyles.titleRow, { marginBottom: 10 }]}>
           <Text style={[homeStyles.screenCaption, { flex: 1 }]}>ノート一覧</Text>
-          <View ref={helpIconWrapRef} collapsable={false}>
-            <TouchableOpacity
-              onPress={() => {
-                if (!showHelpOverlay) refreshHelpAnchors();
-                setShowHelpOverlay((prev) => !prev);
-              }}
-              style={{ padding: 4, marginRight: 6 }}
-            >
-              <Ionicons name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'} size={commonStyle.screenWidth / 13.8} color="#6B6258" />
-            </TouchableOpacity>
-          </View>
           <View ref={settingsIconWrapRef} collapsable={false}>
             <TouchableOpacity
-              onPress={() => {
-                if (settingsMenuVisible) {
-                  setSettingsMenuVisible(false);
-                  return;
-                }
-                openSettingsMenu();
-              }}
+              onPress={() => navigation.navigate('License')}
               style={{ padding: 4 }}
             >
-              <Ionicons name="ellipsis-horizontal" size={commonStyle.screenWidth / 13} color="#6B6258" />
+              <Ionicons name="information-circle-outline" size={commonStyle.screenWidth / 13} color="#6B6258" />
             </TouchableOpacity>
           </View>
         </View>
@@ -736,44 +708,6 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         </Modal>
       )}
 
-      {settingsMenuVisible && (() => {
-        const SETTINGS_CARD_WIDTH = 180;
-        const left = Math.min(
-          Math.max(8, settingsAnchor.x + settingsAnchor.width - SETTINGS_CARD_WIDTH),
-          commonStyle.screenWidth - SETTINGS_CARD_WIDTH - 8
-        );
-        const top = settingsAnchor.y + settingsAnchor.height + 6;
-
-        return (
-          <View style={localStyles.settingsOverlay} pointerEvents="box-none">
-            <TouchableWithoutFeedback onPress={() => setSettingsMenuVisible(false)}>
-              <View style={localStyles.settingsBackdrop} />
-            </TouchableWithoutFeedback>
-            <View style={[localStyles.settingsCard, { width: SETTINGS_CARD_WIDTH, left, top }]}> 
-              <TouchableOpacity
-                style={localStyles.settingsItem}
-                onPress={() => {
-                  setIsSearching(true);
-                  setSettingsMenuVisible(false);
-                }}
-              >
-                <Ionicons name="search" size={18} color="#6B6258" />
-                <Text style={localStyles.settingsItemText}>本を検索</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={localStyles.settingsItem}
-                onPress={() => {
-                  navigation.navigate('License');
-                }}
-              >
-                <Ionicons name="information-circle-outline" size={18} color="#6B6258" />
-                <Text style={localStyles.settingsItemText}>詳細情報</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        );
-      })()}
-
       <Modal
         visible={showTitleInputModal}
         transparent
@@ -920,84 +854,6 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal
-        visible={isSearching}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setIsSearching(false);
-          setSearchQuery('');
-        }}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1, justifyContent: 'center' }}
-        >
-          <TouchableWithoutFeedback onPress={() => {
-            setIsSearching(false);
-            setSearchQuery('');
-          }}>
-            <View style={homeStyles.modalBackdropCenter}>
-              <TouchableWithoutFeedback>
-                <View style={homeStyles.renameModalCard}>
-                  <Text style={homeStyles.renameModalTitle}>本を検索</Text>
-                  <TextInput
-                    style={homeStyles.renameInput}
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    autoFocus
-                    placeholder="本のタイトルで検索"
-                    placeholderTextColor="#A09588"
-                  />
-                  <View style={{ maxHeight: 300, marginVertical: 10 }}>
-                    {searchQuery.trim() !== '' && (
-                      <FlatList
-                        data={bookData.filter(book => 
-                          book.title.toLowerCase().includes(searchQuery.toLowerCase())
-                        )}
-                        keyboardShouldPersistTaps="handled"
-                        keyExtractor={(item) => item.book_id}
-                        renderItem={({ item }) => (
-                          <TouchableOpacity
-                            onPress={() => {
-                              setIsSearching(false);
-                              setSearchQuery('');
-                              navigation.navigate('Notebook', { bookId: item.book_id });
-                            }}
-                            style={{ paddingVertical: 8, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#E8DDD0' }}
-                          >
-                            <Text style={{ fontSize: 14, color: '#4E4034' }}>{item.title}</Text>
-                          </TouchableOpacity>
-                        )}
-                      />
-                    )}
-                  </View>
-                  <View style={homeStyles.renameActionRow}>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setIsSearching(false);
-                        setSearchQuery('');
-                      }}
-                      style={homeStyles.renameGhostButton}
-                    >
-                      <Text style={homeStyles.renameGhostButtonText}>キャンセル</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setIsSearching(false);
-                        setSearchQuery('');
-                      }}
-                      style={homeStyles.renamePrimaryButton}
-                    >
-                      <Text style={homeStyles.renamePrimaryButtonText}>閉じる</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </Modal>
     </View>
   );
 };
@@ -1033,39 +889,6 @@ const localStyles = StyleSheet.create({
     color: '#4E4034',
     lineHeight: 17,
   },
-  settingsOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 20,
-  },
-  settingsBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'transparent',
-  },
-  settingsCard: {
-    position: 'absolute',
-    backgroundColor: '#FFFDF9',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E8DDD0',
-    paddingVertical: 6,
-    shadowColor: '#000000',
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  settingsItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  settingsItemText: {
-    fontSize: 14,
-    color: '#4E4034',
-    fontWeight: '600',
-  },
   wordbookQuickBtnHelpMode: {
     backgroundColor: '#FFFDF9',
     borderWidth: 1,
@@ -1098,7 +921,7 @@ const localStyles = StyleSheet.create({
   },
   swipeDeleteButton: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: '#B45145',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1112,14 +935,6 @@ const localStyles = StyleSheet.create({
     position: 'absolute',
     top: 12,
     right: 74,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#FFF7EC',
-    borderWidth: 1,
-    borderColor: '#E6D4BE',
-    justifyContent: 'center',
-    alignItems: 'center',
     zIndex: 2,
   },
 });
