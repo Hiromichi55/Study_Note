@@ -13,7 +13,6 @@ import {
   ScrollView,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
-import { DraggableGrid } from 'react-native-draggable-grid';
 import { RouteProp, useNavigation, usePreventRemove } from '@react-navigation/native';
 import { useLibrary } from '../context/LibraryContext';
 import { MESSAGES } from '../constants/messages';
@@ -45,11 +44,6 @@ type PageListItem = {
   originalPage: number;
   elements: NoteElement[];
   thumbUri?: string;
-};
-
-type PageListViewport = {
-  y: number;
-  height: number;
 };
 
 type TocItem = {
@@ -107,6 +101,9 @@ const getLuminance = (hex: string): number => {
 };
 
 const OUTLINE_PREFIX_RE = /^\s*\d+(?:\.\d+)*\.\s*/;
+const NOTE_LINE_HEIGHT = 30;
+const NOTE_RESERVED_TOP_LINES = 1;
+const NOTE_HORIZONTAL_SPACE = 0.03;
 
 const stripOutlinePrefix = (text: string): string => text.replace(OUTLINE_PREFIX_RE, '').trimStart();
 
@@ -208,6 +205,85 @@ const applyOutlineNumberingAllPages = (pages: NoteElement[][], withNumbering: bo
   );
 };
 
+const getNoteElementHeight = (el: NoteElement, screenWidth: number): number => {
+  if (el.type === 'image') {
+    return Math.round(screenWidth * 0.98 * (1 - 2 * NOTE_HORIZONTAL_SPACE));
+  }
+
+  const contentWidth = screenWidth * 0.98 * (1 - 2 * NOTE_HORIZONTAL_SPACE);
+  const text =
+    el.type === 'word'
+      ? `${el.word || ''} ${el.meaning || ''}`
+      : 'text' in el
+      ? el.text || ''
+      : '';
+
+  const fontSize = el.type === 'chapter' ? 22 : el.type === 'section' ? 18 : 15;
+  const availableWidth = Math.max(1, contentWidth - 12);
+  const charsPerLine = Math.max(8, Math.floor(availableWidth / Math.max(1, fontSize)) - 1);
+  const lines = Math.max(
+    1,
+    text
+      .split('\n')
+      .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / charsPerLine)), 0)
+  );
+
+  return Math.max(NOTE_LINE_HEIGHT, lines * NOTE_LINE_HEIGHT);
+};
+
+const splitPageByCapacity = (elements: NoteElement[], maxRows: number, screenWidth: number): [NoteElement[], NoteElement[]] => {
+  const maxHeight = Math.max(1, maxRows - NOTE_RESERVED_TOP_LINES) * NOTE_LINE_HEIGHT;
+  const fit: NoteElement[] = [];
+  const overflow: NoteElement[] = [];
+  let used = 0;
+
+  for (const el of elements) {
+    const h = getNoteElementHeight(el, screenWidth);
+    if (overflow.length > 0) {
+      overflow.push(el);
+      continue;
+    }
+    if (used > 0 && used + h > maxHeight) {
+      overflow.push(el);
+      continue;
+    }
+    fit.push(el);
+    used += h;
+  }
+
+  return [fit, overflow];
+};
+
+const rebalancePagesByCapacity = (pages: NoteElement[][], maxRows: number, screenWidth: number): NoteElement[][] => {
+  const normalized = pages.map((page) => [...(page ?? [])]);
+  const result: NoteElement[][] = [];
+  let carry: NoteElement[] = [];
+
+  for (let i = 0; i < normalized.length; i += 1) {
+    const merged = [...carry, ...normalized[i]];
+    const [fit, overflow] = splitPageByCapacity(merged, maxRows, screenWidth);
+    result.push(fit);
+    carry = overflow;
+  }
+
+  while (carry.length > 0) {
+    const [fit, overflow] = splitPageByCapacity(carry, maxRows, screenWidth);
+    result.push(fit);
+    if (overflow.length === carry.length) {
+      break;
+    }
+    carry = overflow;
+  }
+
+  if (result.length === 0) {
+    return [[], []];
+  }
+  if (result.length === 1) {
+    return [result[0], []];
+  }
+  return result;
+};
+
 const NotebookScreen: React.FC<Props> = ({ route }) => {
   const headerHeight = useHeaderHeight();
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -221,7 +297,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const { 
   addContent, addText, addWord, addImage, addOutline, getContentsByBookId, 
   getTextsByContentId, getOutlinesByContentId, getWordsByContentId, getImagesByContentId,
-  addPageImage, updatePageImage, getPageImagesByBookId,
+  addPageImage, updatePageImage, deletePageImage, getPageImagesByBookId,
   deleteContent, deleteAllContentsByBookId,
   select, updateContent
 } = useEditor();
@@ -339,13 +415,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // ページサムネイル（page_order → URI）
   const [pageImageUris, setPageImageUris] = useState<Record<number, string>>({});
-  const [isPageListDragging, setIsPageListDragging] = useState(false);
-  const pageListGridWrapRef = useRef<View | null>(null);
-  const pageListScrollRef = useRef<ScrollView | null>(null);
-  const pageListScrollOffsetRef = useRef(0);
-  const pageListContentHeightRef = useRef(0);
-  const pageListViewportRef = useRef<PageListViewport | null>(null);
-  const lastAutoScrollAtRef = useRef(0);
 
   const [pageListItems, setPageListItems] = useState<PageListItem[]>([]);
 
@@ -361,118 +430,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     );
   }, [pageListVisible]);
 
-  const persistPageOrderToDB = async (reordered: PageListItem[]) => {
-    const pageMoves = reordered
-      .map((item, newPage) => ({ oldPage: item.originalPage, newPage }))
-      .filter((m) => m.oldPage !== m.newPage);
-
-    if (pageMoves.length === 0) return;
-
-    const [contents, allPageImages] = await Promise.all([
-      getContentsByBookId(bookId),
-      getPageImagesByBookId(bookId),
-    ]);
-
-    const contentMoves = pageMoves
-      .map((move) => {
-        const row = contents.find((c) => c.page === move.oldPage);
-        return row ? { contentId: row.content_id, newPage: move.newPage } : null;
-      })
-      .filter((m): m is { contentId: string; newPage: number } => Boolean(m));
-
-    const imageMoves = pageMoves
-      .map((move) => {
-        const row = allPageImages.find((img) => Number(img.page_order) === move.oldPage);
-        return row ? { pageImageId: row.page_image_id, newPage: move.newPage } : null;
-      })
-      .filter((m): m is { pageImageId: string; newPage: number } => Boolean(m));
-
-    const TEMP_OFFSET = 10000;
-
-    for (const move of contentMoves) {
-      await updateContent(move.contentId, { page: move.newPage + TEMP_OFFSET });
-    }
-    for (const move of imageMoves) {
-      await updatePageImage(move.pageImageId, { page_order: move.newPage + TEMP_OFFSET });
-    }
-    for (const move of contentMoves) {
-      await updateContent(move.contentId, { page: move.newPage });
-    }
-    for (const move of imageMoves) {
-      await updatePageImage(move.pageImageId, { page_order: move.newPage });
-    }
-  };
-
-  const handlePageListDragEnd = async (reorderedItems: PageListItem[]) => {
-    if (!Array.isArray(reorderedItems) || reorderedItems.length === 0) return;
-
-    const prevCurrentPage = currentPageNumber;
-
-    const reorderedPages = reorderedItems.map((item) => item.elements);
-    const reorderedUris: Record<number, string> = {};
-
-    reorderedItems.forEach((item, newIndex) => {
-      if (item.thumbUri) {
-        reorderedUris[newIndex] = item.thumbUri;
-      }
-    });
-
-    const nextPageListItems = reorderedItems.map((item, index) => ({
-      ...item,
-      originalPage: index,
-      elements: reorderedPages[index],
-      thumbUri: reorderedUris[index],
-    }));
-
-    const movedCurrentIndex = reorderedItems.findIndex((item) => item.originalPage === prevCurrentPage);
-    const nextCurrentPage = movedCurrentIndex >= 0 ? movedCurrentIndex : currentPageNumber;
-
-    // 複数の state 更新を同時に行うため、setTimeout で次の microtask で一括実行
-    // これにより React の自動バッチ処理が有効になり、レンダリングが1回に統合される
-    setTimeout(() => {
-      setPagesElements(reorderedPages);
-      setPageImageUris(reorderedUris);
-      setPageListItems(nextPageListItems);
-      setcurrentPageNumber(nextCurrentPage);
-    }, 0);
-
-    try {
-      await persistPageOrderToDB(reorderedItems);
-    } catch (e) {
-      console.error('ページ並び替え保存エラー:', e);
-    }
-  };
-
-  const handlePageListDragging = (gestureState: { moveY: number }) => {
-    const viewport = pageListViewportRef.current;
-    if (!viewport) return;
-
-    const EDGE_THRESHOLD = 70;
-    const SCROLL_STEP = 18;
-    const now = Date.now();
-    if (now - lastAutoScrollAtRef.current < 16) return;
-
-    const maxOffset = Math.max(0, pageListContentHeightRef.current - viewport.height);
-    if (maxOffset <= 0) return;
-
-    const topEdge = viewport.y + EDGE_THRESHOLD;
-    const bottomEdge = viewport.y + viewport.height - EDGE_THRESHOLD;
-    let nextOffset = pageListScrollOffsetRef.current;
-
-    if (gestureState.moveY < topEdge) {
-      nextOffset = Math.max(0, pageListScrollOffsetRef.current - SCROLL_STEP);
-    } else if (gestureState.moveY > bottomEdge) {
-      nextOffset = Math.min(maxOffset, pageListScrollOffsetRef.current + SCROLL_STEP);
-    } else {
-      return;
-    }
-
-    if (nextOffset !== pageListScrollOffsetRef.current) {
-      pageListScrollOffsetRef.current = nextOffset;
-      pageListScrollRef.current?.scrollTo({ y: nextOffset, animated: false });
-      lastAutoScrollAtRef.current = now;
-    }
-  };
 
   const runPageSwitchAnimation = (targetPage: number, direction: 1 | -1) => {
     if (isSwipeAnimatingRef.current) return;
@@ -575,13 +532,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     runPageSwitchAnimation(targetPage, direction);
   };
 
-  const ELEMENT_LABELS: { label: string; type: NoteElement['type'] }[] = [
-    { label: '章', type: 'chapter' },
-    { label: '節', type: 'section' },
-    { label: '項', type: 'subsection' },
-    { label: '文章', type: 'text' },
-    { label: '単語', type: 'word' },
-    { label: '画像', type: 'image' },
+  const ELEMENT_LABELS: { label: string; type: NoteElement['type']; iconName?: keyof typeof Ionicons.glyphMap }[] = [
+    { label: '大', type: 'chapter' },
+    { label: '中', type: 'section' },
+    { label: '小', type: 'subsection' },
+    { label: '文章', type: 'text', iconName: 'text-outline' },
+    { label: '単語リスト', type: 'word', iconName: 'list-outline' },
+    { label: '画像', type: 'image', iconName: 'image-outline' },
   ];
 
   // ===== 目次アイテムを全ページから大謀期演算 =====
@@ -704,9 +661,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   };
 
   const handleTapEmpty = (afterIndex: number) => {
-    const maxRows = computeMaxRows(headerHeight);
-    const currentElements = pagesElements[currentPageNumber] ?? [];
-    if (currentElements.length >= maxRows) return; // 上限に達した場合は追加しない
     const newEl: NoteElement = { type: 'text', text: '' };
     setPagesElements(prev => {
       const next = [...prev];
@@ -716,6 +670,114 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       next[currentPageNumber] = arr;
       return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
     });
+    return true;
+  };
+
+  const handleSplitToNextTextBlock = (index: number, before: string, after: string) => {
+    setPagesElements((prev) => {
+      const next = [...prev];
+      const page = [...(next[currentPageNumber] ?? [])];
+      const current = page[index];
+      if (!current) return prev;
+
+      if (current.type === 'chapter' || current.type === 'section' || current.type === 'subsection' || current.type === 'text') {
+        page[index] = { ...current, text: before } as NoteElement;
+      } else {
+        return prev;
+      }
+
+      page.splice(index + 1, 0, { type: 'text', text: after });
+      next[currentPageNumber] = page;
+      return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
+    });
+
+    setPendingFocusIndex(index + 1);
+    return true;
+  };
+
+  const handleMergeWithPrevious = (index: number) => {
+    if (index <= 0) return;
+
+    setPagesElements((prev) => {
+      const next = [...prev];
+      const page = [...(next[currentPageNumber] ?? [])];
+      const prevEl = page[index - 1];
+      const currEl = page[index];
+      if (!prevEl || !currEl) return prev;
+      if (prevEl.type !== 'text' || currEl.type !== 'text') return prev;
+
+      page[index - 1] = { type: 'text', text: `${prevEl.text}${currEl.text}` };
+      page.splice(index, 1);
+      next[currentPageNumber] = page;
+      return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
+    });
+
+    setPendingFocusIndex(index - 1);
+  };
+
+  const saveAllPagesToDB = async (pagesToSave: NoteElement[][]) => {
+    const contents = await getContentsByBookId(bookId);
+    const contentMap = new Map<number, Content>();
+    contents.forEach((c) => contentMap.set(c.page, c));
+
+    const pageImages = await getPageImagesByBookId(bookId);
+    const imageMap = new Map<number, typeof pageImages[number]>();
+    pageImages.forEach((img) => imageMap.set(Number(img.page_order), img));
+
+    for (const c of contents) {
+      if (c.page >= pagesToSave.length) {
+        await deleteContent(c.content_id);
+      }
+    }
+
+    for (const img of pageImages) {
+      const order = Number(img.page_order);
+      if (order >= pagesToSave.length) {
+        await deletePageImage(img.page_image_id);
+      }
+    }
+
+    for (let page = 0; page < pagesToSave.length; page += 1) {
+      const existing = contentMap.get(page);
+      if (existing) {
+        await deleteContent(existing.content_id);
+      }
+
+      const contentId = await Crypto.randomUUID();
+      await addContent({
+        content_id: contentId,
+        type: 'text',
+        book_id: bookId,
+        page,
+        height: 0,
+      } as Content);
+
+      const elems = pagesToSave[page] ?? [];
+      for (let i = 0; i < elems.length; i += 1) {
+        const el = elems[i];
+        const orderPrefix = String(i).padStart(4, '0');
+        const elemId = `${orderPrefix}_${await Crypto.randomUUID()}`;
+        if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
+          await addOutline({ outline_id: elemId, type: el.type, outline: (el as any).text, content_id: contentId });
+        } else if (el.type === 'word') {
+          await addWord({ word_id: elemId, word: el.word, explanation: el.meaning || '', word_order: i, content_id: contentId });
+        } else if (el.type === 'image') {
+          await addImage({ image_id: elemId, image: el.uri, content_id: contentId });
+        } else if (el.type === 'text') {
+          await addText({ text_id: elemId, text: el.text, content_id: contentId });
+        }
+      }
+
+      const existingPageImage = imageMap.get(page);
+      if (!existingPageImage) {
+        await addPageImage({
+          page_image_id: await Crypto.randomUUID(),
+          image_path: '',
+          page_order: page,
+          book_id: bookId,
+        });
+      }
+    }
   };
 
   const handleAddElement = (type: NoteElement['type']) => {
@@ -787,25 +849,28 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   };
 
   // ===== 保存処理（DB保存 + 再読み込み + 編集終了） =====
-  const handleSave = async () => {
-    if (isSavingPage) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (isSavingPage) return false;
     setIsSavingPage(true);
     try {
       Keyboard.dismiss();
-      const pageNumber = await savePageToDB(); // ref から最新ページ番号取得
-      if (pageNumber !== undefined) {
-        await touchBook(bookId);
-        // 保存後は全ページを再読み込みして DB との整合性を確保
-        await loadAllPages();
-        setEditing(false);
-        setPendingFocusIndex(undefined);
-        // 体感遅延を減らすためサムネイル更新は非同期で実行
-        scheduleThumbnailSync(pageNumber);
-      }
+      const maxRows = computeMaxRows(headerHeight);
+      const normalized = rebalancePagesByCapacity(pagesElementsRef.current, maxRows, screenWidth);
+      const numbered = applyOutlineNumberingAllPages(normalized, outlineNumberingEnabled);
+
+      setPagesElements(numbered);
+      await saveAllPagesToDB(numbered);
+      await touchBook(bookId);
+      setEditing(false);
+      setPendingFocusIndex(undefined);
+      // 体感遅延を減らすためサムネイル更新は非同期で実行
+      scheduleThumbnailSync(Math.min(currentPageNumberRef.current, numbered.length - 1));
+      return true;
     } catch (e) {
       console.error('保存エラー:', e);
       setEditing(false);
       setPendingFocusIndex(undefined);
+      return false;
     } finally {
       setIsSavingPage(false);
     }
@@ -1186,14 +1251,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           onPress: async () => {
             // 保存してから戻る
             try {
-              const pageNumber = currentPageNumberRef.current;
-              await savePageToDB();
-              await loadAllPages();
-              setEditing(false);
-              setTimeout(() => saveThumbnailAsync(pageNumber), 400);
+              const ok = await handleSave();
+              if (!ok) return;
               setTimeout(() => {
                 navigation.dispatch(data.action);
-              }, 500);
+              }, 300);
             } catch (err) {
               console.error('保存エラー:', err);
             }
@@ -1326,7 +1388,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   closeMenu();
                   setOutlineNumberingEnabled((prev) => !prev);
                 }}
-                title={outlineNumberingEnabled ? '章・節番号を非表示' : '章・節番号を表示'}
+                title={outlineNumberingEnabled ? '見出し番号を非表示' : '見出し番号を表示'}
                 leadingIcon={outlineNumberingEnabled ? 'eye-off' : 'eye'}
                 titleStyle={MENU_ITEM_TITLE_STYLE}
               />
@@ -1341,7 +1403,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 }}
                 title="ページ削除"
                 leadingIcon="trash-can"
-                titleStyle={MENU_ITEM_TITLE_STYLE}
+                titleStyle={notebookStyles.deleteOption}
               />
               {/* <Menu.Item
                 onPress={() => {
@@ -1411,6 +1473,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             onElementChange={handleElementChange}
             onDeleteElement={handleDeleteElement}
             onTapEmpty={handleTapEmpty}
+            onSplitToNextTextBlock={handleSplitToNextTextBlock}
+            onMergeWithPrevious={handleMergeWithPrevious}
             onEditStart={handleEditStart}
             initialFocusIndex={pendingFocusIndex}
             onBackgroundGenerated={(uri: string) => {
@@ -1452,7 +1516,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           >
             {/* ページ番号（右上） */}
             <View style={notebookStyles.pageNumberBadge}>
-              <Text style={notebookStyles.pageNumberText}>{currentPageNumber + 1}</Text>
+              <Text style={notebookStyles.pageNumberText}>
+                {`${Math.min(currentPageNumber + 1, Math.max(pagesElements.length, 1))}/${Math.max(pagesElements.length, 1)}`}
+              </Text>
             </View>
 
             {/* ノートタイトル（左上） */}
@@ -1525,12 +1591,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               <View pointerEvents="auto" style={notebookStyles.helpOverlay}>
               <View style={[notebookStyles.helpBubble, { top: 12, right: 12, maxWidth: commonStyle.screenWidth * 0.42 }]}>
                 <Text style={notebookStyles.helpTitle}>メニュー</Text>
-                <Text style={notebookStyles.helpText}>検索、章番号表示、ページ削除</Text>
+                <Text style={notebookStyles.helpText}>検索、見出し番号表示、ページ削除</Text>
               </View>
 
               <View style={[notebookStyles.helpBubble, { top: 14, left: 18, maxWidth: commonStyle.screenWidth * 0.45 }]}>
                 <Text style={notebookStyles.helpTitle}>目次</Text>
-                <Text style={notebookStyles.helpText}>章節項の見出し一覧</Text>
+                <Text style={notebookStyles.helpText}>大・中・小見出しの一覧</Text>
               </View>
 
               <View style={[notebookStyles.helpBubble, { top: 62, right: 16, maxWidth: commonStyle.screenWidth * 0.35 }]}>
@@ -1748,80 +1814,51 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             <TouchableWithoutFeedback onPress={() => {}}>
               <View style={[notebookStyles.modalCard, notebookStyles.pageListCard]}>
                 <Text style={notebookStyles.modalTitle}>ページ一覧</Text>
-            <View
-              ref={pageListGridWrapRef}
-              style={notebookStyles.pageListGridWrap}
-              onLayout={() => {
-                requestAnimationFrame(() => {
-                  pageListGridWrapRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
-                    pageListViewportRef.current = { y, height };
-                  });
-                });
-              }}
-            >
+            <View style={notebookStyles.pageListGridWrap}>
               <ScrollView
-                ref={pageListScrollRef}
                 style={notebookStyles.pageListGridScroll}
                 contentContainerStyle={notebookStyles.pageListGridScrollContent}
                 showsVerticalScrollIndicator
-                scrollEnabled={!isPageListDragging}
-                onScroll={(e) => {
-                  pageListScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
-                }}
-                onContentSizeChange={(_w, h) => {
-                  pageListContentHeightRef.current = h;
-                }}
-                scrollEventThrottle={16}
               >
-                <DraggableGrid
-                  numColumns={2}
-                  data={pageListItems}
-                  style={notebookStyles.pageListGrid}
-                  itemHeight={commonStyle.screenWidth * 0.64}
-                  delayLongPress={180}
-                  onDragStart={() => {
-                    setIsPageListDragging(true);
-                  }}
-                  onDragging={(gestureState) => {
-                    handlePageListDragging(gestureState);
-                  }}
-                  onItemPress={(item) => {
-                    const selectedIndex = pageListItems.findIndex((p) => String(p.key) === String(item.key));
-                    if (selectedIndex >= 0) {
-                      setcurrentPageNumber(selectedIndex);
-                      setPageListVisible(false);
-                    }
-                  }}
-                  onDragRelease={(data) => {
-                    setIsPageListDragging(false);
-                    void handlePageListDragEnd(data as PageListItem[]);
-                  }}
-                  renderItem={(item, order) => {
+                <View style={[notebookStyles.pageListGrid, { flexDirection: 'row', flexWrap: 'wrap' }]}>
+                  {pageListItems.map((item, order) => {
                     const thumbUri = item.thumbUri;
                     const isCurrentPage = order === currentPageNumber;
                     return (
-                      <View style={[notebookStyles.pageListItem, isCurrentPage && notebookStyles.pageListItemActive]}>
-                        {thumbUri ? (
-                          <Image
-                            source={{ uri: thumbUri }}
-                            style={{ width: '100%', aspectRatio: 0.65 }}
-                            resizeMode="cover"
-                          />
-                        ) : (
-                          <View style={notebookStyles.pageListPlaceholder}>
-                            <Ionicons name="document-outline" size={32} color="#ccc" />
-                            <Text style={notebookStyles.pageListPlaceholderText}>未保存</Text>
+                      <TouchableOpacity
+                        key={item.key}
+                        style={{ width: '50%' }}
+                        onPress={() => {
+                          setcurrentPageNumber(order);
+                          setPageListVisible(false);
+                        }}
+                      >
+                        <View style={[notebookStyles.pageListItem, isCurrentPage && notebookStyles.pageListItemActive]}>
+                          <View style={{ width: '100%', aspectRatio: 0.65, backgroundColor: '#F3ECE2' }}>
+                            {thumbUri ? (
+                              <Image
+                                source={{ uri: thumbUri }}
+                                style={{ width: '100%', height: '100%' }}
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <Image
+                                source={require('../../assets/images/note.png')}
+                                style={{ width: '100%', height: '100%' }}
+                                resizeMode="cover"
+                              />
+                            )}
                           </View>
-                        )}
-                        <View style={[notebookStyles.pageListLabel, isCurrentPage && notebookStyles.pageListLabelActive]}>
-                          <Text style={[notebookStyles.pageListLabelText, isCurrentPage && notebookStyles.pageListLabelTextActive]}>
-                            {order + 1}
-                          </Text>
+                          <View style={[notebookStyles.pageListLabel, isCurrentPage && notebookStyles.pageListLabelActive]}>
+                            <Text style={[notebookStyles.pageListLabelText, isCurrentPage && notebookStyles.pageListLabelTextActive]}>
+                              {order + 1}
+                            </Text>
+                          </View>
                         </View>
-                      </View>
+                      </TouchableOpacity>
                     );
-                  }}
-                />
+                  })}
+                </View>
               </ScrollView>
             </View>
             <TouchableOpacity
@@ -1848,43 +1885,55 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             <TouchableWithoutFeedback>
               <View style={[notebookStyles.modalCard, notebookStyles.typePickerCard]}>
                 <Text style={[notebookStyles.modalTitle, { textAlign: 'center' }]}>追加する要素を選択</Text>
-                <View style={notebookStyles.typePickerSection}>
-                  <Text style={notebookStyles.typePickerSectionTitle}>見出し系</Text>
-                  <View style={notebookStyles.typePickerGridOutline}>
-                    {ELEMENT_LABELS
-                      .filter(({ type }) => type === 'chapter' || type === 'section' || type === 'subsection')
-                      .map(({ label, type }) => (
-                        <TouchableOpacity
-                          key={type}
-                          onPress={() => handleAddElement(type)}
-                          style={[
-                            notebookStyles.typePickerOption,
-                            notebookStyles.typePickerOptionOutline,
-                            notebookStyles.typePickerOptionOutlineCompact,
-                          ]}
-                        >
-                          <Text style={[notebookStyles.typePickerOptionText, notebookStyles.typePickerOptionOutlineText]}>{label}</Text>
-                        </TouchableOpacity>
-                      ))}
+                <ScrollView
+                  style={{ maxHeight: screenHeight * 0.56 }}
+                  showsVerticalScrollIndicator
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <View style={notebookStyles.typePickerSection}>
+                    <Text style={notebookStyles.typePickerSectionTitle}>見出し</Text>
+                    <View style={notebookStyles.typePickerGridOutline}>
+                      {ELEMENT_LABELS
+                        .filter(({ type }) => type === 'chapter' || type === 'section' || type === 'subsection')
+                        .map(({ label, type, iconName }) => (
+                          <TouchableOpacity
+                            key={type}
+                            onPress={() => handleAddElement(type)}
+                            style={[
+                              notebookStyles.typePickerOption,
+                              notebookStyles.typePickerOptionOutline,
+                              notebookStyles.typePickerOptionOutlineCompact,
+                            ]}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <Text style={[notebookStyles.typePickerOptionText, notebookStyles.typePickerOptionOutlineText]}>{label}</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                    </View>
                   </View>
-                </View>
 
-                <View style={notebookStyles.typePickerSection}>
-                  <Text style={notebookStyles.typePickerSectionTitle}>本文系</Text>
-                  <View style={notebookStyles.typePickerGrid}>
-                    {ELEMENT_LABELS
-                      .filter(({ type }) => type === 'text' || type === 'word' || type === 'image')
-                      .map(({ label, type }) => (
-                        <TouchableOpacity
-                          key={type}
-                          onPress={() => handleAddElement(type)}
-                          style={[notebookStyles.typePickerOption, notebookStyles.typePickerOptionContent]}
-                        >
-                          <Text style={[notebookStyles.typePickerOptionText, notebookStyles.typePickerOptionContentText]}>{label}</Text>
-                        </TouchableOpacity>
-                      ))}
+                  <View style={notebookStyles.typePickerSection}>
+                    <Text style={[notebookStyles.typePickerSectionTitle, { marginBottom: 6 }]}>本文系</Text>
+                    <View style={notebookStyles.typePickerGrid}>
+                      {ELEMENT_LABELS
+                        .filter(({ type }) => type === 'text' || type === 'word' || type === 'image')
+                        .map(({ label, type, iconName }) => (
+                          <TouchableOpacity
+                            key={type}
+                            onPress={() => handleAddElement(type)}
+                            style={[notebookStyles.typePickerOption, notebookStyles.typePickerOptionContent]}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              {iconName ? <Ionicons name={iconName} size={16} color="#FFF8F0" style={{ marginRight: 6 }} /> : null}
+                              <Text style={[notebookStyles.typePickerOptionText, notebookStyles.typePickerOptionContentText]}>{label}</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                    </View>
                   </View>
-                </View>
+
+                </ScrollView>
                 <TouchableOpacity
                   onPress={() => setTypePickerVisible(false)}
                   style={notebookStyles.typePickerCancel}

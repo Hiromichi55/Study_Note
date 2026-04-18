@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Menu } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLibrary } from '../context/LibraryContext';
@@ -43,6 +44,12 @@ const DEBUG_LAYOUT = ENV.SCREEN_DEV; // true: レイアウトデバッグ用枠�
 const MENU_ITEM_TITLE_STYLE = {
   fontSize: 14,
   color: '#4E4034',
+  fontWeight: '600' as const,
+};
+
+const DELETE_MENU_ITEM_TITLE_STYLE = {
+  fontSize: 14,
+  color: '#B45145',
   fontWeight: '600' as const,
 };
 
@@ -94,6 +101,10 @@ const parseDateOrZero = (value?: string): number => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
+const pinnedFirstSort = (books: Book[]): Book[] => {
+  return [...books].sort((a, b) => Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned)));
+};
+
 const sortLabelByMode: Record<SortMode, string> = {
   manual: '手動順',
   updated_desc: '更新日時(新しい順)',
@@ -108,21 +119,21 @@ const sortBooks = (books: Book[], sortMode: SortMode): Book[] => {
   const copied = [...books];
   switch (sortMode) {
     case 'manual':
-      return copied.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+      return pinnedFirstSort(copied.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
     case 'updated_desc':
-      return copied.sort((a, b) => parseDateOrZero(b.updated_at) - parseDateOrZero(a.updated_at));
+      return pinnedFirstSort(copied.sort((a, b) => parseDateOrZero(b.updated_at) - parseDateOrZero(a.updated_at)));
     case 'updated_asc':
-      return copied.sort((a, b) => parseDateOrZero(a.updated_at) - parseDateOrZero(b.updated_at));
+      return pinnedFirstSort(copied.sort((a, b) => parseDateOrZero(a.updated_at) - parseDateOrZero(b.updated_at)));
     case 'created_desc':
-      return copied.sort((a, b) => parseDateOrZero(b.created_at) - parseDateOrZero(a.created_at));
+      return pinnedFirstSort(copied.sort((a, b) => parseDateOrZero(b.created_at) - parseDateOrZero(a.created_at)));
     case 'created_asc':
-      return copied.sort((a, b) => parseDateOrZero(a.created_at) - parseDateOrZero(b.created_at));
+      return pinnedFirstSort(copied.sort((a, b) => parseDateOrZero(a.created_at) - parseDateOrZero(b.created_at)));
     case 'title_asc':
-      return copied.sort((a, b) => a.title.localeCompare(b.title, 'ja'));
+      return pinnedFirstSort(copied.sort((a, b) => a.title.localeCompare(b.title, 'ja')));
     case 'title_desc':
-      return copied.sort((a, b) => b.title.localeCompare(a.title, 'ja'));
+      return pinnedFirstSort(copied.sort((a, b) => b.title.localeCompare(a.title, 'ja')));
     default:
-      return copied;
+      return pinnedFirstSort(copied);
   }
 };
 
@@ -140,7 +151,7 @@ const getBookBadgeStyle = (color: Book['color'], baseColor: string) => {
 };
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
-  const { state, addBook, deleteBook, renameBook, recolorBook } = useLibrary();
+  const { state, addBook, deleteBook, renameBook, recolorBook, toggleBookPin } = useLibrary();
   const [bookData, setBookData] = useState<Book[]>([]);
   const flatListRef = useRef<any>(null);
 
@@ -223,16 +234,26 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       },
       onPanResponderMove: (_, gestureState) => {
         if (swipeHandledRef.current) return;
-        if (gestureState.dx < -56 && Math.abs(gestureState.dy) < 28) {
+        if (gestureState.dx > 56 && Math.abs(gestureState.dy) < 28) {
           swipeHandledRef.current = true;
           navigation.navigate('Wordbook');
+          return;
+        }
+        if (gestureState.dx < -56 && Math.abs(gestureState.dy) < 28) {
+          swipeHandledRef.current = true;
+          navigation.navigate('WordList');
         }
       },
       onPanResponderRelease: (_, gestureState) => {
         if (swipeHandledRef.current) return;
-        if (gestureState.dx < -56 && Math.abs(gestureState.dy) < 28) {
+        if (gestureState.dx > 56 && Math.abs(gestureState.dy) < 28) {
           swipeHandledRef.current = true;
           navigation.navigate('Wordbook');
+          return;
+        }
+        if (gestureState.dx < -56 && Math.abs(gestureState.dy) < 28) {
+          swipeHandledRef.current = true;
+          navigation.navigate('WordList');
         }
       },
       onPanResponderTerminate: () => {
@@ -357,10 +378,30 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   </View>
   );
 
+  const renderLeftActions = (item: Book) => (
+    <View style={localStyles.leftActionContainer}>
+      <TouchableOpacity
+        style={localStyles.swipePinButton}
+        onPress={async () => {
+          await toggleBookPin(item.book_id, !Boolean(item.is_pinned));
+        }}
+      >
+        <MaterialCommunityIcons
+          name={item.is_pinned ? 'pin-off' : 'pin'}
+          size={22}
+          color="#fff"
+        />
+      </TouchableOpacity>
+    </View>
+  );
+
   const BookItem = React.memo(({ item }: { item: Book }) => (
     <Swipeable
+      renderLeftActions={() => renderLeftActions(item)}
       renderRightActions={() => renderRightActions(item.book_id, item.title)}
+      overshootLeft={false}
       overshootRight={false}
+      leftThreshold={40}
       rightThreshold={40}
       containerStyle={{ overflow: 'hidden', borderRadius: 24 }}
     >
@@ -399,6 +440,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={homeStyles.bookSubtitle}>{`${formatUpdatedAtLabel(item.updated_at)}`}</Text>
           </View>
         </TouchableOpacity>
+        {item.is_pinned && (
+          <View pointerEvents="none" style={localStyles.pinnedBadge}>
+            <MaterialCommunityIcons name="pin" size={12} color="#A5672A" />
+          </View>
+        )}
         <Menu
           visible={menuVisibleBookId === item.book_id}
           onDismiss={() => setMenuVisibleBookId(null)}
@@ -439,13 +485,22 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             titleStyle={MENU_ITEM_TITLE_STYLE}
           />
           <Menu.Item
+            onPress={async () => {
+              setMenuVisibleBookId(null);
+              await toggleBookPin(item.book_id, !Boolean(item.is_pinned));
+            }}
+            title={item.is_pinned ? 'ピン留めを解除' : 'ピン留め'}
+            leadingIcon={item.is_pinned ? 'pin-off' : 'pin'}
+            titleStyle={MENU_ITEM_TITLE_STYLE}
+          />
+          <Menu.Item
             onPress={() => {
               setMenuVisibleBookId(null);
               handleDeleteBook(item.book_id, item.title);
             }}
             title="本を削除"
             leadingIcon="trash-can"
-            titleStyle={MENU_ITEM_TITLE_STYLE}
+            titleStyle={DELETE_MENU_ITEM_TITLE_STYLE}
           />
         </Menu>
       </View>
@@ -499,13 +554,22 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           <Text style={homeStyles.listHeaderDescription}>
             全 {bookData.length} 冊
           </Text>
-          <View ref={wordbookQuickBtnWrapRef} collapsable={false}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View ref={wordbookQuickBtnWrapRef} collapsable={false}>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('Wordbook')}
+                style={[homeStyles.wordbookQuickBtn, showHelpOverlay && localStyles.wordbookQuickBtnHelpMode]}
+              >
+                <Ionicons name="albums-outline" size={16} color={showHelpOverlay ? '#4E4034' : '#FFFFFF'} />
+                <Text style={[homeStyles.wordbookQuickBtnText, showHelpOverlay && localStyles.wordbookQuickBtnTextHelpMode]}>一問一答</Text>
+              </TouchableOpacity>
+            </View>
             <TouchableOpacity
-              onPress={() => navigation.navigate('Wordbook')}
+              onPress={() => navigation.navigate('WordList')}
               style={[homeStyles.wordbookQuickBtn, showHelpOverlay && localStyles.wordbookQuickBtnHelpMode]}
             >
-              <Ionicons name="albums-outline" size={16} color={showHelpOverlay ? '#4E4034' : '#FFFFFF'} />
-              <Text style={[homeStyles.wordbookQuickBtnText, showHelpOverlay && localStyles.wordbookQuickBtnTextHelpMode]}>単語帳へ</Text>
+              <Ionicons name="list-outline" size={16} color={showHelpOverlay ? '#4E4034' : '#FFFFFF'} />
+              <Text style={[homeStyles.wordbookQuickBtnText, showHelpOverlay && localStyles.wordbookQuickBtnTextHelpMode]}>単語リスト</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -565,8 +629,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               },
             ]}
           >
-            <Text style={localStyles.helpTitle}>単語帳へ</Text>
-            <Text style={localStyles.helpText}>ノートに追加した単語帳</Text>
+            <Text style={localStyles.helpTitle}>一問一答</Text>
+            <Text style={localStyles.helpText}>ノートに追加した一問一答</Text>
           </View>
 
           <View
@@ -891,6 +955,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
                         data={bookData.filter(book => 
                           book.title.toLowerCase().includes(searchQuery.toLowerCase())
                         )}
+                        keyboardShouldPersistTaps="handled"
                         keyExtractor={(item) => item.book_id}
                         renderItem={({ item }) => (
                           <TouchableOpacity
@@ -1020,11 +1085,42 @@ const localStyles = StyleSheet.create({
     overflow: 'hidden',
     justifyContent: 'center',
   },
+  leftActionContainer: {
+    width: 80,
+    marginBottom: 14,
+    borderTopRightRadius: 24,
+    borderBottomRightRadius: 24,
+    borderTopLeftRadius: 24,
+    borderBottomLeftRadius: 24,
+    backgroundColor: '#6E5844',
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
   swipeDeleteButton: {
     flex: 1,
     backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  swipePinButton: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pinnedBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 74,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFF7EC',
+    borderWidth: 1,
+    borderColor: '#E6D4BE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
   },
 });
 

@@ -10,7 +10,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 
 type QuizMode = 'hideWord' | 'hideMeaning';
 type OrderMode = 'sequential' | 'random';
-type FilterMode = 'all' | 'flagged' | 'unflagged';
+type FilterMode = 'all' | 'flagged';
 
 type WordCard = {
   key: string;
@@ -28,27 +28,20 @@ const toVerticalLabel = (label: string) => label.split('').join('\n');
 const WordbookScreen: React.FC = () => {
   const { state: libraryState } = useLibrary();
   const { select, updateWord } = useEditor();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const [showHelpOverlay, setShowHelpOverlay] = useState(false);
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerTitle: '単語帳',
+      headerTitle: '一問一答',
       headerTitleStyle: { fontSize: 17, fontWeight: '700', color: '#342C24' },
       headerStyle: { backgroundColor: '#E9DCCD' },
       headerShadowVisible: false,
       headerTintColor: '#342C24',
+      headerLeftContainerStyle: { paddingLeft: 2 },
       headerRightContainerStyle: { paddingRight: 2 },
       headerLeft: () => (
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}
-        >
-          <Ionicons name="chevron-back" size={24} color="#342C24" />
-        </TouchableOpacity>
-      ),
-      headerRight: () => (
         <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 8 }}>
           <TouchableOpacity
             onPress={() => setShowHelpOverlay((prev) => !prev)}
@@ -57,6 +50,14 @@ const WordbookScreen: React.FC = () => {
             <Ionicons name={showHelpOverlay ? 'help-circle' : 'help-circle-outline'} size={22} color="#342C24" />
           </TouchableOpacity>
         </View>
+      ),
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}
+        >
+          <Ionicons name="chevron-forward" size={24} color="#342C24" />
+        </TouchableOpacity>
       ),
     });
   }, [navigation, showHelpOverlay]);
@@ -131,8 +132,6 @@ const WordbookScreen: React.FC = () => {
     }
     if (filterMode === 'flagged') {
       filtered = filtered.filter((c) => flaggedCards.has(c.wordId));
-    } else if (filterMode === 'unflagged') {
-      filtered = filtered.filter((c) => !flaggedCards.has(c.wordId));
     }
     return filtered;
   }, [allCards, selectedBookId, filterMode, flaggedCards]);
@@ -154,7 +153,13 @@ const WordbookScreen: React.FC = () => {
           return Math.abs(gestureState.dx) > 14 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
         },
         onPanResponderRelease: (_, gestureState) => {
-          if (Math.abs(gestureState.dy) >= 32 || displayCards.length === 0) return;
+          if (Math.abs(gestureState.dy) >= 32) return;
+          // 右端から左へスワイプした場合はホームへ戻る
+          if (gestureState.x0 > windowWidth - 36 && gestureState.dx < -48) {
+            navigation.goBack();
+            return;
+          }
+          if (displayCards.length === 0) return;
           if (gestureState.dx > 56) {
             setCurrent((prev) => Math.max(0, prev - 1));
             setRevealed(false);
@@ -164,7 +169,7 @@ const WordbookScreen: React.FC = () => {
           }
         },
       }),
-    [displayCards.length]
+    [displayCards.length, navigation, windowWidth]
   );
 
   const safeCurrent = displayCards.length === 0 ? 0 : Math.min(current, displayCards.length - 1);
@@ -264,7 +269,7 @@ const WordbookScreen: React.FC = () => {
 
           <View style={{ position: 'absolute', top: 212, right: 16, maxWidth: '48%', backgroundColor: 'rgba(255, 253, 249, 0.99)', borderRadius: 12, borderWidth: 1.5, borderColor: '#DCCAB4', paddingHorizontal: 12, paddingVertical: 10 }}>
             <Text style={{ fontSize: 13, color: '#3E3125', fontWeight: '700', marginBottom: 4 }}>問題カード</Text>
-            <Text style={{ fontSize: 12, color: '#4E4034', lineHeight: 17 }}>タップで答え表示。フラグで後から復習。</Text>
+            <Text style={{ fontSize: 12, color: '#4E4034', lineHeight: 17 }}>タップで答え表示。保存マークで後から復習。</Text>
           </View>
 
           <View style={{ position: 'absolute', bottom: 68, right: 16, maxWidth: '52%', backgroundColor: 'rgba(255, 253, 249, 0.99)', borderRadius: 12, borderWidth: 1.5, borderColor: '#DCCAB4', paddingHorizontal: 12, paddingVertical: 10 }}>
@@ -367,7 +372,7 @@ const WordbookScreen: React.FC = () => {
                 }}
               >
                 <Ionicons
-                  name={currentCard && flaggedCards.has(currentCard.wordId) ? 'flag' : 'flag-outline'}
+                  name={currentCard && flaggedCards.has(currentCard.wordId) ? 'bookmark' : 'bookmark-outline'}
                   size={14}
                   color={currentCard && flaggedCards.has(currentCard.wordId) ? '#C17B3B' : '#8B7355'}
                 />
@@ -496,7 +501,7 @@ const WordbookScreen: React.FC = () => {
         }}
       >
         <Text style={{ width: 28, fontSize: 11, lineHeight: 12, textAlign: 'center', fontWeight: '700', color: '#8B5A3C', marginRight: 10 }}>
-          {toVerticalLabel('フラグ')}
+          {toVerticalLabel('保存')}
         </Text>
         <View style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity
@@ -521,19 +526,14 @@ const WordbookScreen: React.FC = () => {
               backgroundColor: filterMode === 'flagged' ? '#A15A2E' : '#F4D4B8',
             }}
           >
-            <Text style={{ color: filterMode === 'flagged' ? '#FFFFFF' : '#6E4423', fontWeight: '700' }}>フラグのみ</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setFilterMode('unflagged')}
-            style={{
-              flex: 1,
-              borderRadius: 12,
-              paddingVertical: 10,
-              alignItems: 'center',
-              backgroundColor: filterMode === 'unflagged' ? '#A15A2E' : '#F4D4B8',
-            }}
-          >
-            <Text style={{ color: filterMode === 'unflagged' ? '#FFFFFF' : '#6E4423', fontWeight: '700' }}>未フラグ</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Ionicons
+                name={filterMode === 'flagged' ? 'bookmark' : 'bookmark-outline'}
+                size={14}
+                color={filterMode === 'flagged' ? '#FFFFFF' : '#6E4423'}
+              />
+              <Text style={{ color: filterMode === 'flagged' ? '#FFFFFF' : '#6E4423', fontWeight: '700' }}>保存済み</Text>
+            </View>
           </TouchableOpacity>
         </View>
       </View>

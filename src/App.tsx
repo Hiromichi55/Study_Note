@@ -13,6 +13,7 @@ import { MESSAGES } from './constants/messages';
 import HomeScreenProduction from './screens/HomeScreen';
 import NotebookScreen from './screens/NotebookScreen';
 import WordbookScreen from './screens/WordbookScreen';
+import WordListScreen from './screens/WordListScreen';
 import LicensesScreen from './screens/LicensesScreen';
 import { ENV } from '@config';
 
@@ -97,12 +98,17 @@ function ProductionApp() {
             <Stack.Screen
               name="Wordbook"
               component={WordbookScreen as any}
-              options={{ title: '単語帳' }}
+              options={{ title: '一問一答', animation: 'slide_from_left', gestureEnabled: false, headerBackTitle: '' }}
+            />
+            <Stack.Screen
+              name="WordList"
+              component={WordListScreen as any}
+              options={{ title: '単語リスト', headerBackTitle: '' }}
             />
             <Stack.Screen
               name="License"
               component={LicensesScreen as any}
-              options={{ title: '詳細情報', headerBackTitle: 'ノート一覧' }}
+              options={{ title: '詳細情報' }}
             />
           </Stack.Navigator>
         </NavigationContainer>
@@ -201,6 +207,7 @@ export type RootStackParamList = {
   Home: undefined;
   Notebook: { bookId: string; initialPage?: number; source?: 'home' | 'wordbook' };
   Wordbook: undefined;
+  WordList: undefined;
   License: undefined;
   Edit: { bookId: string };
 };

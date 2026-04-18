@@ -14,6 +14,7 @@ export type Book = {
   order_index: number; // 並び順を管理するためのフィールド
   created_at?: string;
   updated_at?: string;
+  is_pinned?: boolean;
 };
 
 const parseBookUpdatedAt = (value?: string): number => {
@@ -59,6 +60,7 @@ type Action =
   | { type: 'DELETE_BOOK'; bookId: string }
   | { type: 'RENAME_BOOK'; bookId: string; title: string }
   | { type: 'RECOLOR_BOOK'; bookId: string; color: Book['color'] }
+  | { type: 'TOGGLE_PIN_BOOK'; bookId: string; isPinned: boolean }
   | { type: 'TOUCH_BOOK'; bookId: string; updatedAt: string };
 
 const initialState: State = { 
@@ -74,6 +76,7 @@ const LibraryContext = createContext<{
   deleteBook: (bookId: string) => Promise<void>;
   renameBook: (bookId: string, title: string) => Promise<void>;
   recolorBook: (bookId: string, color: Book['color']) => Promise<void>;
+  toggleBookPin: (bookId: string, isPinned: boolean) => Promise<void>;
   touchBook: (bookId: string) => Promise<void>;
 }>({
   state: initialState,
@@ -83,6 +86,7 @@ const LibraryContext = createContext<{
   deleteBook: async () => {},
   renameBook: async () => {},
   recolorBook: async () => {},
+  toggleBookPin: async () => {},
   touchBook: async () => {},
 });
 
@@ -111,6 +115,15 @@ function libraryReducer(state: State, action: Action): State {
         books: sortBooksByUpdatedAt(
           state.books.map(b =>
             b.book_id === action.bookId ? { ...b, color: action.color, updated_at: new Date().toISOString() } : b
+          )
+        ),
+      };
+    case 'TOGGLE_PIN_BOOK':
+      return {
+        ...state,
+        books: sortBooksByUpdatedAt(
+          state.books.map(b =>
+            b.book_id === action.bookId ? { ...b, is_pinned: action.isPinned } : b
           )
         ),
       };
@@ -175,6 +188,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
               title TEXT NOT NULL,
               color TEXT NOT NULL,
               order_index INTEGER DEFAULT 0,
+              is_pinned INTEGER DEFAULT 0,
               created_at TEXT DEFAULT CURRENT_TIMESTAMP,
               updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
@@ -184,8 +198,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // 初期データを挿入
           for (const b of initialBooks) {
             await database.runAsync(
-              'INSERT INTO books (id, title, color, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-              [b.book_id, b.title, b.color, b.order_index, nowIso, nowIso]
+              'INSERT INTO books (id, title, color, order_index, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+              [b.book_id, b.title, b.color, b.order_index, 0, nowIso, nowIso]
             );
           }
 
@@ -197,6 +211,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const bookTableInfo = await database.getAllAsync('PRAGMA table_info(books);');
         const hasUpdatedAt = (bookTableInfo as any[]).some((col) => String(col?.name) === 'updated_at');
         const hasCreatedAt = (bookTableInfo as any[]).some((col) => String(col?.name) === 'created_at');
+        const hasPinned = (bookTableInfo as any[]).some((col) => String(col?.name) === 'is_pinned');
         if (!hasUpdatedAt) {
           await database.runAsync('ALTER TABLE books ADD COLUMN updated_at TEXT;');
           await database.runAsync("UPDATE books SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP);");
@@ -204,6 +219,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!hasCreatedAt) {
           await database.runAsync('ALTER TABLE books ADD COLUMN created_at TEXT;');
           await database.runAsync('UPDATE books SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP);');
+        }
+        if (!hasPinned) {
+          await database.runAsync('ALTER TABLE books ADD COLUMN is_pinned INTEGER DEFAULT 0;');
+          await database.runAsync('UPDATE books SET is_pinned = COALESCE(is_pinned, 0);');
         }
 
         // データ読み込み
@@ -217,6 +236,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           order_index: Number(row.order_index || 0),
           created_at: row.created_at ? String(row.created_at) : undefined,
           updated_at: row.updated_at ? String(row.updated_at) : undefined,
+          is_pinned: Number(row.is_pinned || 0) === 1,
         }));
 
         // ✅ データベースが空なら初期データを挿入
@@ -224,8 +244,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const nowIso = new Date().toISOString();
           for (const book of initialBooks) {
             await database.runAsync(
-              'INSERT INTO books (id, title, color, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-              [book.book_id, book.title, book.color, book.order_index, nowIso, nowIso]
+              'INSERT INTO books (id, title, color, order_index, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+              [book.book_id, book.title, book.color, book.order_index, 0, nowIso, nowIso]
             );
           }
           await database.runAsync(
@@ -260,8 +280,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const updatedAt = new Date().toISOString();
       const createdAt = book.created_at ?? updatedAt;
       await db.runAsync(
-        'INSERT OR REPLACE INTO books (id, title, color, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [book.book_id, book.title || '', book.color, book.order_index, createdAt, book.updated_at ?? updatedAt]
+        'INSERT OR REPLACE INTO books (id, title, color, order_index, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [book.book_id, book.title || '', book.color, book.order_index, book.is_pinned ? 1 : 0, createdAt, book.updated_at ?? updatedAt]
       );
       dispatch({ type: 'ADD_BOOK', book: { ...book, created_at: createdAt, updated_at: book.updated_at ?? updatedAt } });
     } catch (error) {
@@ -354,6 +374,19 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const toggleBookPin = async (bookId: string, isPinned: boolean) => {
+    if (!db) {
+      console.error('Database not initialized');
+      return;
+    }
+    try {
+      await db.runAsync('UPDATE books SET is_pinned = ? WHERE id = ?', [isPinned ? 1 : 0, bookId]);
+      dispatch({ type: 'TOGGLE_PIN_BOOK', bookId, isPinned });
+    } catch (error) {
+      console.error('本のピン留め変更エラー:', error);
+    }
+  };
+
   const touchBook = async (bookId: string) => {
     if (!db) {
       console.error('Database not initialized');
@@ -369,7 +402,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   return (
-    <LibraryContext.Provider value={{ state, dispatch, addBook, reorderBooks, deleteBook, renameBook, recolorBook, touchBook }}>
+    <LibraryContext.Provider value={{ state, dispatch, addBook, reorderBooks, deleteBook, renameBook, recolorBook, toggleBookPin, touchBook }}>
       {children}
     </LibraryContext.Provider>
   );

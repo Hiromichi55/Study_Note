@@ -29,8 +29,6 @@ const TOOLBAR_BG = '#FCFAF6';
 const TOOLBAR_BORDER = '#DED2C3';
 const WORD_ACCENT_COLOR = '#D13A3A';
 const RESERVED_TOP_LINES = 1;
-// TextInput と Text のベースライン差分を吸収するため、編集時だけ上に寄せる
-const EDITOR_TEXT_NUDGE_Y = Platform.OS === 'android' ? -4 : -2;
 
 const OUTLINE_PREFIX_RE = /^\s*\d+(?:\.\d+)*\.\s*/;
 const stripOutlinePrefix = (text: string) => text.replace(OUTLINE_PREFIX_RE, '').trimStart();
@@ -94,20 +92,26 @@ type Props = {
   /** 要素の削除コールバック */
   onDeleteElement?: (index: number) => void;
   /** 空行タップ時のコールバック（要素追加トリガー） */
-  onTapEmpty?: (afterIndex: number) => void;
+  onTapEmpty?: (afterIndex: number) => boolean | void;
+  /** 現在 block を分割して次 text block を挿入するコールバック */
+  onSplitToNextTextBlock?: (index: number, before: string, after: string) => boolean | void;
+  /** block 先頭 Backspace 時に前 block へ結合するコールバック */
+  onMergeWithPrevious?: (index: number) => void;
   /** 非編集モードで行をタップして編集開始するコールバック */
   onEditStart?: (index: number) => void;
   /** 編集開始時にフォーカスする要素インデックス */
   initialFocusIndex?: number;
 };
 
-const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackground = true, elements, onNoteLayout, onSwipePage, onBackgroundGenerated, isEditing, onElementChange, onDeleteElement, onTapEmpty, onEditStart, initialFocusIndex }) => {
+const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackground = true, elements, onNoteLayout, onSwipePage, onBackgroundGenerated, isEditing, onElementChange, onDeleteElement, onTapEmpty, onSplitToNextTextBlock, onMergeWithPrevious, onEditStart, initialFocusIndex }) => {
   const bgColor = COLOR_MAP[backgroundColor ?? 'red'];
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [displayWordLines, setDisplayWordLines] = useState<Record<number, number>>({});
+  const [displayTextLines, setDisplayTextLines] = useState<Record<number, number>>({});
   const measuredWordLinesRef = useRef<Record<number, number>>({});
+  const measuredTextLinesRef = useRef<Record<number, number>>({});
   const inputRefs = useRef<Record<string, TextInput | null>>({});
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(0);
@@ -119,6 +123,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const activeIndexRef = useRef<number | null>(null);
   const elementsRef = useRef<NoteElement[] | undefined>(undefined);
   const pendingFocusAfterAddRef = useRef<number | null>(null);
+  const selectionRef = useRef<Record<string, { start: number; end: number }>>({});
+  const splitGuardRef = useRef<{ key: string; ts: number } | null>(null);
   const effectiveActiveIndex = isEditing && activeIndex === null && initialFocusIndex !== undefined && initialFocusIndex !== null
     ? initialFocusIndex
     : activeIndex;
@@ -128,18 +134,20 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   useEffect(() => {
     if (isEditing) {
       setDisplayWordLines({});
+      setDisplayTextLines({});
       return;
     }
     setDisplayWordLines({ ...measuredWordLinesRef.current });
+    setDisplayTextLines({ ...measuredTextLinesRef.current });
   }, [isEditing, elements]);
 
-  const TOOLBAR_TYPES: { label: string; type: NoteElement['type'] }[] = [
-    { label: '文章', type: 'text' },
-    { label: '章', type: 'chapter' },
-    { label: '節', type: 'section' },
-    { label: '項', type: 'subsection' },
-    { label: '単語', type: 'word' },
-    { label: '画像', type: 'image' },
+  const TOOLBAR_TYPES: { label: string; type: NoteElement['type']; iconName?: keyof typeof Ionicons.glyphMap }[] = [
+    { label: '文章', type: 'text', iconName: 'text-outline' },
+    { label: '大', type: 'chapter' },
+    { label: '中', type: 'section' },
+    { label: '小', type: 'subsection' },
+    { label: '単語リスト', type: 'word', iconName: 'list-outline' },
+    { label: '画像', type: 'image', iconName: 'image-outline' },
   ];
 
   const noteX = NOTE_OUTER_MARGIN;
@@ -151,6 +159,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   // 1画面に収まる最大行数（先頭行も入力可能にする）
   // 1画面に収まる最大行数（最上段1行は非編集として予約）
   const maxRows = Math.max(1, Math.floor((noteHeight - RESERVED_TOP_LINES * interval) / interval));
+  const totalRuleRows = maxRows + RESERVED_TOP_LINES;
 
   // 要素1つの表示高さを返す
   const getElementHeight = (el: NoteElement): number => {
@@ -173,13 +182,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     const cpp = Math.max(8, Math.floor(availableWidth / Math.max(1, font.size)) - 1);
     const linesByNewLine = text.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / cpp)), 0);
     return Math.max(font.lineHeight, linesByNewLine * font.lineHeight);
-  };
-
-  const getCharsPerLine = (el: NoteElement) => {
-    const font = FONT_MAP[el.type];
-    if (el.type === 'image') return Infinity;
-    const contentWidth = noteWidth * (1 - 2 * space);
-    return Math.max(1, Math.floor(contentWidth / Math.max(1, font.size)));
   };
 
   // アクティブ要素のY位置（ScrollView内）を計算するヘルパー
@@ -408,6 +410,14 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const handleTypeChange = (type: NoteElement['type']) => {
     if (activeIndex === null || !elements?.[activeIndex]) return;
     const current = elements[activeIndex];
+    const hasAnyTextInput = current.type === 'word'
+      ? Boolean((current.word || '').trim().length > 0 || (current.meaning || '').trim().length > 0)
+      : current.type === 'image'
+      ? false
+      : Boolean((current.text || '').trim().length > 0);
+
+    // 画像以外の要素で1文字以上入力済みなら、画像への変換は不可
+    if (type === 'image' && current.type !== 'image' && hasAnyTextInput) return;
     if (current.type === type) return;
 
     const converted = convertElementType(current, type);
@@ -490,19 +500,79 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     }
   };
 
-  const handleInputWithEnter = (
-    value: string,
-    index: number,
-    apply: (nextValue: string) => void
-  ) => {
-    if (!value.includes('\n')) {
-      apply(value);
+  const splitToNextTextBlock = (index: number, currentText: string, splitAt: number) => {
+    const safeSplitAt = Math.max(0, Math.min(splitAt, currentText.length));
+    const before = currentText.slice(0, safeSplitAt);
+    const after = currentText.slice(safeSplitAt);
+
+    const inserted = onSplitToNextTextBlock?.(index, before, after);
+    if (inserted !== undefined) {
+      if (inserted === false) return;
+      pendingFocusAfterAddRef.current = index + 1;
+      setActiveIndex(index + 1);
+      splitGuardRef.current = {
+        key: getInputKey(index, 'main'),
+        ts: Date.now(),
+      };
       return;
     }
 
-    const cleaned = value.replace(/\n/g, '');
-    apply(cleaned);
-    focusNextElement(index);
+    const current = elements?.[index];
+    if (!isValidElement(current) || !('text' in current)) return;
+    onElementChange?.(index, { ...current, text: before } as any);
+    const fallbackInserted = onTapEmpty?.(index + 1);
+    if (fallbackInserted === false) return;
+
+    pendingFocusAfterAddRef.current = index + 1;
+    setTimeout(() => {
+      onElementChange?.(index + 1, { type: 'text', text: after });
+      setActiveIndex(index + 1);
+      splitGuardRef.current = {
+        key: getInputKey(index, 'main'),
+        ts: Date.now(),
+      };
+    }, 0);
+  };
+
+  const splitByEnter = (index: number, currentText: string) => {
+    const key = getInputKey(index, 'main');
+    const guard = splitGuardRef.current;
+    if (guard && guard.key === key && Date.now() - guard.ts < 120) {
+      return;
+    }
+
+    const selection = selectionRef.current[key] ?? {
+      start: currentText.length,
+      end: currentText.length,
+    };
+    const splitAt = Math.max(0, Math.min(selection.start, currentText.length));
+    const end = Math.max(splitAt, Math.min(selection.end, currentText.length));
+    const normalized = `${currentText.slice(0, splitAt)}${currentText.slice(end)}`;
+    splitToNextTextBlock(index, normalized, splitAt);
+  };
+
+  const renderPageRuleLines = () => {
+    const lines: React.ReactElement[] = [];
+
+    for (let row = 1; row <= totalRuleRows; row++) {
+      const isTitleLine = row === 1 || row === totalRuleRows;
+      lines.push(
+        <View
+          key={`page-rule-${row}`}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: row * interval - (isTitleLine ? 1.5 : 1),
+            borderBottomWidth: isTitleLine ? 1.5 : 1,
+            borderBottomColor: isTitleLine ? TITLE_RULE_COLOR : RULE_COLOR,
+          }}
+        />
+      );
+    }
+
+    return lines;
   };
 
   // ===================================================
@@ -511,39 +581,21 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const renderElements = () => {
     const rendered: React.ReactElement[] = [];
     const currentCount = elements?.length ?? 0;
-    const remaining = Math.max(0, maxRows - currentCount);
-    const getRuleStyle = (lineIndex: number, isBottomLine: boolean) => {
-      if (lineIndex === 0 || isBottomLine) {
-        return { borderBottomWidth: 1.5, borderBottomColor: TITLE_RULE_COLOR };
+    const capacityHeight = maxRows * interval;
+    let consumedHeight = 0;
+    let overflowStartIndex: number | null = null;
+    (elements ?? []).forEach((el, idx) => {
+      if (!isValidElement(el)) return;
+      const h = getElementHeight(el);
+      if (overflowStartIndex === null && consumedHeight > 0 && consumedHeight + h > capacityHeight) {
+        overflowStartIndex = idx;
       }
-      return { borderBottomWidth: 1, borderBottomColor: RULE_COLOR };
-    };
-
-    const renderInnerRuleLines = (rowHeight: number, isBottomElementBorder: boolean) => {
-      const lineCount = Math.max(1, Math.round(rowHeight / interval));
-      const lines: React.ReactElement[] = [];
-
-      for (let line = 1; line <= lineCount; line++) {
-        const isLastLine = line === lineCount;
-        lines.push(
-          <View
-            key={`rule-${line}`}
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              top: line * interval - (isLastLine ? (isBottomElementBorder ? 1.5 : 1) : 1),
-              borderBottomWidth: isLastLine ? (isBottomElementBorder ? 1.5 : 1) : 1,
-              borderBottomColor: isLastLine && isBottomElementBorder ? TITLE_RULE_COLOR : RULE_COLOR,
-            }}
-          />
-        );
+      if (overflowStartIndex === null) {
+        consumedHeight += h;
       }
-
-      return lines;
-    };
-
+    });
+    const consumedRows = Math.ceil(consumedHeight / interval);
+    const remaining = Math.max(0, maxRows - consumedRows);
     // ── エレメントが存在する行 ──
     (elements ?? []).forEach((el, idx) => {
       if (!isValidElement(el)) return;
@@ -552,15 +604,21 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       if (el.type === 'word') {
         const measuredLines = displayWordLines[idx] ?? 0;
         estHeight = Math.max(estHeight, Math.max(1, measuredLines) * font.lineHeight);
+      } else if (el.type !== 'image' && (el.type === 'text' || el.type === 'chapter' || el.type === 'section' || el.type === 'subsection')) {
+        const measuredLines = displayTextLines[idx] ?? 1;
+        if (isEditing) {
+          // 編集中は実測行数を優先し、右端折り返しを遅延なく反映する
+          estHeight = Math.max(1, measuredLines) * font.lineHeight;
+        } else {
+          estHeight = Math.max(estHeight, Math.max(1, measuredLines) * font.lineHeight);
+        }
       }
-      const isBottomElementBorder = remaining === 0 && idx === currentCount - 1;
-
       const debugStyle = IS_DEV
         ? { backgroundColor: 'rgba(255,0,0,0.15)', borderWidth: 1, borderColor: 'red' }
         : {};
 
       if (el.type === 'image') {
-        const lineStyle = getRuleStyle(idx, isBottomElementBorder);
+        const isOverflow = overflowStartIndex !== null && idx >= overflowStartIndex;
         rendered.push(
           <View
             key={idx}
@@ -578,9 +636,9 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
             }
             style={{
               height: IMAGE_SQUARE_SIZE,
-              ...lineStyle,
-              borderWidth: isEditing && effectiveActiveIndex === idx ? 2 : 0,
-              borderColor: ACTIVE_BORDER,
+              borderWidth: isEditing && effectiveActiveIndex === idx ? 2 : isOverflow ? 1.5 : 0,
+              borderColor: isOverflow ? '#D13A3A' : ACTIVE_BORDER,
+              backgroundColor: isOverflow ? 'rgba(209, 58, 58, 0.10)' : 'transparent',
               ...debugStyle,
             }}
           >
@@ -622,8 +680,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       }
 
       if (el.type === 'word') {
-        const lineStyle = getRuleStyle(idx, isBottomElementBorder);
-        const colLeftRatio = 0.25;
+        const isOverflow = overflowStartIndex !== null && idx >= overflowStartIndex;
+        const colLeftRatio = 0.35;
         const colLeftWidth = colLeftRatio * 100 + '%' as any;
         const colRightWidth = (1 - colLeftRatio) * 100 + '%' as any;
         rendered.push(
@@ -647,20 +705,22 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
             style={{
               height: estHeight,
               flexDirection: 'row',
-              ...lineStyle,
-              backgroundColor: isEditing && effectiveActiveIndex === idx ? ACTIVE_TINT : 'transparent',
+              backgroundColor: isOverflow
+                ? 'rgba(209, 58, 58, 0.10)'
+                : isEditing && effectiveActiveIndex === idx
+                ? ACTIVE_TINT
+                : 'transparent',
               alignItems: 'stretch',
+              borderWidth: isOverflow ? 1 : 0,
+              borderColor: isOverflow ? '#D13A3A' : 'transparent',
               ...debugStyle,
             }}
           >
-            {renderInnerRuleLines(estHeight, isBottomElementBorder)}
             <View style={{ width: colLeftWidth, height: '100%', paddingHorizontal: 6, paddingVertical: 0, borderRightWidth: 1, borderRightColor: RULE_COLOR }}>
               {isEditing ? (
                 <TextInput
                   value={el.word}
-                  onChangeText={(t) =>
-                    handleInputWithEnter(t, idx, (next) => onElementChange?.(idx, { ...el, word: next }))
-                  }
+                  onChangeText={(t) => onElementChange?.(idx, { ...el, word: t })}
                   onKeyPress={({ nativeEvent }) => {
                     if (nativeEvent.key === 'Enter') {
                       focusNextElement(idx);
@@ -679,7 +739,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     padding: 0,
                     textAlignVertical: 'top',
                     includeFontPadding: false,
-                    transform: [{ translateY: EDITOR_TEXT_NUDGE_Y }],
                   }}
                   multiline
                   blurOnSubmit={true}
@@ -688,23 +747,21 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   onSubmitEditing={() => {
                     const currentValue = inputRefs.current[getInputKey(idx, 'word')]?.props?.value;
                     if (typeof currentValue === 'string') {
-                      handleInputWithEnter(currentValue, idx, (next) => onElementChange?.(idx, { ...el, word: next }));
+                      onElementChange?.(idx, { ...el, word: currentValue });
                     }
                     focusNextElement(idx);
                   }}
                   placeholder="単語"
                 />
               ) : (
-                <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, color: WORD_ACCENT_COLOR, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}>{el.word}</Text>
+                <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, color: WORD_ACCENT_COLOR, flexShrink: 1, flexWrap: 'wrap', width: '100%', includeFontPadding: false }}>{el.word}</Text>
               )}
             </View>
             <View style={{ flex: 1, height: '100%', paddingHorizontal: 6, paddingVertical: 0, justifyContent: 'flex-start' }}>
               {isEditing ? (
                 <TextInput
                   value={(el as any).meaning}
-                  onChangeText={(t) =>
-                    handleInputWithEnter(t, idx, (next) => onElementChange?.(idx, { ...el, meaning: next } as any))
-                  }
+                  onChangeText={(t) => onElementChange?.(idx, { ...el, meaning: t } as any)}
                   onKeyPress={({ nativeEvent }) => {
                     if (nativeEvent.key === 'Enter') {
                       focusNextElement(idx);
@@ -714,9 +771,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   onFocus={() => setActiveIndex(idx)}
                   onContentSizeChange={(e) => {
                     const h = e.nativeEvent.contentSize.height;
-                    // 1行入力でもフォントメトリクス分だけ高さが少し大きく出るため、
-                    // 切り上げではなく四捨五入で行数判定する。
-                    const measuredLines = Math.max(1, Math.round(h / interval));
+                    // contentSize は端末差で端数が出るため、常に切り上げて過小計上を防ぐ。
+                    const measuredLines = Math.max(1, Math.ceil((h - 0.5) / interval));
                     measuredWordLinesRef.current[idx] = measuredLines;
                   }}
                   style={{
@@ -728,7 +784,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     padding: 0,
                     textAlignVertical: 'top',
                     includeFontPadding: false,
-                    transform: [{ translateY: EDITOR_TEXT_NUDGE_Y }],
                   }}
                   multiline
                   blurOnSubmit={true}
@@ -737,7 +792,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   onSubmitEditing={() => {
                     const currentValue = inputRefs.current[getInputKey(idx, 'meaning')]?.props?.value;
                     if (typeof currentValue === 'string') {
-                      handleInputWithEnter(currentValue, idx, (next) => onElementChange?.(idx, { ...el, meaning: next } as any));
+                      onElementChange?.(idx, { ...el, meaning: currentValue } as any);
                     }
                     focusNextElement(idx);
                   }}
@@ -753,7 +808,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                       return { ...prev, [idx]: lines };
                     });
                   }}
-                  style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, flexShrink: 1, flexWrap: 'wrap', width: '100%' }}
+                  style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, flexShrink: 1, flexWrap: 'wrap', width: '100%', includeFontPadding: false }}
                 >
                   {(el as any).meaning}
                 </Text>
@@ -766,7 +821,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
 
       // text / chapter / section / subsection
       const isOutlineType = el.type === 'chapter' || el.type === 'section' || el.type === 'subsection';
-      const lineStyle = getRuleStyle(idx, isBottomElementBorder);
+      const isOverflow = overflowStartIndex !== null && idx >= overflowStartIndex;
+      const textRowHeightStyle = { height: estHeight };
       rendered.push(
         <View
           key={idx}
@@ -786,14 +842,18 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
             })
           }
           style={{
-            height: estHeight,
-            ...lineStyle,
-            backgroundColor: isEditing && effectiveActiveIndex === idx ? ACTIVE_TINT : 'transparent',
+            ...textRowHeightStyle,
+            backgroundColor: isOverflow
+              ? 'rgba(209, 58, 58, 0.10)'
+              : isEditing && effectiveActiveIndex === idx
+              ? ACTIVE_TINT
+              : 'transparent',
             position: 'relative',
+            borderWidth: isOverflow ? 1 : 0,
+            borderColor: isOverflow ? '#D13A3A' : 'transparent',
             ...debugStyle,
           }}
         >
-          {renderInnerRuleLines(estHeight, isBottomElementBorder)}
           <View style={{ flex: 1, paddingHorizontal: 6, paddingTop: 0, paddingBottom: 0, justifyContent: 'flex-start' }}>
             {isEditing ? (
               <TextInput
@@ -804,22 +864,46 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 }
                 scrollEnabled={false}
                 onChangeText={(t) => {
-                  handleInputWithEnter(t, idx, (next) => onElementChange?.(idx, { ...el, text: next } as any));
-                  const maxChars = getCharsPerLine(el);
-                  if (t.length >= maxChars) {
-                    focusNextElement(idx);
+                  const newlineIndex = t.indexOf('\n');
+                  if (newlineIndex >= 0) {
+                    const merged = `${t.slice(0, newlineIndex)}${t.slice(newlineIndex + 1)}`;
+                    splitToNextTextBlock(idx, merged, newlineIndex);
+                    return;
                   }
+
+                  onElementChange?.(idx, { ...el, text: t } as any);
                 }}
                 onKeyPress={({ nativeEvent }) => {
-                  if (nativeEvent.key === 'Enter') {
-                    focusNextElement(idx);
+                  if (nativeEvent.key === 'Enter' || nativeEvent.key === 'Return' || nativeEvent.key === '\n') {
+                    const current = 'text' in el ? el.text : (el as any).text || '';
+                    splitByEnter(idx, current);
                     return;
                   }
                   if (nativeEvent.key === 'Backspace') {
+                    const selection = selectionRef.current[getInputKey(idx, 'main')];
+                    if (el.type === 'text' && selection && selection.start === 0 && selection.end === 0) {
+                      onMergeWithPrevious?.(idx);
+                      return;
+                    }
                     const current = 'text' in el ? el.text : (el as any).text || '';
-                    if (current.length === 0) {
+                    if (!isOutlineType && current.length === 0) {
                       focusPrevElement(idx);
                     }
+                  }
+                }}
+                onSelectionChange={({ nativeEvent }) => {
+                  selectionRef.current[getInputKey(idx, 'main')] = nativeEvent.selection;
+                }}
+                onContentSizeChange={(e) => {
+                  const h = e.nativeEvent.contentSize.height;
+                  // 端末ごとの小さなメトリクス差は round で吸収し、行数の過不足を抑える。
+                  const measuredLines = Math.max(1, Math.round(h / font.lineHeight));
+                  measuredTextLinesRef.current[idx] = measuredLines;
+                  if (isEditing) {
+                    setDisplayTextLines((prev) => {
+                      if (prev[idx] === measuredLines) return prev;
+                      return { ...prev, [idx]: measuredLines };
+                    });
                   }
                 }}
                 ref={(ref) => { inputRefs.current[getInputKey(idx, 'main')] = ref; }}
@@ -829,23 +913,20 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   fontSize: font.size,
                   lineHeight: font.lineHeight,
                   fontFamily: font.family,
+                  backgroundColor: 'transparent',
                   width: '100%',
                   height: '100%',
                   padding: 0,
                   textAlignVertical: 'top',
                   includeFontPadding: false,
-                  transform: [{ translateY: EDITOR_TEXT_NUDGE_Y }],
                 }}
                 multiline
                 blurOnSubmit={true}
                 submitBehavior="submit"
                 returnKeyType="next"
                 onSubmitEditing={() => {
-                  const currentValue = inputRefs.current[getInputKey(idx, 'main')]?.props?.value;
-                  if (typeof currentValue === 'string') {
-                    handleInputWithEnter(currentValue, idx, (next) => onElementChange?.(idx, { ...el, text: next } as any));
-                  }
-                  focusNextElement(idx);
+                  const current = 'text' in el ? el.text : (el as any).text || '';
+                  splitByEnter(idx, current);
                 }}
               />
             ) : (
@@ -856,6 +937,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   fontFamily: font.family,
                   flexWrap: 'wrap',
                   width: '100%',
+                  includeFontPadding: false,
                 }}
               >
                 {'text' in el ? el.text : (el as any).text || ''}
@@ -869,9 +951,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
 
     // 末尾に残り行分の罫線を常に追加（maxRowsを超えない範囲で）
     for (let i = 0; i < remaining; i++) {
-      const lineIndex = currentCount + i;
-      const isBottomEmptyLine = i === remaining - 1;
-      const lineStyle = getRuleStyle(lineIndex, isBottomEmptyLine);
       rendered.push(
         <View
           key={`empty-tap-${i}`}
@@ -892,7 +971,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           }
           style={{
             height: interval,
-            ...lineStyle,
           }}
         />
       );
@@ -912,7 +990,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           position: 'absolute',
           top: noteY,
           left: noteX,
-          right: noteX,
+          width: noteWidth,
           bottom: bottomMargin,
           backgroundColor: '#FCFAF6',
           shadowColor: '#4B3522',
@@ -934,26 +1012,38 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           }}
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: noteWidth * space }}
+          contentContainerStyle={{ paddingHorizontal: noteWidth * space, minHeight: totalRuleRows * interval }}
         >
-          {/* 最上段は非編集の罫線行として固定 */}
-          <View style={{ height: interval, borderBottomWidth: 1.5, borderBottomColor: TITLE_RULE_COLOR }} />
-          {renderElements()}
+          <View style={{ position: 'relative', minHeight: totalRuleRows * interval }}>
+            <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+              {renderPageRuleLines()}
+            </View>
+            <View style={{ minHeight: totalRuleRows * interval }}>
+              <View style={{ height: interval }} />
+              {renderElements()}
+            </View>
+          </View>
         </ScrollView>
       </Animated.View>
 
-      {/* 属性ツールバー：キーボード直上に固定。Animated.View の外に出してスライドの影響を受けない */}
+      {/* 属性ツールバー：キーボード直上に固定。見出しラベル + 横一列ボタン */}
       {isEditing && keyboardVisible && (
         <View style={[style.keyboardToolbar, { position: 'absolute', bottom: keyboardHeight, left: 0, right: 0 }]}>
           {(() => {
             const current = activeIndex !== null ? elements?.[activeIndex] : undefined;
             const currentType: NoteElement['type'] = isValidElement(current) ? current.type : 'text';
 
-            return TOOLBAR_TYPES.map(({ label, type }) => {
+            const renderButton = ({ label, type, iconName }: { label: string; type: NoteElement['type']; iconName?: keyof typeof Ionicons.glyphMap }) => {
               const isOutlineType = type === 'chapter' || type === 'section' || type === 'subsection';
               const isWordType = type === 'word';
               const isImageType = type === 'image';
               const isActive = currentType === type;
+              const hasAnyTextInput = current && current.type !== 'image'
+                ? current.type === 'word'
+                  ? Boolean((current.word || '').trim().length > 0 || (current.meaning || '').trim().length > 0)
+                  : Boolean((current.text || '').trim().length > 0)
+                : false;
+              const isImageButtonDisabled = isImageType && currentType !== 'image' && hasAnyTextInput;
 
               const baseButtonStyle = isOutlineType
                 ? style.toolbarButtonOutline
@@ -979,6 +1069,24 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 ? style.toolbarButtonImageText
                 : style.toolbarButtonTextTypeText;
 
+              const iconColor = isActive
+                ? '#fff'
+                : isOutlineType
+                ? '#2F4D3A'
+                : isWordType
+                ? '#2E4A72'
+                : isImageType
+                ? '#4D3D7A'
+                : '#513D2D';
+
+              const iconSize = type === 'chapter'
+                ? 18
+                : type === 'section'
+                ? 16
+                : type === 'subsection'
+                ? 14
+                : 14;
+
               return (
                 <TouchableOpacity
                   key={type}
@@ -986,21 +1094,51 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     style.toolbarButton,
                     baseButtonStyle,
                     isActive && activeButtonStyle,
+                    isImageButtonDisabled && style.toolbarButtonDisabled,
                   ]}
                   onPress={() => handleTypeChange(type)}
+                  disabled={isImageButtonDisabled}
                 >
-                  <Text
-                    style={[
-                      style.toolbarButtonLabel,
-                      baseTextStyle,
-                      isActive && style.toolbarButtonTextActive,
-                    ]}
-                  >
-                    {label}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {iconName ? <Ionicons name={iconName} size={iconSize} color={iconColor} style={{ marginRight: 4 }} /> : null}
+                    <Text
+                      style={[
+                        style.toolbarButtonLabel,
+                        baseTextStyle,
+                        isActive && style.toolbarButtonTextActive,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               );
-            });
+            };
+
+            const textBtn = TOOLBAR_TYPES.find(({ type }) => type === 'text');
+            const chapterBtn = TOOLBAR_TYPES.find(({ type }) => type === 'chapter');
+            const sectionBtn = TOOLBAR_TYPES.find(({ type }) => type === 'section');
+            const subsectionBtn = TOOLBAR_TYPES.find(({ type }) => type === 'subsection');
+            const wordBtn = TOOLBAR_TYPES.find(({ type }) => type === 'word');
+            const imageBtn = TOOLBAR_TYPES.find(({ type }) => type === 'image');
+
+            return (
+              <View style={style.toolbarButtonList}>
+                {textBtn ? <View style={style.toolbarStandaloneButton}>{renderButton(textBtn)}</View> : null}
+
+                <View style={style.toolbarOutlineInlineGroup}>
+                  <Text style={style.toolbarSectionLabel}>見出し</Text>
+                  <View style={style.toolbarOutlineButtons}>
+                    {chapterBtn ? renderButton(chapterBtn) : null}
+                    {sectionBtn ? renderButton(sectionBtn) : null}
+                    {subsectionBtn ? renderButton(subsectionBtn) : null}
+                  </View>
+                </View>
+
+                {wordBtn ? <View style={style.toolbarStandaloneButton}>{renderButton(wordBtn)}</View> : null}
+                {imageBtn ? <View style={style.toolbarStandaloneButton}>{renderButton(imageBtn)}</View> : null}
+              </View>
+            );
           })()}
         </View>
       )}
@@ -1022,21 +1160,48 @@ export const computeMaxRows = (headerHeight: number): number => {
 
 const style = StyleSheet.create({
   keyboardToolbar: {
-    minHeight: 48,
     backgroundColor: TOOLBAR_BG,
     borderTopWidth: 1,
     borderTopColor: TOOLBAR_BORDER,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    flexDirection: 'column',
+    flexShrink: 0,
+  },
+  toolbarSectionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#7A6B5D',
+    marginBottom: 3,
+    alignSelf: 'flex-start',
+  },
+  toolbarButtonList: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  toolbarOutlineInlineGroup: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
+  toolbarOutlineButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingHorizontal: 8,
-    flexShrink: 0,
+    gap: 6,
+  },
+  toolbarStandaloneButton: {
+    alignSelf: 'flex-end',
   },
   toolbarButton: {
     paddingVertical: 6,
     paddingHorizontal: 9,
     borderRadius: 8,
     borderWidth: 1,
+  },
+  toolbarButtonDisabled: {
+    opacity: 0.45,
   },
   toolbarButtonOutline: {
     backgroundColor: '#EEF7F0',
@@ -1138,15 +1303,18 @@ export const generateDefaultBackground = async (
   linePaint.setColor(Skia.Color(TITLE_RULE_COLOR));
   linePaint.setStrokeWidth(1.5);
 
-  const x1_title = width * space;
-  const y1_title = (upperSpace - 1) * interval;
-  const x2_title = width * (1 - space);
+  const ruleStartX = noteX_local + noteWidth_local * space;
+  const ruleEndX = noteX_local + noteWidth_local * (1 - space);
+
+  const x1_title = ruleStartX;
+  const y1_title = noteY_local + (upperSpace - 1) * interval;
+  const x2_title = ruleEndX;
   const y2_title = y1_title;
   canvas.drawLine(x1_title, y1_title, x2_title, y2_title, linePaint);
 
-  const x1 = width * space;
-  const y1 = upperSpace * interval;
-  const x2 = width * (1 - space);
+  const x1 = ruleStartX;
+  const y1 = noteY_local + upperSpace * interval;
+  const x2 = ruleEndX;
   const y2 = y1;
   canvas.drawLine(x1, y1, x2, y2, linePaint);
 
@@ -1154,9 +1322,9 @@ export const generateDefaultBackground = async (
   linePaint.setStrokeWidth(1);
   const row = Math.trunc(noteHeight_local / interval) + 2;
   for (let i = upperSpace + 1; i < row - 1; i++) {
-    const x1 = width * space;
-    const y1 = i * interval;
-    const x2 = width * (1 - space);
+    const x1 = ruleStartX;
+    const y1 = noteY_local + i * interval;
+    const x2 = ruleEndX;
     const y2 = y1;
     canvas.drawLine(x1, y1, x2, y2, linePaint);
   }
@@ -1164,9 +1332,9 @@ export const generateDefaultBackground = async (
   // 最下段の罫線はタイトル線と同じ太さ・色にする
   linePaint.setColor(Skia.Color(TITLE_RULE_COLOR));
   linePaint.setStrokeWidth(1.5);
-  const x1_bottom = width * space;
-  const y1_bottom = (row - 1) * interval;
-  const x2_bottom = width * (1 - space);
+  const x1_bottom = ruleStartX;
+  const y1_bottom = noteY_local + (row - 1) * interval;
+  const x2_bottom = ruleEndX;
   const y2_bottom = y1_bottom;
   canvas.drawLine(x1_bottom, y1_bottom, x2_bottom, y2_bottom, linePaint);
 

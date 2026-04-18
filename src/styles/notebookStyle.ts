@@ -88,6 +88,8 @@ export const notebookStyles = StyleSheet.create({
   },
   deleteOption: {
     color: '#B45145',
+    fontSize: 14,
+    fontWeight: '600' as const,
   },
   notebookScreenWrapper: {
     flex: 1,
