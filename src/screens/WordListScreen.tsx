@@ -158,7 +158,7 @@ const WordListScreen: React.FC = () => {
             }}
           >
             <Text style={{ fontSize: 14, color: selectedBookId === 'all' ? '#FFFFFF' : '#4C4138', fontWeight: '700' }} numberOfLines={1}>
-              すべての本
+              すべてのノート
             </Text>
           </TouchableOpacity>
           {libraryState.books.map((b) => (
