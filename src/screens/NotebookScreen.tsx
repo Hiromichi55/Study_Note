@@ -538,7 +538,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     { label: '中', type: 'section' },
     { label: '小', type: 'subsection' },
     { label: '文章', type: 'text', iconName: 'text-outline' },
-    { label: '単語リスト', type: 'word', iconName: 'list-outline' },
+    { label: '単語/意味', type: 'word', iconName: 'list-outline' },
     { label: '画像', type: 'image', iconName: 'image-outline' },
   ];
 

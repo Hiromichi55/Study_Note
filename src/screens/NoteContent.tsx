@@ -147,7 +147,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     { label: '大', type: 'chapter' },
     { label: '中', type: 'section' },
     { label: '小', type: 'subsection' },
-    { label: '単語リスト', type: 'word', iconName: 'list-outline' },
+    { label: '単語/意味', type: 'word', iconName: 'list-outline' },
     { label: '画像', type: 'image', iconName: 'image-outline' },
   ];
 

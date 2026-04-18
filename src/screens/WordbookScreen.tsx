@@ -330,7 +330,7 @@ const WordbookScreen: React.FC = () => {
           }}
         >
           <Text style={{ fontSize: 16, color: '#55493F' }}>単語がありません</Text>
-          <Text style={{ marginTop: 8, color: '#7A6C60' }}>対象の本に単語要素を追加すると、ここに反映されます。</Text>
+          <Text style={{ marginTop: 8, color: '#7A6C60' }}>ノートに単語を追加すると、ここに反映されます。</Text>
         </View>
       ) : (
         <>

@@ -230,7 +230,7 @@ const WordListScreen: React.FC = () => {
           }}
         >
           <Text style={{ fontSize: 15, color: '#55493F', fontWeight: '700' }}>表示できる単語がありません</Text>
-          <Text style={{ marginTop: 6, color: '#7A6C60' }}>条件を切り替えるか、本を切り替えてください。</Text>
+          <Text style={{ marginTop: 6, color: '#7A6C60' }}>ノートに単語を追加すると、ここに表示されます。</Text>
         </View>
       ) : (
         <ScrollView style={{ flex: 1 }}>
