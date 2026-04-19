@@ -87,6 +87,8 @@ type Props = {
   onBackgroundGenerated?: (uri: string) => void | Promise<void>;
   /** 編集モード */
   isEditing?: boolean;
+  /** 単一入力モード（行ごとのTextInputは使わない） */
+  singleInputMode?: boolean;
   /** 要素の内容変更コールバック */
   onElementChange?: (index: number, newElement: NoteElement) => void;
   /** 要素の削除コールバック */
@@ -103,7 +105,7 @@ type Props = {
   initialFocusIndex?: number;
 };
 
-const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackground = true, elements, onNoteLayout, onSwipePage, onBackgroundGenerated, isEditing, onElementChange, onDeleteElement, onTapEmpty, onSplitToNextTextBlock, onMergeWithPrevious, onEditStart, initialFocusIndex }) => {
+const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackground = true, elements, onNoteLayout, onSwipePage, onBackgroundGenerated, isEditing, singleInputMode = false, onElementChange, onDeleteElement, onTapEmpty, onSplitToNextTextBlock, onMergeWithPrevious, onEditStart, initialFocusIndex }) => {
   const bgColor = COLOR_MAP[backgroundColor ?? 'red'];
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -179,7 +181,9 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
 
     const text = 'text' in el ? el.text : '';
     const linesByNewLine = Math.max(1, text.split('\n').length);
-    return Math.max(font.lineHeight, linesByNewLine * font.lineHeight);
+    const linesByWrapEstimate = estimateLinesByChars(el.type, text);
+    const resolvedLines = Math.max(linesByNewLine, linesByWrapEstimate);
+    return Math.max(font.lineHeight, resolvedLines * font.lineHeight);
   };
 
   const getCharsPerLine = (el: NoteElement) => {
@@ -206,7 +210,11 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       return Math.max(getElementHeight(el), Math.max(1, measuredLines) * font.lineHeight);
     }
     const measuredLines = measuredTextLines[idx] ?? 0;
-    const fallbackLines = Math.max(1, ('text' in el ? el.text : ((el as any).text || '')).split('\n').length);
+    const rawText = 'text' in el ? el.text : ((el as any).text || '');
+    const fallbackLines = Math.max(
+      Math.max(1, rawText.split('\n').length),
+      estimateLinesByChars(el.type, rawText)
+    );
     const resolvedLines = measuredLines || fallbackLines;
     return Math.max(font.lineHeight, resolvedLines * font.lineHeight);
   };
@@ -286,12 +294,14 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     if (isEditing && initialFocusIndex !== undefined && initialFocusIndex !== null) {
       setActiveIndex(initialFocusIndex);
       shouldDisableNextScrollAnimationRef.current = true;
-      // Explicit focus is more reliable than relying on autoFocus during mode switch.
-      setTimeout(() => {
-        focusElementInput(initialFocusIndex);
-      }, 0);
+      if (!singleInputMode) {
+        // Explicit focus is more reliable than relying on autoFocus during mode switch.
+        setTimeout(() => {
+          focusElementInput(initialFocusIndex);
+        }, 0);
+      }
     }
-  }, [isEditing, initialFocusIndex]);
+  }, [isEditing, initialFocusIndex, singleInputMode]);
 
   // フォーカス行が変わったときにスクロール調整（キーボード表示中のみ）
   useEffect(() => {
@@ -326,6 +336,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
 
   // 新しい要素が追加された直後にフォーカスを当てる（Enter で末尾行追加した場合）
   useEffect(() => {
+    if (singleInputMode) return;
     const pending = pendingFocusAfterAddRef.current;
     if (pending === null) return;
     if (!elements || elements.length <= pending) return;
@@ -333,7 +344,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     requestAnimationFrame(() => {
       focusElementInput(pending);
     });
-  }, [elements?.length]);
+  }, [elements?.length, singleInputMode]);
 
   const getInputKey = (index: number, field: 'main' | 'word' | 'meaning' = 'main') => `${index}:${field}`;
 
@@ -457,7 +468,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     const converted = convertElementType(current, type);
     onElementChange?.(activeIndex, converted);
     setTimeout(() => {
-      if (type !== 'image') focusElementInput(activeIndex);
+      if (type !== 'image' && !singleInputMode) focusElementInput(activeIndex);
     }, 0);
   };
 
@@ -731,9 +742,11 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   return;
                 }
                 setActiveIndex(idx);
-                setTimeout(() => {
-                  focusElementInput(idx);
-                }, 0);
+                if (!singleInputMode) {
+                  setTimeout(() => {
+                    focusElementInput(idx);
+                  }, 0);
+                }
               })
             }
             style={{
@@ -751,7 +764,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
             }}
           >
             <View style={{ width: colLeftWidth, height: '100%', paddingHorizontal: 6, paddingVertical: 0, borderRightWidth: 1, borderRightColor: RULE_COLOR }}>
-              {isEditing ? (
+              {isEditing && !singleInputMode ? (
                 <TextInput
                   value={el.word}
                   onChangeText={(t) => onElementChange?.(idx, { ...el, word: t })}
@@ -792,7 +805,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
               )}
             </View>
             <View style={{ flex: 1, height: '100%', paddingHorizontal: 6, paddingVertical: 0, justifyContent: 'flex-start' }}>
-              {isEditing ? (
+              {isEditing && !singleInputMode ? (
                 <TextInput
                   value={(el as any).meaning}
                   onChangeText={(t) => onElementChange?.(idx, { ...el, meaning: t } as any)}
@@ -871,9 +884,11 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 return;
               }
               setActiveIndex(idx);
-              setTimeout(() => {
-                focusElementInput(idx);
-              }, 0);
+              if (!singleInputMode) {
+                setTimeout(() => {
+                  focusElementInput(idx);
+                }, 0);
+              }
             })
           }
           onLayout={(e) => {
@@ -896,7 +911,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           }}
         >
           <View style={{ flex: 1, paddingHorizontal: 6, paddingTop: 0, paddingBottom: 0, justifyContent: 'flex-start' }}>
-            {isEditing ? (
+            {isEditing && !singleInputMode ? (
               <TextInput
                 value={mainText}
                 scrollEnabled={false}
@@ -1027,6 +1042,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     <View style={{ flex: 1, backgroundColor: fillBackground ? bgColor : 'transparent' }}>
       {/* 白いノート用紙。Animated.View の translateY でキーボード出現時に全体がスライドアップ */}
       <Animated.View
+        onLayout={(e) => {
+          const { x, y, width: w, height: h } = e.nativeEvent.layout;
+          onNoteLayout?.({ x, y, width: w, height: h });
+        }}
         style={{
           position: 'absolute',
           top: noteY,

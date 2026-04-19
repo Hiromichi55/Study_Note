@@ -20,7 +20,7 @@ import { ENV } from '@config';
 // ===== DB 全テーブル出力関数 =====
 async function dumpDatabase(editor: ReturnType<typeof useEditor>) {
   const { select } = editor;
-  const tables = ['books', 'contents', 'texts', 'outlines', 'words', 'images'];
+  const tables = ['books', 'contents', 'words', 'images', 'page_images'];
 
   for (const table of tables) {
     try {
@@ -156,10 +156,11 @@ const DBTestComponent = () => {
         if (existing.length === 0) {
           const newContent: Content = {
             content_id: '1',
-            type: 'image',
+            type: 'document',
             book_id: 'book1',
             page: 1,
             height: 100,
+            content_data: '[]',
           };
           //console.log(newContent);
           console.log('before add content');

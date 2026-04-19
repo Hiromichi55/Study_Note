@@ -4,6 +4,7 @@ import { initDB } from '../db/db';
 import { ENV } from '@config';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Asset } from 'expo-asset';
+import { createNoteDocumentFromSeed, serializeDocumentNodes } from '../utils/noteDocument';
 
 const isDelete = ENV.INIT_DB; // trueのとき: コンテンツ系テーブルを全削除して再作成
 
@@ -302,25 +303,8 @@ const seedInitialPages = async (database: SQLite.SQLiteDatabase) => {
       const contentId = makeSeedId('content', bookId, page);
 
       await database.runAsync(
-        'INSERT OR IGNORE INTO contents (content_id, type, book_id, page, height) VALUES (?, ?, ?, ?, ?)',
-        [contentId, 'text', bookId, page, 0]
-      );
-
-      await database.runAsync(
-        'INSERT OR IGNORE INTO outlines (outline_id, outline, type, content_id) VALUES (?, ?, ?, ?)',
-        [`0000_${makeSeedId('chapter', bookId, page)}`, seed.chapter, 'chapter', contentId]
-      );
-      await database.runAsync(
-        'INSERT OR IGNORE INTO outlines (outline_id, outline, type, content_id) VALUES (?, ?, ?, ?)',
-        [`0001_${makeSeedId('section', bookId, page)}`, seed.section, 'section', contentId]
-      );
-      await database.runAsync(
-        'INSERT OR IGNORE INTO outlines (outline_id, outline, type, content_id) VALUES (?, ?, ?, ?)',
-        [`0002_${makeSeedId('subsection', bookId, page)}`, seed.subsection, 'subsection', contentId]
-      );
-      await database.runAsync(
-        'INSERT OR IGNORE INTO texts (text_id, text, content_id) VALUES (?, ?, ?)',
-        [`0003_${makeSeedId('text', bookId, page)}`, seed.text, contentId]
+        'INSERT OR IGNORE INTO contents (content_id, type, book_id, page, height, content_data) VALUES (?, ?, ?, ?, ?, ?)',
+        [contentId, 'document', bookId, page, 0, serializeDocumentNodes(createNoteDocumentFromSeed(seed))]
       );
       await database.runAsync(
         'INSERT OR IGNORE INTO words (word_id, word, explanation, word_order, content_id, review_flag) VALUES (?, ?, ?, ?, ?, ?)',
@@ -337,29 +321,18 @@ const seedInitialPages = async (database: SQLite.SQLiteDatabase) => {
 // ===== 型定義 =====
 export type Content = {
   content_id: string;
-  type: 'image' | 'outline' | 'text' | 'word';
+  type: 'document' | 'image' | 'text' | 'word';
   book_id: string;
   page: number;
   height: number;
+  content_data: string;
 };
 
 export type Image = {
   image_id: string;
   image: string;
   content_id: string;
-};
-
-export type Outline = {
-  outline_id: string;
-  outline: string;
-  type: 'chapter' | 'section' | 'subsection' | 'title';
-  content_id: string;
-};
-
-export type Text = {
-  text_id: string;
-  text: string;
-  content_id: string;
+  image_order?: number;
 };
 
 export type Word = {
@@ -382,8 +355,6 @@ export type PageImage = {
 type State = {
   contents: Content[];
   images: Image[];
-  outlines: Outline[];
-  texts: Text[];
   words: Word[];
   pageImages: PageImage[];
   isLoading: boolean;
@@ -397,8 +368,6 @@ type Action =
 const initialState: State = {
   contents: [],
   images: [],
-  outlines: [],
-  texts: [],
   words: [],
   pageImages: [],
   isLoading: true,
@@ -419,16 +388,6 @@ const EditorContext = createContext<{
   updateImage: (id: string, data: Partial<Image>) => Promise<void>;
   deleteImage: (id: string) => Promise<void>;
   getImagesByContentId: (contentId: string) => Promise<Image[]>;
-  // Outlinesテーブル
-  addOutline: (data: Outline) => Promise<void>;
-  updateOutline: (id: string, data: Partial<Outline>) => Promise<void>;
-  deleteOutline: (id: string) => Promise<void>;
-  getOutlinesByContentId: (contentId: string) => Promise<Outline[]>;
-  // Textテーブル
-  addText: (data: Text) => Promise<void>;
-  updateText: (id: string, data: Partial<Text>) => Promise<void>;
-  deleteText: (id: string) => Promise<void>;
-  getTextsByContentId: (contentId: string) => Promise<Text[]>;
   // Wordテーブル
   addWord: (data: Word) => Promise<void>;
   updateWord: (id: string, data: Partial<Word>) => Promise<void>;
@@ -451,18 +410,10 @@ const EditorContext = createContext<{
   addImage: async () => {},
   updateImage: async () => {},
   deleteImage: async () => {},
-  addOutline: async () => {},
-  updateOutline: async () => {},
-  deleteOutline: async () => {},
-  addText: async () => {},
-  updateText: async () => {},
-  deleteText: async () => {},
   addWord: async () => {},
   updateWord: async () => {},
   deleteWord: async () => {},
   getContentsByBookId: async () => [],
-  getTextsByContentId: async () => [],
-  getOutlinesByContentId: async () => [],
   getWordsByContentId: async () => [],
   getImagesByContentId: async () => [],
   addPageImage: async () => {},
@@ -517,7 +468,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // ===== isDelete=true のとき: コンテンツ系テーブルを全削除して再作成 =====
       // （books テーブルは LibraryContext が管理するため触らない）
       if (isDelete || storedMode !== ENV.APP_MODE) {
-        const contentTables = ['page_images', 'images', 'words', 'texts', 'outlines', 'contents'];
+        const contentTables = ['page_images', 'images', 'words', 'contents'];
         for (const table of contentTables) {
           try {
             await database.runAsync(`DROP TABLE IF EXISTS ${table};`);
@@ -534,34 +485,39 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           type TEXT,
           book_id TEXT,
           page INTEGER,
-          height REAL
+          height REAL,
+          content_data TEXT NOT NULL DEFAULT '[]'
         );
       `);
+
+      try {
+        const contentCols = await database.getAllAsync(`PRAGMA table_info(contents);`);
+        const hasContentData = contentCols.some((c: any) => c.name === 'content_data');
+        if (!hasContentData) {
+          await database.runAsync(`ALTER TABLE contents ADD COLUMN content_data TEXT NOT NULL DEFAULT '[]';`);
+        }
+      } catch (merr) {
+        console.warn('contents migration warning:', merr);
+      }
 
       await database.runAsync(`
         CREATE TABLE IF NOT EXISTS images (
           image_id TEXT PRIMARY KEY NOT NULL,
           image TEXT,
-          content_id TEXT
+          content_id TEXT,
+          image_order INTEGER DEFAULT 0
         );
       `);
 
-      await database.runAsync(`
-        CREATE TABLE IF NOT EXISTS outlines (
-          outline_id TEXT PRIMARY KEY NOT NULL,
-          outline TEXT,
-          type TEXT,
-          content_id TEXT
-        );
-      `);
-
-      await database.runAsync(`
-        CREATE TABLE IF NOT EXISTS texts (
-          text_id TEXT PRIMARY KEY NOT NULL,
-          text TEXT,
-          content_id TEXT
-        );
-      `);
+      try {
+        const imageCols = await database.getAllAsync(`PRAGMA table_info(images);`);
+        const hasImageOrder = imageCols.some((c: any) => c.name === 'image_order');
+        if (!hasImageOrder) {
+          await database.runAsync(`ALTER TABLE images ADD COLUMN image_order INTEGER DEFAULT 0;`);
+        }
+      } catch (merr) {
+        console.warn('images migration warning:', merr);
+      }
 
       await database.runAsync(`
         CREATE TABLE IF NOT EXISTS words (
@@ -643,11 +599,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const dbRef = database || db;
     if (!dbRef) return;
 
-    const [contents, images, outlines, texts, words, pageImages] = await Promise.all([
+    const [contents, images, words, pageImages] = await Promise.all([
         dbRef.getAllAsync('SELECT * FROM contents;'),
         dbRef.getAllAsync('SELECT * FROM images;'),
-        dbRef.getAllAsync('SELECT * FROM outlines;'),
-        dbRef.getAllAsync('SELECT * FROM texts;'),
         dbRef.getAllAsync('SELECT * FROM words;'),
         dbRef.getAllAsync('SELECT * FROM page_images;'),
       ]);
@@ -657,8 +611,6 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         payload: {
           contents: contents as Content[],
           images: images as Image[],
-          outlines: outlines as Outline[],
-          texts: texts as Text[],
           words: words as Word[],
           pageImages: pageImages as PageImage[],
         },
@@ -722,8 +674,6 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // 子テーブルもカスケード削除
   const deleteContent = async (id: string) => {
     if (!db) return;
-    await db.runAsync('DELETE FROM outlines WHERE content_id = ?', [id]);
-    await db.runAsync('DELETE FROM texts WHERE content_id = ?', [id]);
     await db.runAsync('DELETE FROM words WHERE content_id = ?', [id]);
     await db.runAsync('DELETE FROM images WHERE content_id = ?', [id]);
     await remove('contents', 'content_id', id);
@@ -734,16 +684,6 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateImage = (id: string, data: Partial<Image>) => update('images', 'image_id', id, data);
   const deleteImage = (id: string) => remove('images', 'image_id', id);
   const getImages = () => select<Image>('images');
-
-  const addOutline = (data: Outline) => insert('outlines', data);
-  const updateOutline = (id: string, data: Partial<Outline>) => update('outlines', 'outline_id', id, data);
-  const deleteOutline = (id: string) => remove('outlines', 'outline_id', id);
-  const getOutlines = () => select<Outline>('outlines');
-
-  const addText = (data: Text) => insert('texts', data);
-  const updateText = (id: string, data: Partial<Text>) => update('texts', 'text_id', id, data);
-  const deleteText = (id: string) => remove('texts', 'text_id', id);
-  const getTexts = () => select<Text>('texts');
 
   const addWord = (data: Word) => insert('words', data);
   const updateWord = (id: string, data: Partial<Word>) => update('words', 'word_id', id, data);
@@ -767,17 +707,6 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return await select<Content>('contents', 'book_id = ?', [bookId]);
   };
 
-
-  // content_id に紐づく texts
-  const getTextsByContentId = async (contentId: string) => {
-    return await select<Text>('texts', 'content_id = ?', [contentId]);
-  };
-
-  // content_id に紐づく outlines
-  const getOutlinesByContentId = async (contentId: string) => {
-    return await select<Outline>('outlines', 'content_id = ?', [contentId]);
-  };
-
   // content_id に紐づく words
   const getWordsByContentId = async (contentId: string) => {
     return await select<Word>('words', 'content_id = ?', [contentId]);
@@ -798,8 +727,6 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!db) return;
     const contents = await select<Content>('contents', 'book_id = ?', [bookId]);
     for (const c of contents) {
-      await db.runAsync('DELETE FROM outlines WHERE content_id = ?', [c.content_id]);
-      await db.runAsync('DELETE FROM texts WHERE content_id = ?', [c.content_id]);
       await db.runAsync('DELETE FROM words WHERE content_id = ?', [c.content_id]);
       await db.runAsync('DELETE FROM images WHERE content_id = ?', [c.content_id]);
     }
@@ -821,26 +748,17 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         addImage,
         updateImage,
         deleteImage,
-        addOutline,
-        updateOutline,
-        deleteOutline,
-        addText,
-        updateText,
-        deleteText,
         addWord,
         updateWord,
         deleteWord,
         getContentsByBookId,
-        getTextsByContentId,
-        getOutlinesByContentId,
         getWordsByContentId,
-  getImagesByContentId,
-  // page images
-  addPageImage,
-  updatePageImage,
-  deletePageImage,
-  getPageImagesByBookId,
-  deleteAllContentsByBookId,
+          getImagesByContentId,
+          addPageImage,
+          updatePageImage,
+          deletePageImage,
+          getPageImagesByBookId,
+          deleteAllContentsByBookId,
         }}
     >
       {children}

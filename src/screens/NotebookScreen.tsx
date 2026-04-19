@@ -22,7 +22,7 @@ import { Menu } from 'react-native-paper';
 import { RootStackParamList } from '../App';
 import { notebookColors, notebookStyles } from '../styles/notebookStyle';
 import * as commonStyle from '../styles/commonStyle';
-import NoteContent, { computeMaxRows, NOTE_OUTER_MARGIN } from './NoteContent';
+import NoteContent, { NOTE_OUTER_MARGIN } from './NoteContent';
 import { logTable } from 'src/utils/logTable';
 import { useEditor, Content } from '../context/EditorContext';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -34,6 +34,18 @@ import { captureRef } from 'react-native-view-shot';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { Dimensions, PixelRatio } from 'react-native';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import {
+  buildContentDataFromMarkup,
+  buildMarkupFromContentData,
+  extractImagePayloads,
+  extractWordPayloads,
+  parseEditorMarkup,
+  parseStoredContentData,
+  nodesToNoteElements,
+  noteElementsToMarkup,
+  TAG_TEMPLATES,
+  detectPreferredSelectionOffset,
+} from '../utils/noteDocument';
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 interface Props {
@@ -296,11 +308,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     height: Math.round((screenHeight - headerHeight) * 0.87 - NOTE_OUTER_MARGIN),
   };
   const { 
-  addContent, addText, addWord, addImage, addOutline, getContentsByBookId, 
-  getTextsByContentId, getOutlinesByContentId, getWordsByContentId, getImagesByContentId,
+  addContent, addWord, addImage, getContentsByBookId,
+  getWordsByContentId, getImagesByContentId,
   addPageImage, updatePageImage, deletePageImage, getPageImagesByBookId,
   deleteContent, deleteAllContentsByBookId,
-  select, updateContent
+  select, updateContent, updateWord, deleteWord, updateImage, deleteImage
 } = useEditor();
 
   const isTest = ENV.SCREEN_DEV;
@@ -333,12 +345,18 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // elements ベースのページデータ
   const [pagesElements, setPagesElements] = useState<NoteElement[][]>([]);
+  const [pagesMarkup, setPagesMarkup] = useState<string[]>([]);
   // useLayoutEffect クロージャで古い値を参照しないよう常に最新を保持する ref
   const pagesElementsRef = useRef<NoteElement[][]>([]);
+  const pagesMarkupRef = useRef<string[]>([]);
   const currentPageNumberRef = useRef<number>(0);
   const didApplyInitialPageRef = useRef(false);
+  const directEditorRef = useRef<TextInput | null>(null);
   pagesElementsRef.current = pagesElements;
+  pagesMarkupRef.current = pagesMarkup;
   currentPageNumberRef.current = currentPageNumber;
+  const [focusIndexForEdit, setFocusIndexForEdit] = useState<number>(0);
+  const [editorSelection, setEditorSelection] = useState({ start: 0, end: 0 });
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -401,8 +419,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // 編集状態
   const [editing, setEditing] = useState(false);
-  // 行タップ時の編集開始フォーカス先インデックス
-  const [pendingFocusIndex, setPendingFocusIndex] = useState<number | undefined>(undefined);
   // 編集終了時に NoteContent を強制再マウントするためのキー
   const [noteContentKey, setNoteContentKey] = useState(0);
 
@@ -495,10 +511,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       const newContentId = await Crypto.randomUUID();
       await addContent({
         content_id: newContentId,
-        type: 'text',
+        type: 'document',
         book_id: bookId,
         page: insertPosition,
         height: 0,
+        content_data: '[]',
       } as Content);
 
       // 追加後のDB確認ログ
@@ -510,6 +527,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         const newPages = [...prev];
         newPages.splice(insertPosition, 0, []);
         return newPages;
+      });
+      setPagesMarkup((prev) => {
+        const next = [...prev];
+        next.splice(insertPosition, 0, '');
+        return next;
       });
 
       // +ボタン時と同じく、スライダー最大値更新後にページ遷移
@@ -618,105 +640,162 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   }, [searchQuery, pagesElements]);
 
 
-  // ===== インプレース編集ハンドラー =====
-  const handleElementChange = (index: number, newEl: NoteElement) => {
-    if (!outlineNumberingEnabled && (newEl.type === 'chapter' || newEl.type === 'section' || newEl.type === 'subsection')) {
-      setOutlineNumberingEnabled(true);
-    }
-
-    const prevEl = pagesElementsRef.current[currentPageNumber]?.[index];
-    const hasPrefixAfter = OUTLINE_PREFIX_RE.test((newEl as any).text || '');
-
-    let nextEl: NoteElement = newEl;
-    if (newEl.type === 'chapter' || newEl.type === 'section' || newEl.type === 'subsection') {
-      const autoDisabledBefore = (prevEl as any)?.autoNumberingDisabled === true;
-      if (hasPrefixAfter) {
-        nextEl = { ...newEl, autoNumberingDisabled: false };
-      } else {
-        nextEl = { ...newEl, autoNumberingDisabled: true };
-      }
-
-      // preserve explicit disable when prefix was already removed and user continues editing without prefix
-      if (!hasPrefixAfter && autoDisabledBefore) {
-        nextEl.autoNumberingDisabled = true;
-      }
-    }
-
-    setPagesElements(prev => {
+  // ===== 要素単位の編集コールバック群 =====
+  const syncPageState = (newPagesElements: NoteElement[][], page: number) => {
+    const numbered = applyOutlineNumberingAllPages(newPagesElements, outlineNumberingEnabled);
+    const markup = noteElementsToMarkup(numbered[page] ?? []);
+    setPagesElements(numbered);
+    setPagesMarkup((prev) => {
       const next = [...prev];
-      if (!next[currentPageNumber]) next[currentPageNumber] = [];
-      const updated = next[currentPageNumber].map((el, i) => (i === index ? nextEl : el));
-      next[currentPageNumber] = updated;
-      return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
+      next[page] = markup;
+      return next;
     });
+  };
+
+  const handleEditorTextChange = (markup: string) => {
+    const page = currentPageNumberRef.current;
+    const nodes = parseEditorMarkup(markup);
+    const rawElements = nodesToNoteElements(nodes);
+    const next = [...pagesElementsRef.current];
+    next[page] = rawElements;
+    setPagesMarkup((prev) => {
+      const nextMarkup = [...prev];
+      nextMarkup[page] = markup;
+      return nextMarkup;
+    });
+    setPagesElements(applyOutlineNumberingAllPages(next, outlineNumberingEnabled));
+  };
+
+  const handleInsertTemplate = (key: keyof typeof TAG_TEMPLATES) => {
+    const page = currentPageNumberRef.current;
+    const currentMarkup = pagesMarkupRef.current[page] ?? '';
+    const start = editorSelection.start;
+    const end = editorSelection.end;
+    const template = key === 'text' ? '\n\n' : (TAG_TEMPLATES[key] ?? '');
+    const nextMarkup = `${currentMarkup.slice(0, start)}${template}${currentMarkup.slice(end)}`;
+    const cursorOffset = key === 'text' ? 2 : detectPreferredSelectionOffset(template);
+    setEditorSelection({ start: start + cursorOffset, end: start + cursorOffset });
+    handleEditorTextChange(nextMarkup);
+    setTimeout(() => {
+      directEditorRef.current?.focus();
+    }, 0);
+  };
+
+  const handleElementChange = (index: number, newEl: NoteElement) => {
+    const page = currentPageNumberRef.current;
+    const newPage = [...(pagesElementsRef.current[page] ?? [])];
+    newPage[index] = newEl;
+    const next = [...pagesElementsRef.current];
+    next[page] = newPage;
+    syncPageState(next, page);
   };
 
   const handleDeleteElement = (index: number) => {
-    setPagesElements(prev => {
-      const next = [...prev];
-      if (!next[currentPageNumber]) return next;
-      const updated = next[currentPageNumber].filter((_, i) => i !== index);
-      next[currentPageNumber] = updated;
-      return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
-    });
+    const page = currentPageNumberRef.current;
+    const newPage = [...(pagesElementsRef.current[page] ?? [])];
+    newPage.splice(index, 1);
+    const next = [...pagesElementsRef.current];
+    next[page] = newPage;
+    syncPageState(next, page);
   };
 
-  const handleTapEmpty = (afterIndex: number) => {
-    const newEl: NoteElement = { type: 'text', text: '' };
-    setPagesElements(prev => {
-      const next = [...prev];
-      if (!next[currentPageNumber]) next[currentPageNumber] = [];
-      const arr = [...next[currentPageNumber]];
-      arr.splice(afterIndex, 0, newEl);
-      next[currentPageNumber] = arr;
-      return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
-    });
+  const handleTapEmptyCallback = (afterIndex: number): boolean => {
+    const page = currentPageNumberRef.current;
+    const newPage = [...(pagesElementsRef.current[page] ?? [])];
+    newPage.splice(afterIndex, 0, { type: 'text', text: '' } as NoteElement);
+    const next = [...pagesElementsRef.current];
+    next[page] = newPage;
+    syncPageState(next, page);
     return true;
   };
 
-  const handleSplitToNextTextBlock = (index: number, before: string, after: string) => {
-    setPagesElements((prev) => {
-      const next = [...prev];
-      const page = [...(next[currentPageNumber] ?? [])];
-      const current = page[index];
-      if (!current) return prev;
+  const handleSplitCallback = (index: number, before: string, after: string): boolean => {
+    const page = currentPageNumberRef.current;
+    const newPage = [...(pagesElementsRef.current[page] ?? [])];
+    const el = newPage[index];
+    if (!el) return false;
+    newPage[index] = { ...el, text: before } as NoteElement;
+    newPage.splice(index + 1, 0, { type: 'text', text: after } as NoteElement);
+    const next = [...pagesElementsRef.current];
+    next[page] = newPage;
+    syncPageState(next, page);
+    return true;
+  };
 
-      if (current.type === 'chapter' || current.type === 'section' || current.type === 'subsection' || current.type === 'text') {
-        page[index] = { ...current, text: before } as NoteElement;
+  const handleMergeCallback = (index: number) => {
+    const page = currentPageNumberRef.current;
+    const newPage = [...(pagesElementsRef.current[page] ?? [])];
+    if (index <= 0 || !newPage[index - 1] || !newPage[index]) return;
+    const prevEl = newPage[index - 1];
+    const curEl = newPage[index];
+    const prevText = 'text' in prevEl ? prevEl.text : '';
+    const curText = 'text' in curEl ? curEl.text : '';
+    newPage[index - 1] = { ...prevEl, text: prevText + curText } as NoteElement;
+    newPage.splice(index, 1);
+    const next = [...pagesElementsRef.current];
+    next[page] = newPage;
+    syncPageState(next, page);
+  };
+
+  const syncWordsForContent = async (contentId: string, markup: string) => {
+    const wordPayloads = extractWordPayloads(parseEditorMarkup(markup));
+    const existingWords = (await getWordsByContentId(contentId)).sort((a, b) => a.word_order - b.word_order);
+
+    for (let i = 0; i < wordPayloads.length; i += 1) {
+      const payload = wordPayloads[i];
+      const existing = existingWords[i];
+      const data = {
+        word: payload.node.word,
+        explanation: payload.node.meaning,
+        word_order: payload.index,
+        content_id: contentId,
+      };
+
+      if (existing) {
+        await updateWord(existing.word_id, data);
       } else {
-        return prev;
+        await addWord({
+          word_id: await Crypto.randomUUID(),
+          review_flag: 0,
+          ...data,
+        });
       }
+    }
 
-      page.splice(index + 1, 0, { type: 'text', text: after });
-      next[currentPageNumber] = page;
-      return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
-    });
-
-    setPendingFocusIndex(index + 1);
-    return true;
+    for (let i = wordPayloads.length; i < existingWords.length; i += 1) {
+      await deleteWord(existingWords[i].word_id);
+    }
   };
 
-  const handleMergeWithPrevious = (index: number) => {
-    if (index <= 0) return;
+  const syncImagesForContent = async (contentId: string, markup: string) => {
+    const imagePayloads = extractImagePayloads(parseEditorMarkup(markup));
+    const existingImages = await getImagesByContentId(contentId);
 
-    setPagesElements((prev) => {
-      const next = [...prev];
-      const page = [...(next[currentPageNumber] ?? [])];
-      const prevEl = page[index - 1];
-      const currEl = page[index];
-      if (!prevEl || !currEl) return prev;
-      if (prevEl.type !== 'text' || currEl.type !== 'text') return prev;
+    for (let i = 0; i < imagePayloads.length; i += 1) {
+      const payload = imagePayloads[i];
+      const existing = existingImages[i];
+      const data = {
+        image: payload.node.uri,
+        image_order: payload.index,
+        content_id: contentId,
+      };
 
-      page[index - 1] = { type: 'text', text: `${prevEl.text}${currEl.text}` };
-      page.splice(index, 1);
-      next[currentPageNumber] = page;
-      return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
-    });
+      if (existing) {
+        await updateImage(existing.image_id, data);
+      } else {
+        await addImage({
+          image_id: await Crypto.randomUUID(),
+          ...data,
+        });
+      }
+    }
 
-    setPendingFocusIndex(index - 1);
+    for (let i = imagePayloads.length; i < existingImages.length; i += 1) {
+      await deleteImage(existingImages[i].image_id);
+    }
   };
 
-  const saveAllPagesToDB = async (pagesToSave: NoteElement[][]) => {
+  const saveAllPagesToDB = async (pagesToSave: string[]) => {
     const contents = await getContentsByBookId(bookId);
     const contentMap = new Map<number, Content>();
     contents.forEach((c) => contentMap.set(c.page, c));
@@ -740,34 +819,30 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
     for (let page = 0; page < pagesToSave.length; page += 1) {
       const existing = contentMap.get(page);
+      const markup = pagesToSave[page] ?? '';
+      const contentData = buildContentDataFromMarkup(markup);
+      const contentId = existing?.content_id ?? (await Crypto.randomUUID());
+
       if (existing) {
-        await deleteContent(existing.content_id);
+        await updateContent(existing.content_id, {
+          type: 'document',
+          page,
+          height: 0,
+          content_data: contentData,
+        });
+      } else {
+        await addContent({
+          content_id: contentId,
+          type: 'document',
+          book_id: bookId,
+          page,
+          height: 0,
+          content_data: contentData,
+        } as Content);
       }
 
-      const contentId = await Crypto.randomUUID();
-      await addContent({
-        content_id: contentId,
-        type: 'text',
-        book_id: bookId,
-        page,
-        height: 0,
-      } as Content);
-
-      const elems = pagesToSave[page] ?? [];
-      for (let i = 0; i < elems.length; i += 1) {
-        const el = elems[i];
-        const orderPrefix = String(i).padStart(4, '0');
-        const elemId = `${orderPrefix}_${await Crypto.randomUUID()}`;
-        if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
-          await addOutline({ outline_id: elemId, type: el.type, outline: (el as any).text, content_id: contentId });
-        } else if (el.type === 'word') {
-          await addWord({ word_id: elemId, word: el.word, explanation: el.meaning || '', word_order: i, content_id: contentId });
-        } else if (el.type === 'image') {
-          await addImage({ image_id: elemId, image: el.uri, content_id: contentId });
-        } else if (el.type === 'text') {
-          await addText({ text_id: elemId, text: el.text, content_id: contentId });
-        }
-      }
+      await syncWordsForContent(contentId, markup);
+      await syncImagesForContent(contentId, markup);
 
       const existingPageImage = imageMap.get(page);
       if (!existingPageImage) {
@@ -806,9 +881,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       setShowHelpOverlay(false);
       return;
     }
-    setPendingFocusIndex(index);
-    // Ensure NoteContent re-mounts so initialFocusIndex is applied deterministically.
-    setNoteContentKey((prev) => prev + 1);
+    setFocusIndexForEdit(index);
+    const markup = pagesMarkupRef.current[currentPageNumberRef.current] ?? '';
+    const end = markup.length;
+    setEditorSelection({ start: end, end });
     setEditing(true);
   };
 
@@ -855,22 +931,22 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     setIsSavingPage(true);
     try {
       Keyboard.dismiss();
-      const maxRows = computeMaxRows(headerHeight);
-      const normalized = rebalancePagesByCapacity(pagesElementsRef.current, maxRows, screenWidth);
-      const numbered = applyOutlineNumberingAllPages(normalized, outlineNumberingEnabled);
+      const currentMarkupPages = [...pagesMarkupRef.current];
+      const numbered = applyOutlineNumberingAllPages(
+        currentMarkupPages.map((markup) => nodesToNoteElements(parseEditorMarkup(markup))),
+        outlineNumberingEnabled
+      );
 
       setPagesElements(numbered);
-      await saveAllPagesToDB(numbered);
+      await saveAllPagesToDB(currentMarkupPages);
       await touchBook(bookId);
       setEditing(false);
-      setPendingFocusIndex(undefined);
       // 体感遅延を減らすためサムネイル更新は非同期で実行
       scheduleThumbnailSync(Math.min(currentPageNumberRef.current, numbered.length - 1));
       return true;
     } catch (e) {
       console.error('保存エラー:', e);
       setEditing(false);
-      setPendingFocusIndex(undefined);
       return false;
     } finally {
       setIsSavingPage(false);
@@ -924,6 +1000,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         next.splice(currentPageNumber, 1);
         return next;
       });
+      setPagesMarkup((prev) => {
+        const next = [...prev];
+        next.splice(currentPageNumber, 1);
+        return next;
+      });
       setcurrentPageNumber(prev => Math.max(0, prev - 1));
     } catch (e) {
       console.error('ページ削除エラー:', e);
@@ -941,115 +1022,24 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     }
   };
 
-  // 📌 ページ保存ロジック
-  const savePageToDB = async () => {
-    try {
-      // ref から最新の値を取得（useLayoutEffect のクロージャが古い state を掴む問題を回避）
-      const pageNumber = currentPageNumberRef.current;
-      const elems = pagesElementsRef.current[pageNumber];
-
-      // ⭐ 1) 既存 content をカスケード削除
-      const oldContents = await getContentsByBookId(bookId);
-      const oldPageContent = oldContents.find(c => c.page === pageNumber);
-      if (oldPageContent) {
-        await deleteContent(oldPageContent.content_id);
-      }
-
-      // ⭐ 2) 新しい content を追加して保存
-      const contentId = await Crypto.randomUUID();
-      await addContent({
-        content_id: contentId,
-        type: 'text',
-        book_id: bookId,
-        page: pageNumber,
-        height: 0,
-      } as Content);
-
-      if (Array.isArray(elems) && elems.length > 0) {
-        for (let i = 0; i < elems.length; i++) {
-          const el = elems[i];
-          const orderPrefix = String(i).padStart(4, '0');
-          const elemId = `${orderPrefix}_${await Crypto.randomUUID()}`;
-          if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
-            await addOutline({ outline_id: elemId, type: el.type, outline: (el as any).text, content_id: contentId });
-          } else if (el.type === 'word') {
-            await addWord({ word_id: elemId, word: (el as any).word, explanation: (el as any).meaning || '', word_order: i, content_id: contentId });
-          } else if (el.type === 'image') {
-            await addImage({ image_id: elemId, image: (el as any).uri, content_id: contentId });
-          } else if (el.type === 'text') {
-            await addText({ text_id: elemId, text: (el as any).text, content_id: contentId });
-          }
-        }
-      }
-      return pageNumber; // 保存したページ番号を返す
-    } catch (e) {
-      console.error('保存エラー:', e);
-      throw e;
-    }
-  };
-
   const loadPageFromDB = async (pageNumber: number, options?: { returnText?: boolean }) => {
     try {
       const contents = await getContentsByBookId(bookId);
       const pageContentRow = contents.find(c => c.page === pageNumber);
 
       if (!pageContentRow) return;
+      const markup = buildMarkupFromContentData(pageContentRow.content_data);
+      const elements = nodesToNoteElements(parseStoredContentData(pageContentRow.content_data));
 
-      const contentId = pageContentRow.content_id;
-
-      const [texts, outlines, words, images] = await Promise.all([
-        getTextsByContentId(contentId),
-        getOutlinesByContentId(contentId),
-        getWordsByContentId(contentId),
-        getImagesByContentId(contentId),
-      ]);
-
-      // 全要素をIDでまとめてソートし、保存時の順序を復元する
-      // IDは "0000_uuid" 形式（savePageToDB で付与）→辞書順ソートで元の挿入順になる
-      type RawItem =
-        | { id: string; kind: 'outline'; data: typeof outlines[0] }
-        | { id: string; kind: 'text';    data: typeof texts[0] }
-        | { id: string; kind: 'word';    data: typeof words[0] }
-        | { id: string; kind: 'image';   data: typeof images[0] };
-
-      const all: RawItem[] = [
-        ...outlines.map(o  => ({ id: o.outline_id,  kind: 'outline' as const, data: o })),
-        ...texts.map(t    => ({ id: t.text_id,     kind: 'text'    as const, data: t })),
-        ...words.map(w    => ({ id: w.word_id,     kind: 'word'    as const, data: w })),
-        ...images.map(img => ({ id: (img as any).image_id, kind: 'image' as const, data: img })),
-      ];
-
-      // IDの先頭4桁が順序プレフィックス。古いデータ（プレフィックスなし）はそのまま末尾に
-      all.sort((a, b) => a.id.localeCompare(b.id));
-
-      const elements: NoteElement[] = all.map(item => {
-        if (item.kind === 'outline') {
-          const o = item.data as typeof outlines[0];
-          const slimText = stripOutlinePrefix(o.outline || '');
-          const hasPrefix = OUTLINE_PREFIX_RE.test(o.outline || '');
-          return {
-            type: o.type as 'chapter' | 'section' | 'subsection',
-            text: slimText,
-            autoNumberingDisabled: !hasPrefix && !outlineNumberingEnabled,
-          };
-        }
-        if (item.kind === 'text') {
-          return { type: 'text' as const, text: (item.data as typeof texts[0]).text };
-        }
-        if (item.kind === 'word') {
-          const w = item.data as typeof words[0];
-          return { type: 'word' as const, word: w.word, meaning: w.explanation };
-        }
-        // image
-        const img = item.data as typeof images[0];
-        return { type: 'image' as const, uri: (img as any).image_path || (img as any).image || '' };
-      });
-
-      // pagesElements を更新して UI が NoteElement を使えるようにする
       setPagesElements(prev => {
         const next = [...prev];
         next[pageNumber] = elements;
         return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
+      });
+      setPagesMarkup((prev) => {
+        const next = [...prev];
+        next[pageNumber] = markup;
+        return next;
       });
 
     } catch (e) {
@@ -1067,10 +1057,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         const contentId = await Crypto.randomUUID();
         await addContent({
           content_id: contentId,
-          type: 'text',
+          type: 'document',
           book_id: bookId,
           page: p,
           height: 0,
+          content_data: '[]',
         });
         // page_images テーブルにもエントリを追加
         const pageImageId = await Crypto.randomUUID();
@@ -1090,57 +1081,18 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
     // 全ページ分の空配列を先に確保
     const newPagesElements: NoteElement[][] = Array(maxPage + 1).fill(null).map(() => []);
+    const newPagesMarkup: string[] = Array(maxPage + 1).fill('');
 
     // 各ページの要素を取得してまとめてセット（一括更新で順序ずれを防ぐ）
     for (const content of sortedContents) {
       const p = content.page;
-      const contentId = content.content_id;
-      const [texts, outlines, words, images] = await Promise.all([
-        getTextsByContentId(contentId),
-        getOutlinesByContentId(contentId),
-        getWordsByContentId(contentId),
-        getImagesByContentId(contentId),
-      ]);
-
-      type RawItem =
-        | { id: string; kind: 'outline'; data: typeof outlines[0] }
-        | { id: string; kind: 'text';    data: typeof texts[0] }
-        | { id: string; kind: 'word';    data: typeof words[0] }
-        | { id: string; kind: 'image';   data: typeof images[0] };
-
-      const all: RawItem[] = [
-        ...outlines.map(o  => ({ id: o.outline_id,  kind: 'outline' as const, data: o })),
-        ...texts.map(t    => ({ id: t.text_id,     kind: 'text'    as const, data: t })),
-        ...words.map(w    => ({ id: w.word_id,     kind: 'word'    as const, data: w })),
-        ...images.map(img => ({ id: (img as any).image_id, kind: 'image' as const, data: img })),
-      ];
-      all.sort((a, b) => a.id.localeCompare(b.id));
-
-      newPagesElements[p] = all.map(item => {
-        if (item.kind === 'outline') {
-          const o = item.data as typeof outlines[0];
-          const slimText = stripOutlinePrefix(o.outline || '');
-          const hasPrefix = OUTLINE_PREFIX_RE.test(o.outline || '');
-          return {
-            type: o.type as 'chapter' | 'section' | 'subsection',
-            text: slimText,
-            autoNumberingDisabled: !hasPrefix && !outlineNumberingEnabled,
-          };
-        }
-        if (item.kind === 'text') {
-          return { type: 'text' as const, text: (item.data as typeof texts[0]).text };
-        }
-        if (item.kind === 'word') {
-          const w = item.data as typeof words[0];
-          return { type: 'word' as const, word: w.word, meaning: w.explanation };
-        }
-        const img = item.data as typeof images[0];
-        return { type: 'image' as const, uri: (img as any).image_path || (img as any).image || '' };
-      });
+      newPagesMarkup[p] = buildMarkupFromContentData(content.content_data);
+      newPagesElements[p] = nodesToNoteElements(parseStoredContentData(content.content_data));
     }
 
     // 一括で State を更新（順序が確実に保証される）。全ページ通しで章番号を連番付与する。
     setPagesElements(applyOutlineNumberingAllPages(newPagesElements, outlineNumberingEnabled));
+    setPagesMarkup(newPagesMarkup);
   };
 
   useEffect(() => { // 初回ロード時に DB からページデータを読み込む
@@ -1184,10 +1136,25 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   }, [outlineNumberingEnabled]);
 
   useEffect(() => {
-    if (editing) {
-      setShowHelpOverlay(false);
-    }
+    if (editing) setShowHelpOverlay(false);
   }, [editing]);
+
+  useEffect(() => {
+    if (!editing || !noteBounds) return;
+    const timer = setTimeout(() => {
+      directEditorRef.current?.focus();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [editing, noteBounds, currentPageNumber]);
+
+  useEffect(() => {
+    if (!editing) return;
+    const max = (pagesMarkup[currentPageNumber] ?? '').length;
+    setEditorSelection((prev) => ({
+      start: Math.min(prev.start, max),
+      end: Math.min(prev.end, max),
+    }));
+  }, [currentPageNumber, pagesMarkup, editing]);
 
   useEffect(() => {
     const loadContents = async () => {
@@ -1389,9 +1356,15 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   return (
     <>
     <TouchableWithoutFeedback 
-      disabled={editing || showSearch}
+      disabled={editing}
       onPress={() => {
-        closeSearchPanel();
+        if (showSearch) {
+          closeSearchPanel();
+          return;
+        }
+        // 背景タップ→最終要素を対象に編集開始
+        const lastIdx = Math.max(0, (pagesElementsRef.current[currentPageNumberRef.current] ?? []).length - 1);
+        handleEditStart(lastIdx);
       }}
       style={[
         notebookStyles.notebookScreenWrapper,
@@ -1416,21 +1389,96 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           <NoteContent 
             key={noteContentKey}
             backgroundColor={book.color}
-            elements={(pagesElements[currentPageNumber] || []).filter((el): el is NoteElement => Boolean(el && (el as any).type))}
+            elements={[]}
             onNoteLayout={setNoteBounds}
+            isEditing={false}
             onSwipePage={handleNoteSwipePage}
-            isEditing={editing}
-            onElementChange={handleElementChange}
-            onDeleteElement={handleDeleteElement}
-            onTapEmpty={handleTapEmpty}
-            onSplitToNextTextBlock={handleSplitToNextTextBlock}
-            onMergeWithPrevious={handleMergeWithPrevious}
             onEditStart={handleEditStart}
-            initialFocusIndex={pendingFocusIndex}
             onBackgroundGenerated={(uri: string) => {
               console.log('背景画像生成完了:', uri);
             }}
           />
+
+          {noteBounds && (
+            <View
+              pointerEvents={editing ? 'auto' : 'none'}
+              style={{
+                position: 'absolute',
+                left: noteBounds.x + noteBounds.width * NOTE_HORIZONTAL_SPACE,
+                top: noteBounds.y + NOTE_LINE_HEIGHT,
+                width: noteBounds.width * (1 - NOTE_HORIZONTAL_SPACE * 2),
+                height: noteBounds.height - NOTE_LINE_HEIGHT,
+                zIndex: 40,
+              }}
+            >
+              <TextInput
+                ref={directEditorRef}
+                multiline
+                editable={editing}
+                value={pagesMarkup[currentPageNumber] ?? ''}
+                onChangeText={handleEditorTextChange}
+                style={{
+                  flex: 1,
+                  color: '#2F241A',
+                  fontSize: 15,
+                  lineHeight: 30,
+                  fontFamily: 'sanari',
+                  paddingHorizontal: 0,
+                  paddingVertical: 0,
+                  textAlignVertical: 'top',
+                }}
+                selectionColor="#5F4430"
+                selection={editorSelection}
+                onSelectionChange={(e) => setEditorSelection(e.nativeEvent.selection)}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+            </View>
+          )}
+
+          {editing && (
+            <View
+              style={{
+                position: 'absolute',
+                left: 8,
+                right: 8,
+                bottom: (isKeyboardVisible ? keyboardHeight : 0) + 8,
+                zIndex: 45,
+                backgroundColor: 'rgba(252, 250, 246, 0.97)',
+                borderWidth: 1,
+                borderColor: '#DED2C3',
+                borderRadius: 12,
+                paddingHorizontal: 8,
+                paddingVertical: 6,
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+              }}
+            >
+              {[
+                { key: 'text', label: '文章' },
+                { key: 'chapter', label: '大' },
+                { key: 'section', label: '中' },
+                { key: 'subsection', label: '小' },
+                { key: 'word', label: '単語/意味' },
+                { key: 'image', label: '画像' },
+              ].map((item) => (
+                <TouchableOpacity
+                  key={item.key}
+                  onPress={() => handleInsertTemplate(item.key as keyof typeof TAG_TEMPLATES)}
+                  style={{
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: '#CFC0AF',
+                    backgroundColor: '#F6EFE5',
+                    paddingHorizontal: 8,
+                    paddingVertical: 6,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#4A3A2C' }}>{item.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           </Animated.View>
 
           {showSearch && !editing && (
@@ -1476,7 +1524,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               {book.title}
             </Text>
 
-            {/* ページ一覧ボタン（左下） */}
             {!editing && (
               <TouchableOpacity
                 disabled={editing || isSavingPage}

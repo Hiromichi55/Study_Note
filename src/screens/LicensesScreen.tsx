@@ -87,19 +87,6 @@ const LicenseScreen: React.FC = () => {
         <Text style={styles.meta}>Build: {buildVersion}</Text>
       </View>
 
-      <Text style={[styles.title, { marginTop: 24 }]}>オープンソースライセンス</Text>
-      <Text style={styles.description}>
-        このアプリで利用している主要な依存パッケージとライセンスを表示しています。
-      </Text>
-
-      {LICENSES.map((item) => (
-        <View key={item.name} style={styles.card}>
-          <Text style={styles.name}>{item.name}</Text>
-          <Text style={styles.meta}>Version: {item.version}</Text>
-          <Text style={styles.meta}>License: {item.license}</Text>
-        </View>
-      ))}
-
       <Text style={[styles.title, { marginTop: 24 }]}>フォント</Text>
       <Text style={styles.description}>
         このアプリで使用しているフォントのライセンス情報です。
@@ -109,6 +96,19 @@ const LicenseScreen: React.FC = () => {
         <View key={item.name} style={styles.card}>
           <Text style={styles.name}>{item.name}</Text>
           <Text style={styles.meta}>作者: {item.author}</Text>
+          <Text style={styles.meta}>License: {item.license}</Text>
+        </View>
+      ))}
+
+      <Text style={[styles.title, { marginTop: 24 }]}>オープンソースライセンス</Text>
+      <Text style={styles.description}>
+        このアプリで利用している主要な依存パッケージとライセンスを表示しています。
+      </Text>
+
+      {LICENSES.map((item) => (
+        <View key={item.name} style={styles.card}>
+          <Text style={styles.name}>{item.name}</Text>
+          <Text style={styles.meta}>Version: {item.version}</Text>
           <Text style={styles.meta}>License: {item.license}</Text>
         </View>
       ))}
