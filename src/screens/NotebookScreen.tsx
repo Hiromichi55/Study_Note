@@ -324,9 +324,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
-  // NoteContent から受け取るノート領域情報
-  const [noteBounds, setNoteBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-
   // デバッグ用の背景色を返す関数
   const getDebugStyle = (color: string) =>
     isTest ? { backgroundColor: color } : {};
@@ -1417,7 +1414,6 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             key={noteContentKey}
             backgroundColor={book.color}
             elements={(pagesElements[currentPageNumber] || []).filter((el): el is NoteElement => Boolean(el && (el as any).type))}
-            onNoteLayout={setNoteBounds}
             onSwipePage={handleNoteSwipePage}
             isEditing={editing}
             onElementChange={handleElementChange}
@@ -1464,17 +1460,21 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
               elevation: 30,
             }}
           >
-            {/* ページ番号（右上） */}
-            <View style={notebookStyles.pageNumberBadge}>
-              <Text style={notebookStyles.pageNumberText}>
-                {`${Math.min(currentPageNumber + 1, Math.max(pagesElements.length, 1))}/${Math.max(pagesElements.length, 1)}`}
-              </Text>
-            </View>
+            {!editing && (
+              <>
+                {/* ページ番号（右上） */}
+                <View style={notebookStyles.pageNumberBadge}>
+                  <Text style={notebookStyles.pageNumberText}>
+                    {`${Math.min(currentPageNumber + 1, Math.max(pagesElements.length, 1))}/${Math.max(pagesElements.length, 1)}`}
+                  </Text>
+                </View>
 
-            {/* ノートタイトル（左上） */}
-            <Text style={notebookStyles.noteTitleText} numberOfLines={1} ellipsizeMode="tail">
-              {book.title}
-            </Text>
+                {/* ノートタイトル（左上） */}
+                <Text style={notebookStyles.noteTitleText} numberOfLines={1} ellipsizeMode="tail">
+                  {book.title}
+                </Text>
+              </>
+            )}
 
             {/* ページ一覧ボタン（左下） */}
             {!editing && (

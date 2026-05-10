@@ -3,7 +3,7 @@
 // ==========================================
 
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Image, Dimensions, StyleSheet, TextInput, TouchableOpacity, Keyboard, Platform, Animated, ScrollView, Alert, ActionSheetIOS } from 'react-native';
+import { View, Text, Image, Dimensions, StyleSheet, TextInput, TouchableOpacity, Keyboard, Platform, Animated, ScrollView, Alert, ActionSheetIOS, PixelRatio } from 'react-native';
 import { Skia, PaintStyle } from '@shopify/react-native-skia';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
@@ -29,6 +29,15 @@ const TOOLBAR_BG = '#FCFAF6';
 const TOOLBAR_BORDER = '#DED2C3';
 const WORD_ACCENT_COLOR = '#D13A3A';
 const RESERVED_TOP_LINES = 1;
+
+const snapToLineGrid = (height: number, lineHeight: number): number => {
+  const safeHeight = Math.max(lineHeight, height);
+  return Math.ceil(safeHeight / lineHeight) * lineHeight;
+};
+
+const measureLinesFromHeight = (height: number, lineHeight: number): number => {
+  return Math.max(1, Math.ceil((height - 0.5) / lineHeight));
+};
 
 const OUTLINE_PREFIX_RE = /^\s*\d+(?:\.\d+)*\.\s*/;
 const stripOutlinePrefix = (text: string) => text.replace(OUTLINE_PREFIX_RE, '').trimStart();
@@ -151,10 +160,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     { label: '画像', type: 'image', iconName: 'image-outline' },
   ];
 
-  const noteX = NOTE_OUTER_MARGIN;
-  const noteY = NOTE_OUTER_MARGIN;
-  const noteWidth = width * 0.98;
-  const noteHeight = (height - headerHeight) * 0.87 - noteY;
+  const noteX = PixelRatio.roundToNearestPixel(NOTE_OUTER_MARGIN);
+  const noteY = PixelRatio.roundToNearestPixel(NOTE_OUTER_MARGIN);
+  const noteWidth = PixelRatio.roundToNearestPixel(width * 0.98);
+  const noteHeight = PixelRatio.roundToNearestPixel((height - headerHeight) * 0.87 - noteY);
   const bottomMargin = Math.round((height - headerHeight) * 0.13);
 
   // 1画面に収まる最大行数（先頭行も入力可能にする）
@@ -165,7 +174,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   // 要素1つの表示高さを返す
   const getElementHeight = (el: NoteElement): number => {
     const font = FONT_MAP[el.type];
-    if (el.type === 'image') return IMAGE_SQUARE_SIZE;
+    if (el.type === 'image') return snapToLineGrid(IMAGE_SQUARE_SIZE, interval);
     const contentWidth = noteWidth * (1 - 2 * space);
     if (el.type === 'word') {
       const rw = contentWidth * 0.75 - 12;
@@ -174,12 +183,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       const meaningLines = meaning
         .split('\n')
         .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / meaningCharsPerLine)), 0);
-      return Math.max(font.lineHeight, meaningLines * font.lineHeight);
+      return snapToLineGrid(meaningLines * font.lineHeight, font.lineHeight);
     }
 
     const text = 'text' in el ? el.text : '';
     const linesByNewLine = Math.max(1, text.split('\n').length);
-    return Math.max(font.lineHeight, linesByNewLine * font.lineHeight);
+    return snapToLineGrid(linesByNewLine * font.lineHeight, font.lineHeight);
   };
 
   const getCharsPerLine = (el: NoteElement) => {
@@ -200,15 +209,28 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
 
   const getRowHeight = (el: NoteElement, idx: number): number => {
     const font = FONT_MAP[el.type];
-    if (el.type === 'image') return 200;
+    if (el.type === 'image') return getElementHeight(el);
     if (el.type === 'word') {
       const measuredLines = displayWordLines[idx] ?? 0;
-      return Math.max(getElementHeight(el), Math.max(1, measuredLines) * font.lineHeight);
+      return snapToLineGrid(
+        Math.max(getElementHeight(el), Math.max(1, measuredLines) * font.lineHeight),
+        font.lineHeight
+      );
     }
     const measuredLines = measuredTextLines[idx] ?? 0;
     const fallbackLines = Math.max(1, ('text' in el ? el.text : ((el as any).text || '')).split('\n').length);
     const resolvedLines = measuredLines || fallbackLines;
-    return Math.max(font.lineHeight, resolvedLines * font.lineHeight);
+    return snapToLineGrid(resolvedLines * font.lineHeight, font.lineHeight);
+  };
+
+  const getConsumedRows = (items: NoteElement[] | undefined): number => {
+    if (!items || items.length === 0) return 0;
+    let usedHeight = 0;
+    items.forEach((el, idx) => {
+      if (!isValidElement(el)) return;
+      usedHeight += getRowHeight(el, idx);
+    });
+    return Math.ceil(usedHeight / interval);
   };
 
   const updateMeasuredTextLines = (idx: number, nextLines: number) => {
@@ -371,11 +393,11 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     onTap();
   };
 
-  const focusElementInput = (index: number) => {
+  const focusElementInput = (index: number, wordField: 'word' | 'meaning' = 'word') => {
     const target = elements?.[index];
     if (!isValidElement(target)) return;
 
-    const key = target.type === 'word' ? getInputKey(index, 'word') : getInputKey(index, 'main');
+    const key = target.type === 'word' ? getInputKey(index, wordField) : getInputKey(index, 'main');
     const ref = inputRefs.current[key];
     if (!ref) return;
 
@@ -395,7 +417,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       if (!isValidElement(prevEl)) continue;
       if (prevEl.type === 'image') continue;
       setActiveIndex(i);
-      setTimeout(() => focusElementInput(i), 30);
+      const targetField = prevEl.type === 'word' ? 'meaning' : 'word';
+      setTimeout(() => focusElementInput(i, targetField), 30);
       return;
     }
   };
@@ -410,8 +433,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       setTimeout(() => focusElementInput(i), 30);
       return;
     }
-    // 末尾でも maxRows に達していなければ新しい行を追加
-    if (elements.length < maxRows) {
+    // 末尾でも、実際の消費行数が maxRows 未満なら新しい行を追加
+    if (getConsumedRows(elements) < maxRows) {
       const nextIndex = index + 1;
       pendingFocusAfterAddRef.current = nextIndex;
       setActiveIndex(nextIndex);
@@ -589,7 +612,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     const lines: React.ReactElement[] = [];
 
     for (let row = 1; row <= totalRuleRows; row++) {
-      const isTitleLine = row === 1 || row === totalRuleRows;
+      const isTitleLine = row <= 2 || row === totalRuleRows;
       lines.push(
         <View
           key={`page-rule-${row}`}
@@ -620,7 +643,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     let overflowStartIndex: number | null = null;
     (elements ?? []).forEach((el, idx) => {
       if (!isValidElement(el)) return;
-      const h = getElementHeight(el);
+      const h = getRowHeight(el, idx);
       if (overflowStartIndex === null && consumedHeight > 0 && consumedHeight + h > capacityHeight) {
         overflowStartIndex = idx;
       }
@@ -715,9 +738,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
 
       if (el.type === 'word') {
         const isOverflow = overflowStartIndex !== null && idx >= overflowStartIndex;
-        const colLeftRatio = 0.35;
-        const colLeftWidth = colLeftRatio * 100 + '%' as any;
-        const colRightWidth = (1 - colLeftRatio) * 100 + '%' as any;
+        const WORD_ELLIPSIS_COLOR = 'rgba(52, 52, 52, 0.5)';
+        const WORD_TERM_FONT_SIZE = font.size + 4;
         rendered.push(
           <View
             key={idx}
@@ -737,7 +759,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
               })
             }
             style={{
-              height: estHeight,
+              minHeight: estHeight,
               flexDirection: 'row',
               backgroundColor: isOverflow
                 ? 'rgba(209, 58, 58, 0.10)'
@@ -750,53 +772,117 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
               ...debugStyle,
             }}
           >
-            <View style={{ width: colLeftWidth, height: '100%', paddingHorizontal: 6, paddingVertical: 0, borderRightWidth: 1, borderRightColor: RULE_COLOR }}>
-              {isEditing ? (
-                <TextInput
-                  value={el.word}
-                  onChangeText={(t) => onElementChange?.(idx, { ...el, word: t })}
-                  onKeyPress={({ nativeEvent }) => {
-                    if (nativeEvent.key === 'Enter') {
-                      focusNextElement(idx);
-                    }
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 6, paddingVertical: 0 }}>
+              <View style={{ flex: 0.4, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', minHeight: interval }}>
+                <Text
+                  allowFontScaling={false}
+                  maxFontSizeMultiplier={1}
+                  style={{
+                    fontSize: font.size + 10,
+                    lineHeight: interval,
+                    fontFamily: font.family,
+                    fontWeight: '700',
+                    color: WORD_ELLIPSIS_COLOR,
+                    marginRight: 2,
+                    textAlignVertical: 'center',
+                    includeFontPadding: false,
                   }}
-                  ref={(ref) => { inputRefs.current[getInputKey(idx, 'word')] = ref; }}
-                  autoFocus={effectiveActiveIndex === idx}
-                  onFocus={() => setActiveIndex(idx)}
+                >
+                  .
+                </Text>
+                {isEditing ? (
+                  <TextInput
+                    allowFontScaling={false}
+                    maxFontSizeMultiplier={1}
+                    value={el.word}
+                    onChangeText={(t) => onElementChange?.(idx, { ...el, word: t })}
+                    onKeyPress={({ nativeEvent }) => {
+                      if (nativeEvent.key === 'Backspace') {
+                        const isWordEmpty = !(el.word || '').trim();
+                        const isMeaningEmpty = !(((el as any).meaning || '') as string).trim();
+                        if (isWordEmpty && isMeaningEmpty) {
+                          onDeleteElement?.(idx);
+                          return;
+                        }
+                      }
+                      if (nativeEvent.key === 'Enter') {
+                        focusNextElement(idx);
+                      }
+                    }}
+                    ref={(ref) => { inputRefs.current[getInputKey(idx, 'word')] = ref; }}
+                    autoFocus={effectiveActiveIndex === idx}
+                    onFocus={() => setActiveIndex(idx)}
+                    style={{
+                      fontSize: WORD_TERM_FONT_SIZE,
+                      lineHeight: interval,
+                      fontFamily: font.family,
+                      color: WORD_ACCENT_COLOR,
+                      flex: 1,
+                      minHeight: interval,
+                      padding: 0,
+                      textAlignVertical: 'center',
+                      includeFontPadding: false,
+                    }}
+                    multiline
+                    blurOnSubmit={true}
+                    submitBehavior="submit"
+                    returnKeyType="next"
+                    onSubmitEditing={() => {
+                      const currentValue = inputRefs.current[getInputKey(idx, 'word')]?.props?.value;
+                      if (typeof currentValue === 'string') {
+                        onElementChange?.(idx, { ...el, word: currentValue });
+                      }
+                      focusNextElement(idx);
+                    }}
+                    placeholder="単語"
+                  />
+                ) : (
+                  <TextInput
+                    allowFontScaling={false}
+                    maxFontSizeMultiplier={1}
+                    editable={false}
+                    pointerEvents="none"
+                    value={el.word}
+                    multiline
+                    scrollEnabled={false}
+                    style={{ fontSize: WORD_TERM_FONT_SIZE, lineHeight: font.lineHeight, fontFamily: font.family, color: WORD_ACCENT_COLOR, flex: 1, flexShrink: 1, flexWrap: 'wrap', minHeight: interval, padding: 0, textAlignVertical: 'center', includeFontPadding: false }}
+                  />
+                )}
+                <Text
+                  allowFontScaling={false}
+                  maxFontSizeMultiplier={1}
                   style={{
                     fontSize: font.size,
                     lineHeight: interval,
                     fontFamily: font.family,
-                    color: WORD_ACCENT_COLOR,
-                    width: '100%',
-                    height: '100%',
-                    padding: 0,
-                    textAlignVertical: 'top',
+                    color: WORD_ELLIPSIS_COLOR,
+                    marginLeft: 2,
+                    alignSelf: 'flex-end',
+                    marginBottom: 1,
                     includeFontPadding: false,
                   }}
-                  multiline
-                  blurOnSubmit={true}
-                  submitBehavior="submit"
-                  returnKeyType="next"
-                  onSubmitEditing={() => {
-                    const currentValue = inputRefs.current[getInputKey(idx, 'word')]?.props?.value;
-                    if (typeof currentValue === 'string') {
-                      onElementChange?.(idx, { ...el, word: currentValue });
-                    }
-                    focusNextElement(idx);
-                  }}
-                  placeholder="単語"
-                />
-              ) : (
-                <Text style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, color: WORD_ACCENT_COLOR, flexShrink: 1, flexWrap: 'wrap', width: '100%', includeFontPadding: false }}>{el.word}</Text>
-              )}
-            </View>
-            <View style={{ flex: 1, height: '100%', paddingHorizontal: 6, paddingVertical: 0, justifyContent: 'flex-start' }}>
+                >
+                  ...
+                </Text>
+              </View>
+              <View style={{ flex: 0.6, justifyContent: 'flex-start', paddingLeft: 4 }}>
               {isEditing ? (
                 <TextInput
+                  allowFontScaling={false}
+                  maxFontSizeMultiplier={1}
                   value={(el as any).meaning}
                   onChangeText={(t) => onElementChange?.(idx, { ...el, meaning: t } as any)}
                   onKeyPress={({ nativeEvent }) => {
+                    if (nativeEvent.key === 'Backspace') {
+                      const isMeaningEmpty = !(((el as any).meaning || '') as string).trim();
+                      if (isMeaningEmpty) {
+                        setActiveIndex(idx);
+                        setTimeout(() => {
+                          focusElementInput(idx);
+                        }, 0);
+                        return;
+                      }
+                    }
                     if (nativeEvent.key === 'Enter') {
                       focusNextElement(idx);
                     }
@@ -806,15 +892,21 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   onContentSizeChange={(e) => {
                     const h = e.nativeEvent.contentSize.height;
                     // contentSize は端末差で端数が出るため、常に切り上げて過小計上を防ぐ。
-                    const measuredLines = Math.max(1, Math.ceil((h - 0.5) / interval));
+                    const measuredLines = measureLinesFromHeight(h, interval);
                     measuredWordLinesRef.current[idx] = measuredLines;
+                    if (isEditing) {
+                      setDisplayWordLines((prev) => {
+                        if (prev[idx] === measuredLines) return prev;
+                        return { ...prev, [idx]: measuredLines };
+                      });
+                    }
                   }}
                   style={{
                     fontSize: font.size,
                     lineHeight: interval,
                     fontFamily: font.family,
                     width: '100%',
-                    height: '100%',
+                    minHeight: interval,
                     padding: 0,
                     textAlignVertical: 'top',
                     includeFontPadding: false,
@@ -833,20 +925,26 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   placeholder="意味"
                 />
               ) : (
-                <Text
-                  onTextLayout={(e) => {
-                    if (isEditing) return;
-                    const lines = Math.max(1, e.nativeEvent.lines?.length ?? 1);
+                <TextInput
+                  allowFontScaling={false}
+                  maxFontSizeMultiplier={1}
+                  editable={false}
+                  pointerEvents="none"
+                  value={(el as any).meaning}
+                  multiline
+                  scrollEnabled={false}
+                  onContentSizeChange={(e) => {
+                    const h = Math.round(e.nativeEvent.contentSize.height);
+                    const lines = Math.max(1, Math.ceil(h / font.lineHeight));
                     setDisplayWordLines((prev) => {
                       if (prev[idx] === lines) return prev;
                       return { ...prev, [idx]: lines };
                     });
                   }}
-                  style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, flexShrink: 1, flexWrap: 'wrap', width: '100%', includeFontPadding: false }}
-                >
-                  {(el as any).meaning}
-                </Text>
+                  style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, flexShrink: 1, flexWrap: 'wrap', width: '100%', minHeight: interval, padding: 0, textAlignVertical: 'top', includeFontPadding: false }}
+                />
               )}
+            </View>
             </View>
           </View>
         );
@@ -856,7 +954,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       // text / chapter / section / subsection
       const isOutlineType = el.type === 'chapter' || el.type === 'section' || el.type === 'subsection';
       const isOverflow = overflowStartIndex !== null && idx >= overflowStartIndex;
-      const textRowHeightStyle = { height: estHeight };
+      const textRowHeightStyle = { minHeight: estHeight };
       const mainText = 'text' in el ? el.text : (el as any).text || '';
       rendered.push(
         <View
@@ -898,6 +996,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           <View style={{ flex: 1, paddingHorizontal: 6, paddingTop: 0, paddingBottom: 0, justifyContent: 'flex-start' }}>
             {isEditing ? (
               <TextInput
+                allowFontScaling={false}
+                maxFontSizeMultiplier={1}
                 value={mainText}
                 scrollEnabled={false}
                 onChangeText={(t) => {
@@ -933,7 +1033,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 }}
                 onContentSizeChange={(e) => {
                   const h = Math.round(e.nativeEvent.contentSize.height);
-                  const measuredLines = Math.max(1, Math.ceil(h / font.lineHeight));
+                  const measuredLines = measureLinesFromHeight(h, font.lineHeight);
                   measuredTextLinesRef.current[idx] = measuredLines;
                   updateMeasuredTextLines(idx, measuredLines);
                   if (isEditing) {
@@ -967,9 +1067,17 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 }}
               />
             ) : (
-              <Text
-                onTextLayout={(e) => {
-                  const lines = Math.max(1, e.nativeEvent.lines?.length ?? 1);
+              <TextInput
+                allowFontScaling={false}
+                maxFontSizeMultiplier={1}
+                editable={false}
+                pointerEvents="none"
+                value={mainText}
+                multiline
+                scrollEnabled={false}
+                onContentSizeChange={(e) => {
+                  const h = Math.round(e.nativeEvent.contentSize.height);
+                  const lines = Math.max(1, Math.ceil(h / font.lineHeight));
                   updateMeasuredTextLines(idx, lines);
                 }}
                 style={{
@@ -978,11 +1086,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   fontFamily: font.family,
                   flexWrap: 'wrap',
                   width: '100%',
+                  minHeight: font.lineHeight,
+                  padding: 0,
+                  textAlignVertical: 'top',
                   includeFontPadding: false,
                 }}
-              >
-                {mainText}
-              </Text>
+              />
             )}
           </View>
         </View>
@@ -1143,6 +1252,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     {iconName ? <Ionicons name={iconName} size={iconSize} color={iconColor} style={{ marginRight: 4 }} /> : null}
                     <Text
+                      allowFontScaling={false}
+                      maxFontSizeMultiplier={1}
                       style={[
                         style.toolbarButtonLabel,
                         baseTextStyle,
