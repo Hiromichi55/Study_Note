@@ -3,11 +3,10 @@
 // ==========================================
 
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Image, Dimensions, StyleSheet, TextInput, TouchableOpacity, Keyboard, Platform, Animated, ScrollView, Alert, ActionSheetIOS, PixelRatio } from 'react-native';
+import { View, Text, Image, Dimensions, StyleSheet, TextInput, TouchableOpacity, Keyboard, Platform, Animated, ScrollView, Alert, ActionSheetIOS, PixelRatio, Modal } from 'react-native';
 import { Skia, PaintStyle } from '@shopify/react-native-skia';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { ENV } from '@config';
@@ -48,7 +47,7 @@ export type NoteElement =
   | { type: 'subsection'; text: string; autoNumberingDisabled?: boolean }
   | { type: 'text'; text: string }
   | { type: 'word'; word: string; meaning: string }
-  | { type: 'image'; uri: string };
+  | { type: 'image'; uri: string; rows?: number; aspectRatio?: number };
 
 const isValidElement = (el: NoteElement | undefined | null): el is NoteElement => {
   return Boolean(el && (el as any).type);
@@ -120,6 +119,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const [displayWordLines, setDisplayWordLines] = useState<Record<number, number>>({});
   const [displayTextLines, setDisplayTextLines] = useState<Record<number, number>>({});
   const [measuredTextLines, setMeasuredTextLines] = useState<Record<number, number>>({});
+  const [imageRowsEditor, setImageRowsEditor] = useState<{ visible: boolean; idx: number | null; selectedRows: number; dropdownOpen: boolean }>({
+    visible: false,
+    idx: null,
+    selectedRows: 3,
+    dropdownOpen: false,
+  });
   const measuredWordLinesRef = useRef<Record<number, number>>({});
   const measuredTextLinesRef = useRef<Record<number, number>>({});
   const inputRefs = useRef<Record<string, TextInput | null>>({});
@@ -135,6 +140,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const pendingFocusAfterAddRef = useRef<number | null>(null);
   const selectionRef = useRef<Record<string, { start: number; end: number }>>({});
   const splitGuardRef = useRef<{ key: string; ts: number } | null>(null);
+  const lastElementsLengthRef = useRef<number>(0);
   const effectiveActiveIndex = isEditing && activeIndex === null && initialFocusIndex !== undefined && initialFocusIndex !== null
     ? initialFocusIndex
     : activeIndex;
@@ -145,8 +151,20 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     if (isEditing) {
       setDisplayWordLines({});
       setDisplayTextLines({});
+      const currentLen = elements?.length ?? 0;
+      const prevLen = lastElementsLengthRef.current;
+        // 要素が削除される場合、すべての測定値をクリアして再計算させる
+        // (インデックスシフトで不正な参照を防ぐ)
+        if (currentLen < prevLen) {
+          measuredWordLinesRef.current = {};
+          measuredTextLinesRef.current = {};
+          setMeasuredTextLines({});
+        }
+      lastElementsLengthRef.current = currentLen;
       return;
     }
+    const currentLen = elements?.length ?? 0;
+    lastElementsLengthRef.current = currentLen;
     setDisplayWordLines({ ...measuredWordLinesRef.current });
     setDisplayTextLines({ ...measuredTextLinesRef.current });
   }, [isEditing, elements]);
@@ -170,11 +188,39 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   // 1画面に収まる最大行数（最上段1行は非編集として予約）
   const maxRows = Math.max(1, Math.floor((noteHeight - RESERVED_TOP_LINES * interval) / interval));
   const totalRuleRows = maxRows + RESERVED_TOP_LINES;
+  const IMAGE_MIN_ROWS = 1;
+  const IMAGE_MAX_ROWS = 10;
+  const IMAGE_DEFAULT_ROWS = 3;
+  const IMAGE_CONTENT_WIDTH = noteWidth * (1 - 2 * space);
+
+  const resolveImageRows = (rows?: number) => {
+    const safeRows = Number.isFinite(rows) ? Math.round(rows as number) : IMAGE_DEFAULT_ROWS;
+    return Math.max(IMAGE_MIN_ROWS, Math.min(IMAGE_MAX_ROWS, safeRows));
+  };
+
+  const resolveImageAspectRatio = (aspectRatio?: number) => {
+    if (!Number.isFinite(aspectRatio)) return undefined;
+    const safe = Number(aspectRatio);
+    return safe > 0 ? safe : undefined;
+  };
+
+  const getImageHeight = (el: Extract<NoteElement, { type: 'image' }>) => {
+    const ratio = resolveImageAspectRatio(el.aspectRatio);
+    if (ratio) {
+      const naturalHeight = IMAGE_CONTENT_WIDTH / ratio;
+      return snapToLineGrid(naturalHeight, interval);
+    }
+    return interval * resolveImageRows(el.rows);
+  };
+
+  const getDisplayedImageRows = (el: Extract<NoteElement, { type: 'image' }>) => {
+    return resolveImageRows(Math.round(getImageHeight(el) / interval));
+  };
 
   // 要素1つの表示高さを返す
   const getElementHeight = (el: NoteElement): number => {
     const font = FONT_MAP[el.type];
-    if (el.type === 'image') return snapToLineGrid(IMAGE_SQUARE_SIZE, interval);
+    if (el.type === 'image') return snapToLineGrid(getImageHeight(el), interval);
     const contentWidth = noteWidth * (1 - 2 * space);
     if (el.type === 'word') {
       const rw = contentWidth * 0.75 - 12;
@@ -217,10 +263,19 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
         font.lineHeight
       );
     }
+    // テキスト系：編集中は常にテキスト内容から直接計算（キャッシュ無視）
+    const textValue = 'text' in el ? el.text : ((el as any).text || '');
+    if (isEditing) {
+      // 各行を個別にカウント。空行（改行だけ）も1行として数える
+      const lineCount = textValue === '' ? 1 : textValue.split('\n').reduce((sum: number, line: string) => {
+        return sum + Math.max(1, Math.ceil(line.length / Math.max(8, Math.floor((noteWidth * (1 - 2 * space) - 12) / Math.max(1, font.size)) - 1)));
+      }, 0);
+      return snapToLineGrid(Math.max(1, lineCount) * font.lineHeight, font.lineHeight);
+    }
+    // 非編集中：測定値を使う
     const measuredLines = measuredTextLines[idx] ?? 0;
-    const fallbackLines = Math.max(1, ('text' in el ? el.text : ((el as any).text || '')).split('\n').length);
-    const resolvedLines = measuredLines || fallbackLines;
-    return snapToLineGrid(resolvedLines * font.lineHeight, font.lineHeight);
+    const fallbackLines = Math.max(1, textValue.split('\n').length);
+    return snapToLineGrid((measuredLines || fallbackLines) * font.lineHeight, font.lineHeight);
   };
 
   const getConsumedRows = (items: NoteElement[] | undefined): number => {
@@ -415,7 +470,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     for (let i = index - 1; i >= 0; i--) {
       const prevEl = elements[i];
       if (!isValidElement(prevEl)) continue;
-      if (prevEl.type === 'image') continue;
       setActiveIndex(i);
       const targetField = prevEl.type === 'word' ? 'meaning' : 'word';
       setTimeout(() => focusElementInput(i, targetField), 30);
@@ -428,7 +482,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     for (let i = index + 1; i < elements.length; i++) {
       const nextEl = elements[i];
       if (!isValidElement(nextEl)) continue;
-      if (nextEl.type === 'image') continue;
       setActiveIndex(i);
       setTimeout(() => focusElementInput(i), 30);
       return;
@@ -445,7 +498,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
 
   const convertElementType = (el: NoteElement, type: NoteElement['type']): NoteElement => {
     if (type === 'image') {
-      return { type: 'image', uri: el.type === 'image' ? el.uri : '' };
+      return {
+        type: 'image',
+        uri: el.type === 'image' ? el.uri : '',
+        rows: el.type === 'image' ? el.rows : IMAGE_DEFAULT_ROWS,
+        aspectRatio: el.type === 'image' ? el.aspectRatio : undefined,
+      };
     }
     if (type === 'word') {
       if (el.type === 'word') return el;
@@ -484,28 +542,63 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     }, 0);
   };
 
-  // 画像は横いっぱいの正方形（iOS の allowsEditing が常に 1:1 のため正方形に統一）
-  const IMAGE_SQUARE_SIZE = Math.round(noteWidth * (1 - 2 * space));
-
-  const processPickedImage = async (src: string, idx: number) => {
-    // 元画像の中央から 1:1 でクロップ
-    const info = await manipulateAsync(src, [], { format: SaveFormat.JPEG });
-    const origW = info.width;
-    const origH = info.height;
-    const cropSide = Math.min(origW, origH);
-    const originX = Math.round((origW - cropSide) / 2);
-    const originY = Math.round((origH - cropSide) / 2);
-    const cropped = await manipulateAsync(
-      src,
-      [{ crop: { originX, originY, width: cropSide, height: cropSide } }],
-      { compress: 0.85, format: SaveFormat.JPEG }
-    );
+  const processPickedImage = async (
+    asset: { uri: string; width?: number; height?: number },
+    idx: number
+  ) => {
     const dest = `${FileSystem.documentDirectory}note_img_${Date.now()}.jpg`;
-    await FileSystem.copyAsync({ from: cropped.uri, to: dest });
+    await FileSystem.copyAsync({ from: asset.uri, to: dest });
+    const pickedAspect = asset.width && asset.height && asset.height > 0
+      ? asset.width / asset.height
+      : undefined;
     const current = elements?.[idx];
     if (current?.type === 'image') {
-      onElementChange?.(idx, { type: 'image', uri: dest });
+      const nextAspectRatio = resolveImageAspectRatio(pickedAspect) ?? current.aspectRatio;
+      const nextRows = current.uri
+        ? (current.rows ?? IMAGE_DEFAULT_ROWS)
+        : getDisplayedImageRows({
+            type: 'image',
+            uri: dest,
+            rows: current.rows ?? IMAGE_DEFAULT_ROWS,
+            aspectRatio: nextAspectRatio,
+          });
+      onElementChange?.(idx, {
+        type: 'image',
+        uri: dest,
+        rows: nextRows,
+        aspectRatio: nextAspectRatio,
+      });
     }
+  };
+
+  const setImageRows = (idx: number, rows: number) => {
+    const current = elements?.[idx];
+    if (current?.type !== 'image') return;
+    onElementChange?.(idx, { ...current, rows: resolveImageRows(rows), aspectRatio: undefined });
+  };
+
+  const openImageRowsEditor = (idx: number) => {
+    const current = elements?.[idx];
+    const currentRows = current?.type === 'image' ? getDisplayedImageRows(current) : IMAGE_DEFAULT_ROWS;
+    setImageRowsEditor({
+      visible: true,
+      idx,
+      selectedRows: currentRows,
+      dropdownOpen: false,
+    });
+  };
+
+  const closeImageRowsEditor = () => {
+    setImageRowsEditor((prev) => ({ ...prev, visible: false }));
+  };
+
+  const applyImageRowsEditor = () => {
+    if (imageRowsEditor.idx === null) {
+      closeImageRowsEditor();
+      return;
+    }
+    setImageRows(imageRowsEditor.idx, imageRowsEditor.selectedRows);
+    closeImageRowsEditor();
   };
 
   const launchImagePicker = async (useCamera: boolean, idx: number) => {
@@ -513,7 +606,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: true })
       : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: true });
     if (result.canceled || !result.assets?.[0]?.uri) return;
-    await processPickedImage(result.assets[0].uri, idx);
+    await processPickedImage(result.assets[0], idx);
   };
 
   const pickImageForElement = async (idx: number) => {
@@ -537,23 +630,28 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const showImageEditMenu = (idx: number, hasImage: boolean) => {
     if (Platform.OS === 'ios') {
       const options = hasImage
-        ? ['キャンセル', '写真ライブラリ', 'カメラで撮影', '画像を削除']
+        ? ['キャンセル', '写真ライブラリ', 'カメラで撮影', '行数を変更', '画像を削除']
         : ['キャンセル', '写真ライブラリ', 'カメラで撮影', '要素を削除'];
       ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: 0, destructiveButtonIndex: 3 },
+        { options, cancelButtonIndex: 0, destructiveButtonIndex: hasImage ? 4 : 3 },
         async (buttonIndex) => {
           if (buttonIndex === 1) await launchImagePicker(false, idx);
           if (buttonIndex === 2) await launchImagePicker(true, idx);
-          if (buttonIndex === 3) onDeleteElement?.(idx);
+          if (hasImage && buttonIndex === 3) openImageRowsEditor(idx);
+          if (buttonIndex === (hasImage ? 4 : 3)) onDeleteElement?.(idx);
         }
       );
     } else {
-      Alert.alert(hasImage ? '画像の操作' : '画像を追加', '', [
+      const menuButtons: Array<{ text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void }> = [
         { text: 'キャンセル', style: 'cancel' },
         { text: '写真ライブラリ', onPress: () => launchImagePicker(false, idx) },
         { text: 'カメラで撮影', onPress: () => launchImagePicker(true, idx) },
-        { text: hasImage ? '画像を削除' : '要素を削除', style: 'destructive', onPress: () => onDeleteElement?.(idx) },
-      ]);
+      ];
+      if (hasImage) {
+        menuButtons.push({ text: '行数を変更', onPress: () => openImageRowsEditor(idx) });
+      }
+      menuButtons.push({ text: hasImage ? '画像を削除' : '要素を削除', style: 'destructive', onPress: () => onDeleteElement?.(idx) });
+      Alert.alert(hasImage ? '画像の操作' : '画像を追加', '', menuButtons);
     }
   };
 
@@ -657,19 +755,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     (elements ?? []).forEach((el, idx) => {
       if (!isValidElement(el)) return;
       const font = FONT_MAP[el.type];
-      let estHeight = getElementHeight(el);
-      if (el.type === 'word') {
-        const measuredLines = displayWordLines[idx] ?? 0;
-        estHeight = Math.max(estHeight, Math.max(1, measuredLines) * font.lineHeight);
-      } else if (el.type !== 'image' && (el.type === 'text' || el.type === 'chapter' || el.type === 'section' || el.type === 'subsection')) {
-        const measuredLines = displayTextLines[idx] ?? 1;
-        if (isEditing) {
-          // 編集中は実測行数を優先し、右端折り返しを遅延なく反映する
-          estHeight = Math.max(1, measuredLines) * font.lineHeight;
-        } else {
-          estHeight = Math.max(estHeight, Math.max(1, measuredLines) * font.lineHeight);
-        }
-      }
+      const estHeight = getRowHeight(el, idx);
       const debugStyle = IS_DEV
         ? { backgroundColor: 'rgba(255,0,0,0.15)', borderWidth: 1, borderColor: 'red' }
         : {};
@@ -689,13 +775,16 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   return;
                 }
                 setActiveIndex(idx);
+                Keyboard.dismiss();
+                showImageEditMenu(idx, Boolean(el.uri));
               })
             }
             style={{
-              height: IMAGE_SQUARE_SIZE,
-              borderWidth: isEditing && effectiveActiveIndex === idx ? 2 : isOverflow ? 1.5 : 0,
+              height: getImageHeight(el),
+              borderWidth: isEditing && effectiveActiveIndex === idx ? 2 : isOverflow ? 1.5 : 1,
               borderColor: isOverflow ? '#D13A3A' : ACTIVE_BORDER,
-              backgroundColor: isOverflow ? 'rgba(209, 58, 58, 0.10)' : 'transparent',
+              backgroundColor: isOverflow ? 'rgba(209, 58, 58, 0.10)' : '#FFFFFF',
+              overflow: 'hidden',
               ...debugStyle,
             }}
           >
@@ -720,7 +809,11 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
               <TouchableOpacity
                 onPress={() => {
                   if (!isEditing) { onEditStart?.(idx); }
-                  else { showImageEditMenu(idx, false); }
+                  else {
+                    setActiveIndex(idx);
+                    Keyboard.dismiss();
+                    showImageEditMenu(idx, false);
+                  }
                 }}
                 activeOpacity={0.7}
                 style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6 }}
@@ -731,6 +824,33 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 </Text>
               </TouchableOpacity>
             )}
+            {isEditing && (
+              <TextInput
+                allowFontScaling={false}
+                maxFontSizeMultiplier={1}
+                ref={(ref) => { inputRefs.current[getInputKey(idx, 'main')] = ref; }}
+                autoFocus={effectiveActiveIndex === idx}
+                onFocus={() => setActiveIndex(idx)}
+                onKeyPress={({ nativeEvent }) => {
+                  if (nativeEvent.key === 'Backspace') {
+                    onDeleteElement?.(idx);
+                  }
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: 1,
+                  height: 1,
+                  opacity: 0,
+                  padding: 0,
+                  includeFontPadding: false,
+                }}
+                multiline={false}
+                blurOnSubmit={false}
+                showSoftInputOnFocus={true}
+              />
+            )}
           </View>
         );
         return;
@@ -739,7 +859,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       if (el.type === 'word') {
         const isOverflow = overflowStartIndex !== null && idx >= overflowStartIndex;
         const WORD_ELLIPSIS_COLOR = 'rgba(52, 52, 52, 0.5)';
-        const WORD_TERM_FONT_SIZE = font.size + 4;
+        const WORD_TERM_FONT_SIZE = font.size + 2;
         rendered.push(
           <View
             key={idx}
@@ -773,7 +893,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
             }}
           >
             <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 6, paddingVertical: 0 }}>
-              <View style={{ flex: 0.4, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', minHeight: interval }}>
+              <View style={{ flex: 0.5, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'flex-start', minHeight: interval }}>
                 <Text
                   allowFontScaling={false}
                   maxFontSizeMultiplier={1}
@@ -820,7 +940,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                       flex: 1,
                       minHeight: interval,
                       padding: 0,
-                      textAlignVertical: 'center',
+                      textAlignVertical: 'top',
                       includeFontPadding: false,
                     }}
                     multiline
@@ -857,8 +977,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     fontFamily: font.family,
                     color: WORD_ELLIPSIS_COLOR,
                     marginLeft: 2,
-                    alignSelf: 'flex-end',
-                    marginBottom: 1,
+                    alignSelf: 'flex-start',
+                    marginTop: 2,
                     includeFontPadding: false,
                   }}
                 >
@@ -871,7 +991,18 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   allowFontScaling={false}
                   maxFontSizeMultiplier={1}
                   value={(el as any).meaning}
-                  onChangeText={(t) => onElementChange?.(idx, { ...el, meaning: t } as any)}
+                  onChangeText={(t) => {
+                    // 意味更新時にキャッシュをクリアして基税を変更させる
+                    const cleaned = { ...measuredWordLinesRef.current };
+                    delete cleaned[idx];
+                    measuredWordLinesRef.current = cleaned;
+                    setDisplayWordLines((prev) => {
+                      const next = { ...prev };
+                      delete next[idx];
+                      return next;
+                    });
+                    onElementChange?.(idx, { ...el, meaning: t } as any);
+                  }}
                   onKeyPress={({ nativeEvent }) => {
                     if (nativeEvent.key === 'Backspace') {
                       const isMeaningEmpty = !(((el as any).meaning || '') as string).trim();
@@ -1001,6 +1132,16 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 value={mainText}
                 scrollEnabled={false}
                 onChangeText={(t) => {
+                  // 最初にキャッシュをクリアして常に最新判定を保つ（改行処理前）
+                  const cleaned = { ...measuredTextLinesRef.current };
+                  delete cleaned[idx];
+                  measuredTextLinesRef.current = cleaned;
+                  setMeasuredTextLines((prev) => {
+                    const next = { ...prev };
+                    delete next[idx];
+                    return next;
+                  });
+
                   const newlineIndex = t.indexOf('\n');
                   if (newlineIndex >= 0) {
                     const merged = `${t.slice(0, newlineIndex)}${t.slice(newlineIndex + 1)}`;
@@ -1017,12 +1158,55 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     return;
                   }
                   if (nativeEvent.key === 'Backspace') {
-                    const selection = selectionRef.current[getInputKey(idx, 'main')];
-                    if (el.type === 'text' && selection && selection.start === 0 && selection.end === 0) {
-                      onMergeWithPrevious?.(idx);
+                    const current = 'text' in el ? el.text : (el as any).text || '';
+                    const isBlankOrNewlineOnly = !current.trim();
+                    const mergeWithPreviousKeepingKeyboard = () => {
+                      if (idx <= 0) {
+                        focusPrevElement(idx);
+                        return;
+                      }
+                      // 先に前要素へ即時フォーカスを移してから次tickで結合し、キーボードのチラつきを抑える
+                      setActiveIndex(idx - 1);
+                      const prevKey = getInputKey(idx - 1, 'main');
+                      const prevRef = inputRefs.current[prevKey];
+                      if (prevRef) {
+                        try {
+                          prevRef.focus();
+                        } catch (error) {
+                          // ignore focus errors
+                        }
+                      }
+                      setTimeout(() => {
+                        onMergeWithPrevious?.(idx);
+                      }, 0);
+                    };
+                    
+                    // 改行だけの状態でバックスペース → 改行を1つ削除して赤枠を消す
+                    if (isBlankOrNewlineOnly && current.length > 0) {
+                      const newText = current.slice(0, -1);  // 最後の1文字（改行）削除
+                      // テキスト変更時と同じくキャッシュクリアして判定を即座に更新
+                      const cleaned = { ...measuredTextLinesRef.current };
+                      delete cleaned[idx];
+                      measuredTextLinesRef.current = cleaned;
+                      setMeasuredTextLines((prev) => {
+                        const next = { ...prev };
+                        delete next[idx];
+                        return next;
+                      });
+                      onElementChange?.(idx, { ...el, text: newText } as any);
                       return;
                     }
-                    const current = 'text' in el ? el.text : (el as any).text || '';
+                    
+                    const selection = selectionRef.current[getInputKey(idx, 'main')];
+                    // 空要素の先頭でBackspace → 前要素へ結合（selectionが未記録の場合も包含）
+                    if (el.type === 'text' && current.length === 0) {
+                      mergeWithPreviousKeepingKeyboard();
+                      return;
+                    }
+                    if (el.type === 'text' && selection && selection.start === 0 && selection.end === 0) {
+                      mergeWithPreviousKeepingKeyboard();
+                      return;
+                    }
                     if (!isOutlineType && current.length === 0) {
                       focusPrevElement(idx);
                     }
@@ -1294,6 +1478,50 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           })()}
         </View>
       )}
+
+      <Modal visible={imageRowsEditor.visible} transparent animationType="fade" onRequestClose={closeImageRowsEditor}>
+        <View style={style.imageRowsModalBackdrop}>
+          <View style={style.imageRowsModalCard}>
+            <Text style={style.imageRowsModalTitle}>画像の行数</Text>
+            <Text style={style.imageRowsModalHint}>1〜{IMAGE_MAX_ROWS} から選択</Text>
+            <TouchableOpacity
+              onPress={() => setImageRowsEditor((prev) => ({ ...prev, dropdownOpen: !prev.dropdownOpen }))}
+              style={style.imageRowsDropdownTrigger}
+              activeOpacity={0.8}
+            >
+              <Text style={style.imageRowsDropdownValue}>{imageRowsEditor.selectedRows}行</Text>
+              <Ionicons name={imageRowsEditor.dropdownOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#6F6357" />
+            </TouchableOpacity>
+            {imageRowsEditor.dropdownOpen && (
+              <View style={style.imageRowsDropdownPanel}>
+                <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false} style={style.imageRowsDropdownScroll}>
+                  {Array.from({ length: IMAGE_MAX_ROWS }, (_, i) => i + 1).map((rows) => {
+                    const selected = rows === imageRowsEditor.selectedRows;
+                    return (
+                      <TouchableOpacity
+                        key={`rows-option-${rows}`}
+                        onPress={() => setImageRowsEditor((prev) => ({ ...prev, selectedRows: rows, dropdownOpen: false }))}
+                        style={[style.imageRowsDropdownItem, selected && style.imageRowsDropdownItemSelected]}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[style.imageRowsDropdownItemText, selected && style.imageRowsDropdownItemTextSelected]}>{rows}行</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+            <View style={style.imageRowsModalButtons}>
+              <TouchableOpacity onPress={closeImageRowsEditor} style={[style.imageRowsModalButton, style.imageRowsModalButtonCancel]}>
+                <Text style={style.imageRowsModalButtonCancelText}>キャンセル</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={applyImageRowsEditor} style={[style.imageRowsModalButton, style.imageRowsModalButtonApply]}>
+                <Text style={style.imageRowsModalButtonApplyText}>適用</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       {children}
     </View>
   );
@@ -1319,6 +1547,7 @@ const style = StyleSheet.create({
     paddingVertical: 6,
     flexDirection: 'column',
     flexShrink: 0,
+    alignItems: 'center',
   },
   toolbarSectionLabel: {
     fontSize: 12,
@@ -1330,7 +1559,7 @@ const style = StyleSheet.create({
   toolbarButtonList: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     gap: 6,
     flexWrap: 'wrap',
   },
@@ -1405,6 +1634,99 @@ const style = StyleSheet.create({
   },
   toolbarButtonTextActive: {
     color: '#fff',
+  },
+  imageRowsModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  imageRowsModalCard: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: 12,
+    backgroundColor: '#FCFAF6',
+    borderWidth: 1,
+    borderColor: '#DED2C3',
+    padding: 16,
+  },
+  imageRowsModalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#3E3228',
+  },
+  imageRowsModalHint: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#6F6357',
+  },
+  imageRowsDropdownTrigger: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#CDBEAE',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  imageRowsDropdownValue: {
+    fontSize: 17,
+    color: '#2B241E',
+    fontWeight: '600',
+  },
+  imageRowsDropdownPanel: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#D7CABC',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+  },
+  imageRowsDropdownScroll: {
+    maxHeight: 180,
+  },
+  imageRowsDropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  imageRowsDropdownItemSelected: {
+    backgroundColor: '#EFE7DD',
+  },
+  imageRowsDropdownItemText: {
+    fontSize: 15,
+    color: '#3B322B',
+  },
+  imageRowsDropdownItemTextSelected: {
+    color: '#6E5744',
+    fontWeight: '700',
+  },
+  imageRowsModalButtons: {
+    marginTop: 14,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  imageRowsModalButton: {
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  imageRowsModalButtonCancel: {
+    backgroundColor: '#EEE5DA',
+  },
+  imageRowsModalButtonApply: {
+    backgroundColor: '#8A6F56',
+  },
+  imageRowsModalButtonCancelText: {
+    color: '#5A4A3B',
+    fontWeight: '600',
+  },
+  imageRowsModalButtonApplyText: {
+    color: '#fff',
+    fontWeight: '700',
   },
 });
 

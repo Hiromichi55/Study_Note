@@ -6,6 +6,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../App';
 import { useLibrary } from '../context/LibraryContext';
 import { Content, useEditor, Word } from '../context/EditorContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type WordRow = {
   key: string;
@@ -21,6 +22,7 @@ type WordRow = {
 
 const WordListScreen: React.FC = () => {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
+  const insets = useSafeAreaInsets();
   const { state: libraryState } = useLibrary();
   const { select } = useEditor();
 
@@ -31,22 +33,32 @@ const WordListScreen: React.FC = () => {
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerTitle: '単語リスト',
-      headerTitleStyle: { fontSize: 17, fontWeight: '700', color: '#342C24' },
       headerStyle: { backgroundColor: '#E9DCCD' },
       headerShadowVisible: false,
-      headerTintColor: '#342C24',
-      headerLeft: () => (
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={{ alignItems: 'center', justifyContent: 'center', borderRadius: 100, paddingHorizontal: 6, marginLeft: 4 }}
-        >
-          <Ionicons name="chevron-back" size={24} color="#342C24" />
-        </TouchableOpacity>
-      ),
-      headerRightContainerStyle: { paddingRight: 10 },
+      header: () => {
+        const headerVisualHeight = 56;
+        const totalHeight = insets.top + headerVisualHeight;
+        return (
+          <View style={{ backgroundColor: '#E9DCCD', height: totalHeight, paddingTop: insets.top }}>
+            <View style={{ height: headerVisualHeight, justifyContent: 'center' }}>
+              <View style={{ position: 'absolute', left: 6, top: 10, bottom: 10, justifyContent: 'center' }}>
+                <TouchableOpacity
+                  onPress={() => navigation.goBack()}
+                  style={{ alignItems: 'center', justifyContent: 'center', borderRadius: 100, paddingHorizontal: 6, marginLeft: 4 }}
+                >
+                  <Ionicons name="chevron-back" size={24} color="#342C24" />
+                </TouchableOpacity>
+              </View>
+              <View style={{ position: 'absolute', left: 64, right: 64, alignItems: 'center' }}>
+                <Text style={{ fontSize: 17, fontWeight: '700', color: '#342C24' }} numberOfLines={1}>単語リスト</Text>
+              </View>
+              <View style={{ position: 'absolute', right: 14, top: 10, bottom: 10, width: 36 }} />
+            </View>
+          </View>
+        );
+      },
     });
-  }, [navigation, showHelpOverlay]);
+  }, [navigation, insets.top]);
 
   const loadRows = useCallback(async () => {
     const [contents, words] = await Promise.all([
@@ -59,6 +71,7 @@ const WordListScreen: React.FC = () => {
 
     const bookOrder = new Map<string, number>();
     const bookTitle = new Map<string, string>();
+    const sampleBookIds = new Set(libraryState.books.filter((b) => b.is_sample).map((b) => b.book_id));
     libraryState.books.forEach((b) => {
       bookOrder.set(b.book_id, b.order_index ?? 0);
       bookTitle.set(b.book_id, b.title);
@@ -68,6 +81,7 @@ const WordListScreen: React.FC = () => {
       .map((w) => {
         const content = contentMap.get(w.content_id);
         if (!content) return null;
+        if (sampleBookIds.has(content.book_id)) return null;
         return {
           key: `${content.book_id}-${content.page}-${w.word_order}-${w.word_id}`,
           wordId: w.word_id,
@@ -153,7 +167,7 @@ const WordListScreen: React.FC = () => {
               すべてのノート
             </Text>
           </TouchableOpacity>
-          {libraryState.books.map((b) => (
+          {libraryState.books.filter((b) => !b.is_sample).map((b) => (
             <TouchableOpacity
               key={b.book_id}
               onPress={() => setSelectedBookId(b.book_id)}

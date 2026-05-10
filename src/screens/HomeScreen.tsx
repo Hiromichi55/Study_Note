@@ -279,7 +279,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     return () => clearTimeout(timer);
   }, [showHelpOverlay, bookData.length]);
 
-  const handleDeleteBook = (bookId: string, title: string) => {
+  const handleDeleteBook = (bookId: string, title: string, isSample: boolean = false) => {
+    if (isSample) {
+      Alert.alert('削除できません', 'サンプルノートは削除できません。');
+      return;
+    }
     Alert.alert(
       '本を削除',
       `「${title}」を削除しますか？\nこの操作は取り消せません。`,
@@ -343,24 +347,16 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     setRenameText('');
   };
 
-  const renderRightActions = (bookId: string, title: string) => (
+  const renderRightActions = (bookId: string, title: string, isSample: boolean = false) => (
     <View style={localStyles.rightActionContainer}>
       <TouchableOpacity
         style={localStyles.swipeDeleteButton}
+        disabled={isSample}
         onPress={() => {
-        Alert.alert('本の削除', `「${title}」を削除しますか？`, [
-          { text: 'キャンセル', style: 'cancel' },
-          {
-            text: '削除',
-            style: 'destructive',
-            onPress: async () => {
-              await deleteBook(bookId);
-            },
-          },
-        ]);
+        handleDeleteBook(bookId, title, isSample);
       }}
     >
-      <Ionicons name="trash-outline" size={24} color="#fff" />
+      <Ionicons name={isSample ? 'lock-closed-outline' : 'trash-outline'} size={24} color="#fff" />
     </TouchableOpacity>
   </View>
   );
@@ -385,7 +381,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const BookItem = React.memo(({ item }: { item: Book }) => (
     <Swipeable
       renderLeftActions={() => renderLeftActions(item)}
-      renderRightActions={() => renderRightActions(item.book_id, item.title)}
+      renderRightActions={() => renderRightActions(item.book_id, item.title, Boolean(item.is_sample))}
       overshootLeft={false}
       overshootRight={false}
       leftThreshold={40}
@@ -483,13 +479,14 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           <Menu.Item
             onPress={() => {
               setMenuVisibleBookId(null);
-              handleDeleteBook(item.book_id, item.title);
+              handleDeleteBook(item.book_id, item.title, Boolean(item.is_sample));
             }}
             title="本を削除"
             leadingIcon={({ size }) => (
-              <MaterialCommunityIcons name="trash-can" size={size} color="#B45145" />
+              <MaterialCommunityIcons name={item.is_sample ? 'lock-outline' : 'trash-can'} size={size} color={item.is_sample ? '#B8ADA0' : '#B45145'} />
             )}
-            titleStyle={DELETE_MENU_ITEM_TITLE_STYLE}
+            titleStyle={item.is_sample ? { ...DELETE_MENU_ITEM_TITLE_STYLE, color: '#B8ADA0' } : DELETE_MENU_ITEM_TITLE_STYLE}
+            disabled={Boolean(item.is_sample)}
           />
         </Menu>
       </View>

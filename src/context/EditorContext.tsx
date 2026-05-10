@@ -176,40 +176,6 @@ const SHOWCASE_BOOK_PAGES: Record<string, SeedPage[]> = {
 };
 
 const PRODUCTION_BOOK_PAGES: Record<string, SeedPage[]> = {
-  使い方: [
-    {
-      chapter: 'このアプリでできること',
-      section: 'ノートを本ごとに整理する',
-      subsection: '学習内容をわかりやすく残す',
-      text: 'このアプリでは、教科やテーマごとに本を作り、その中にページを追加しながら学習内容を整理できます。見出し・本文・単語を組み合わせて、授業ノート、暗記用まとめ、復習用ノートを1つの場所に残せます。まずは本を選んでページを開き、どのように書けるかを試してみてください。',
-      word: '本',
-      explanation: 'ノートを教科やテーマ単位でまとめるための入れ物。',
-    },
-    {
-      chapter: '基本操作',
-      section: 'ページを開いて編集する',
-      subsection: '見出し・本文・単語を使い分ける',
-      text: 'ページを開いたら編集ボタンから内容を書き換えられます。章・節・項を使うと情報のまとまりが見やすくなり、本文には授業内容や要点を書き込めます。単語を追加すると、語句と意味をセットで残せるので、あとから暗記しやすくなります。編集が終わったら保存して内容を確定してください。',
-      word: '保存',
-      explanation: '編集した内容を確定し、次回も同じ状態で開けるようにすること。',
-    },
-    {
-      chapter: '便利な機能',
-      section: '目次・検索・単語帳',
-      subsection: '必要な情報にすばやく戻る',
-      text: '見出しを付けておくと、目次から読みたい場所へすぐ移動できます。右上メニューの検索を使えば、本文や見出しに含まれる語句を探せます。単語として登録した内容は単語帳にまとまるため、授業ノートを書いたあとにそのまま復習へつなげられます。',
-      word: '検索',
-      explanation: 'ノート内の言葉を探して、目的のページや内容へすばやく移動する機能。',
-    },
-    {
-      chapter: 'おすすめの使い方',
-      section: '授業・復習・暗記をつなげる',
-      subsection: '続けやすい書き方のコツ',
-      text: '授業中は本文を中心に素早く記録し、あとから見出しを整理すると読み返しやすくなります。覚えたい語句だけを単語として登録しておくと、単語帳で短時間の復習ができます。1冊に情報を詰め込みすぎず、単元ごとに本を分けると、必要なノートをすぐ開けて学習が続けやすくなります。',
-      word: '復習',
-      explanation: '学んだ内容をあとで見返し、理解や記憶を定着させること。',
-    },
-  ],
   サンプルノート: [
     {
       chapter: 'サンプル',
@@ -441,6 +407,8 @@ const EditorContext = createContext<{
   getPageImagesByBookId: (bookId: string) => Promise<PageImage[]>;
   // 本㑓40てのコンテンツを削除（本削除時に使用）
   deleteAllContentsByBookId: (bookId: string) => Promise<void>;
+  // トランザクション：まとめての書き込みに使う（refreshAllは1回のみ）
+  withTransaction: (fn: (db: SQLite.SQLiteDatabase) => Promise<void>) => Promise<void>;
 }>({
   state: initialState,
   refreshAll: async () => {},
@@ -470,6 +438,7 @@ const EditorContext = createContext<{
   deletePageImage: async () => {},
   getPageImagesByBookId: async () => [],
   deleteAllContentsByBookId: async () => {},
+  withTransaction: async () => {},
 });
 
 // ===== Reducer =====
@@ -809,6 +778,14 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
 
+  const withTransaction = async (fn: (database: SQLite.SQLiteDatabase) => Promise<void>) => {
+    if (!db) return;
+    await db.withTransactionAsync(async () => {
+      await fn(db);
+    });
+    await refreshAll();
+  };
+
   return (
     <EditorContext.Provider
       value={{
@@ -841,6 +818,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   deletePageImage,
   getPageImagesByBookId,
   deleteAllContentsByBookId,
+        withTransaction,
         }}
     >
       {children}

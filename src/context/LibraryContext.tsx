@@ -15,6 +15,7 @@ export type Book = {
   created_at?: string;
   updated_at?: string;
   is_pinned?: boolean;
+  is_sample?: boolean;
 };
 
 const parseBookUpdatedAt = (value?: string): number => {
@@ -40,8 +41,7 @@ const SHOWCASE_BOOKS: Book[] = [
 ];
 
 const PRODUCTION_BOOKS: Book[] = [
-  { book_id: '1', title: '使い方', color: 'brown', order_index: 0 },
-  { book_id: '2', title: 'サンプルノート', color: 'blue', order_index: 1 },
+  { book_id: '2', title: 'サンプルノート', color: 'blue', order_index: 0, is_sample: true },
 ];
 
 const initialBooks: Book[] = ENV.IS_PRODUCTION ? PRODUCTION_BOOKS : SHOWCASE_BOOKS;
@@ -189,6 +189,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
               color TEXT NOT NULL,
               order_index INTEGER DEFAULT 0,
               is_pinned INTEGER DEFAULT 0,
+              is_sample INTEGER DEFAULT 0,
               created_at TEXT DEFAULT CURRENT_TIMESTAMP,
               updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
@@ -198,8 +199,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // 初期データを挿入
           for (const b of initialBooks) {
             await database.runAsync(
-              'INSERT INTO books (id, title, color, order_index, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-              [b.book_id, b.title, b.color, b.order_index, 0, nowIso, nowIso]
+              'INSERT INTO books (id, title, color, order_index, is_pinned, is_sample, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+              [b.book_id, b.title, b.color, b.order_index, 0, b.is_sample ? 1 : 0, nowIso, nowIso]
             );
           }
 
@@ -212,6 +213,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const hasUpdatedAt = (bookTableInfo as any[]).some((col) => String(col?.name) === 'updated_at');
         const hasCreatedAt = (bookTableInfo as any[]).some((col) => String(col?.name) === 'created_at');
         const hasPinned = (bookTableInfo as any[]).some((col) => String(col?.name) === 'is_pinned');
+        const hasIsSample = (bookTableInfo as any[]).some((col) => String(col?.name) === 'is_sample');
         if (!hasUpdatedAt) {
           await database.runAsync('ALTER TABLE books ADD COLUMN updated_at TEXT;');
           await database.runAsync("UPDATE books SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP);");
@@ -223,6 +225,9 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!hasPinned) {
           await database.runAsync('ALTER TABLE books ADD COLUMN is_pinned INTEGER DEFAULT 0;');
           await database.runAsync('UPDATE books SET is_pinned = COALESCE(is_pinned, 0);');
+        }
+        if (!hasIsSample) {
+          await database.runAsync('ALTER TABLE books ADD COLUMN is_sample INTEGER DEFAULT 0;');
         }
 
         // データ読み込み
@@ -237,6 +242,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           created_at: row.created_at ? String(row.created_at) : undefined,
           updated_at: row.updated_at ? String(row.updated_at) : undefined,
           is_pinned: Number(row.is_pinned || 0) === 1,
+          is_sample: Number(row.is_sample || 0) === 1,
         }));
 
         // ✅ データベースが空なら初期データを挿入
@@ -244,8 +250,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const nowIso = new Date().toISOString();
           for (const book of initialBooks) {
             await database.runAsync(
-              'INSERT INTO books (id, title, color, order_index, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-              [book.book_id, book.title, book.color, book.order_index, 0, nowIso, nowIso]
+              'INSERT INTO books (id, title, color, order_index, is_pinned, is_sample, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+              [book.book_id, book.title, book.color, book.order_index, 0, book.is_sample ? 1 : 0, nowIso, nowIso]
             );
           }
           await database.runAsync(
@@ -339,6 +345,11 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
     try {
+      const target = state.books.find((b) => b.book_id === bookId);
+      if (target?.is_sample) {
+        console.warn('サンプルノートは削除できません');
+        return;
+      }
       // books 以外は外部キーCASCADEを使っていないため、手動で関連データを削除する
       await db.runAsync(
         'DELETE FROM outlines WHERE content_id IN (SELECT content_id FROM contents WHERE book_id = ?)',

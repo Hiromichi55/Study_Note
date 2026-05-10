@@ -34,6 +34,7 @@ import { captureRef } from 'react-native-view-shot';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { Dimensions, PixelRatio } from 'react-native';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 interface Props {
@@ -105,6 +106,38 @@ const OUTLINE_PREFIX_RE = /^\s*\d+(?:\.\d+)*\.\s*/;
 const NOTE_LINE_HEIGHT = 30;
 const NOTE_RESERVED_TOP_LINES = 1;
 const NOTE_HORIZONTAL_SPACE = 0.03;
+const NOTE_IMAGE_DEFAULT_ROWS = 3;
+
+const parseStoredImagePayload = (raw: unknown): { uri: string; rows?: number; aspectRatio?: number } => {
+  const asText = typeof raw === 'string' ? raw : '';
+  if (!asText) return { uri: '' };
+
+  try {
+    const parsed = JSON.parse(asText);
+    if (parsed && typeof parsed === 'object') {
+      const uri = typeof (parsed as any).uri === 'string' ? (parsed as any).uri : '';
+      const rowsRaw = (parsed as any).rows;
+      const ratioRaw = (parsed as any).aspectRatio;
+      const rows = Number.isFinite(rowsRaw) ? Number(rowsRaw) : undefined;
+      const aspectRatio = Number.isFinite(ratioRaw) && Number(ratioRaw) > 0 ? Number(ratioRaw) : undefined;
+      if (uri) {
+        return { uri, rows, aspectRatio };
+      }
+    }
+  } catch {
+    // Legacy format (plain URI) falls back below.
+  }
+
+  return { uri: asText };
+};
+
+const serializeImagePayload = (el: Extract<NoteElement, { type: 'image' }>): string => {
+  return JSON.stringify({
+    uri: el.uri || '',
+    rows: el.rows,
+    aspectRatio: el.aspectRatio,
+  });
+};
 
 const stripOutlinePrefix = (text: string): string => text.replace(OUTLINE_PREFIX_RE, '').trimStart();
 
@@ -208,7 +241,17 @@ const applyOutlineNumberingAllPages = (pages: NoteElement[][], withNumbering: bo
 
 const getNoteElementHeight = (el: NoteElement, screenWidth: number): number => {
   if (el.type === 'image') {
-    return Math.round(screenWidth * 0.98 * (1 - 2 * NOTE_HORIZONTAL_SPACE));
+    const contentWidth = screenWidth * 0.98 * (1 - 2 * NOTE_HORIZONTAL_SPACE);
+    const ratio = Number.isFinite((el as any).aspectRatio) && Number((el as any).aspectRatio) > 0
+      ? Number((el as any).aspectRatio)
+      : undefined;
+    if (ratio) {
+      const naturalHeight = contentWidth / ratio;
+      return Math.max(NOTE_LINE_HEIGHT, Math.ceil(naturalHeight / NOTE_LINE_HEIGHT) * NOTE_LINE_HEIGHT);
+    }
+    const rowsRaw = Number((el as any).rows);
+    const rows = Number.isFinite(rowsRaw) && rowsRaw > 0 ? Math.round(rowsRaw) : NOTE_IMAGE_DEFAULT_ROWS;
+    return Math.max(NOTE_LINE_HEIGHT, rows * NOTE_LINE_HEIGHT);
   }
 
   const contentWidth = screenWidth * 0.98 * (1 - 2 * NOTE_HORIZONTAL_SPACE);
@@ -285,7 +328,54 @@ const rebalancePagesByCapacity = (pages: NoteElement[][], maxRows: number, scree
   return result;
 };
 
+const insertOverflowAsNextPages = (
+  pages: NoteElement[][],
+  fromPage: number,
+  maxRows: number,
+  screenWidth: number
+): NoteElement[][] => {
+  const normalized = pages.map((page) => [...(page ?? [])]);
+  const current = normalized[fromPage] ?? [];
+  const [fit, overflow] = splitPageByCapacity(current, maxRows, screenWidth);
+  if (overflow.length === 0) return normalized;
+
+  const insertedPages: NoteElement[][] = [];
+  let carry = overflow;
+  while (carry.length > 0) {
+    const [fitPage, nextOverflow] = splitPageByCapacity(carry, maxRows, screenWidth);
+    insertedPages.push(fitPage);
+    if (nextOverflow.length === carry.length) {
+      break;
+    }
+    carry = nextOverflow;
+  }
+
+  return [
+    ...normalized.slice(0, fromPage),
+    fit,
+    ...insertedPages,
+    ...normalized.slice(fromPage + 1),
+  ];
+};
+
+type OverflowSaveStrategy = 'append-to-next' | 'insert-next-page' | 'cancel';
+
+const askOverflowSaveStrategy = (): Promise<OverflowSaveStrategy> => {
+  return new Promise((resolve) => {
+    Alert.alert(
+      '超過部分の保存方法',
+      '1ページに保存できる行数を超えています。超過部分をどのように保存しますか？',
+      [
+        { text: 'キャンセル', style: 'cancel', onPress: () => resolve('cancel') },
+        { text: '次ページ先頭に挿入', onPress: () => resolve('append-to-next') },
+        { text: '新しいページを次ページに挿入', onPress: () => resolve('insert-next-page') },
+      ]
+    );
+  });
+};
+
 const NotebookScreen: React.FC<Props> = ({ route }) => {
+  const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   // NoteContent と同じ計算式でノート領域を定義
@@ -300,7 +390,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   getTextsByContentId, getOutlinesByContentId, getWordsByContentId, getImagesByContentId,
   addPageImage, updatePageImage, deletePageImage, getPageImagesByBookId,
   deleteContent, deleteAllContentsByBookId,
-  select, updateContent
+  select, updateContent, withTransaction
 } = useEditor();
 
   const isTest = ENV.SCREEN_DEV;
@@ -330,12 +420,36 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // elements ベースのページデータ
   const [pagesElements, setPagesElements] = useState<NoteElement[][]>([]);
+  const [undoStack, setUndoStack] = useState<NoteElement[][][]>([]);
   // useLayoutEffect クロージャで古い値を参照しないよう常に最新を保持する ref
   const pagesElementsRef = useRef<NoteElement[][]>([]);
   const currentPageNumberRef = useRef<number>(0);
   const didApplyInitialPageRef = useRef(false);
   pagesElementsRef.current = pagesElements;
   currentPageNumberRef.current = currentPageNumber;
+
+  const clonePages = (pages: NoteElement[][]): NoteElement[][] =>
+    pages.map((page) => (page ?? []).map((el) => ({ ...el } as NoteElement)));
+
+  const pushUndoSnapshot = (snapshot: NoteElement[][]) => {
+    setUndoStack((prev) => [clonePages(snapshot), ...prev].slice(0, 50));
+  };
+
+  const applyWithUndo = (updater: (base: NoteElement[][]) => NoteElement[][]) => {
+    const base = clonePages(pagesElementsRef.current);
+    pushUndoSnapshot(base);
+    const next = updater(base);
+    setPagesElements(next);
+  };
+
+  const handleUndo = () => {
+    setUndoStack((prev) => {
+      if (prev.length === 0) return prev;
+      const [latest, ...rest] = prev;
+      setPagesElements(clonePages(latest));
+      return rest;
+    });
+  };
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -639,8 +753,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       }
     }
 
-    setPagesElements(prev => {
-      const next = [...prev];
+    applyWithUndo((next) => {
       if (!next[currentPageNumber]) next[currentPageNumber] = [];
       const updated = next[currentPageNumber].map((el, i) => (i === index ? nextEl : el));
       next[currentPageNumber] = updated;
@@ -649,8 +762,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   };
 
   const handleDeleteElement = (index: number) => {
-    setPagesElements(prev => {
-      const next = [...prev];
+    applyWithUndo((next) => {
       if (!next[currentPageNumber]) return next;
       const updated = next[currentPageNumber].filter((_, i) => i !== index);
       next[currentPageNumber] = updated;
@@ -660,8 +772,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   const handleTapEmpty = (afterIndex: number) => {
     const newEl: NoteElement = { type: 'text', text: '' };
-    setPagesElements(prev => {
-      const next = [...prev];
+    applyWithUndo((next) => {
       if (!next[currentPageNumber]) next[currentPageNumber] = [];
       const arr = [...next[currentPageNumber]];
       arr.splice(afterIndex, 0, newEl);
@@ -672,16 +783,15 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   };
 
   const handleSplitToNextTextBlock = (index: number, before: string, after: string) => {
-    setPagesElements((prev) => {
-      const next = [...prev];
+    applyWithUndo((next) => {
       const page = [...(next[currentPageNumber] ?? [])];
       const current = page[index];
-      if (!current) return prev;
+      if (!current) return next;
 
       if (current.type === 'chapter' || current.type === 'section' || current.type === 'subsection' || current.type === 'text') {
         page[index] = { ...current, text: before } as NoteElement;
       } else {
-        return prev;
+        return next;
       }
 
       page.splice(index + 1, 0, { type: 'text', text: after });
@@ -696,13 +806,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const handleMergeWithPrevious = (index: number) => {
     if (index <= 0) return;
 
-    setPagesElements((prev) => {
-      const next = [...prev];
+    applyWithUndo((next) => {
       const page = [...(next[currentPageNumber] ?? [])];
       const prevEl = page[index - 1];
       const currEl = page[index];
-      if (!prevEl || !currEl) return prev;
-      if (prevEl.type !== 'text' || currEl.type !== 'text') return prev;
+      if (!prevEl || !currEl) return next;
+      if (prevEl.type !== 'text' || currEl.type !== 'text') return next;
 
       page[index - 1] = { type: 'text', text: `${prevEl.text}${currEl.text}` };
       page.splice(index, 1);
@@ -714,68 +823,108 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   };
 
   const saveAllPagesToDB = async (pagesToSave: NoteElement[][]) => {
-    const contents = await getContentsByBookId(bookId);
+    const [contents, pageImages] = await Promise.all([
+      getContentsByBookId(bookId),
+      getPageImagesByBookId(bookId),
+    ]);
     const contentMap = new Map<number, Content>();
     contents.forEach((c) => contentMap.set(c.page, c));
-
-    const pageImages = await getPageImagesByBookId(bookId);
     const imageMap = new Map<number, typeof pageImages[number]>();
     pageImages.forEach((img) => imageMap.set(Number(img.page_order), img));
 
-    for (const c of contents) {
-      if (c.page >= pagesToSave.length) {
-        await deleteContent(c.content_id);
-      }
-    }
-
-    for (const img of pageImages) {
-      const order = Number(img.page_order);
-      if (order >= pagesToSave.length) {
-        await deletePageImage(img.page_image_id);
-      }
-    }
-
-    for (let page = 0; page < pagesToSave.length; page += 1) {
-      const existing = contentMap.get(page);
-      if (existing) {
-        await deleteContent(existing.content_id);
-      }
-
-      const contentId = await Crypto.randomUUID();
-      await addContent({
-        content_id: contentId,
-        type: 'text',
-        book_id: bookId,
-        page,
-        height: 0,
-      } as Content);
-
+    // UUIDを事前一括生成（トランザクション外で行う）
+    const pageUUIDs: { contentId: string; elemIds: string[] }[] = [];
+    for (let page = 0; page < pagesToSave.length; page++) {
       const elems = pagesToSave[page] ?? [];
-      for (let i = 0; i < elems.length; i += 1) {
-        const el = elems[i];
+      const contentId = await Crypto.randomUUID();
+      const elemIds: string[] = [];
+      for (let i = 0; i < elems.length; i++) {
         const orderPrefix = String(i).padStart(4, '0');
-        const elemId = `${orderPrefix}_${await Crypto.randomUUID()}`;
-        if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
-          await addOutline({ outline_id: elemId, type: el.type, outline: (el as any).text, content_id: contentId });
-        } else if (el.type === 'word') {
-          await addWord({ word_id: elemId, word: el.word, explanation: el.meaning || '', word_order: i, content_id: contentId });
-        } else if (el.type === 'image') {
-          await addImage({ image_id: elemId, image: el.uri, content_id: contentId });
-        } else if (el.type === 'text') {
-          await addText({ text_id: elemId, text: el.text, content_id: contentId });
+        elemIds.push(`${orderPrefix}_${await Crypto.randomUUID()}`);
+      }
+      pageUUIDs.push({ contentId, elemIds });
+    }
+    const extraPageImageUUIDs: string[] = [];
+    for (let page = 0; page < pagesToSave.length; page++) {
+      if (!imageMap.has(page)) {
+        extraPageImageUUIDs.push(await Crypto.randomUUID());
+      } else {
+        extraPageImageUUIDs.push('');
+      }
+    }
+
+    // トランザクション内に全insert/deleteをまとめる（refreshAllは最後と1回）
+    await withTransaction(async (db) => {
+      // 超過ページのコンテンツを削除
+      for (const c of contents) {
+        if (c.page >= pagesToSave.length) {
+          await db.runAsync('DELETE FROM outlines WHERE content_id = ?', [c.content_id]);
+          await db.runAsync('DELETE FROM texts WHERE content_id = ?', [c.content_id]);
+          await db.runAsync('DELETE FROM words WHERE content_id = ?', [c.content_id]);
+          await db.runAsync('DELETE FROM images WHERE content_id = ?', [c.content_id]);
+          await db.runAsync('DELETE FROM contents WHERE content_id = ?', [c.content_id]);
+        }
+      }
+      for (const img of pageImages) {
+        if (Number(img.page_order) >= pagesToSave.length) {
+          await db.runAsync('DELETE FROM page_images WHERE page_image_id = ?', [img.page_image_id]);
         }
       }
 
-      const existingPageImage = imageMap.get(page);
-      if (!existingPageImage) {
-        await addPageImage({
-          page_image_id: await Crypto.randomUUID(),
-          image_path: '',
-          page_order: page,
-          book_id: bookId,
-        });
+      // 各ページを一括保存
+      for (let page = 0; page < pagesToSave.length; page++) {
+        const { contentId, elemIds } = pageUUIDs[page];
+        // 既存内容を削除
+        const existing = contentMap.get(page);
+        if (existing) {
+          await db.runAsync('DELETE FROM outlines WHERE content_id = ?', [existing.content_id]);
+          await db.runAsync('DELETE FROM texts WHERE content_id = ?', [existing.content_id]);
+          await db.runAsync('DELETE FROM words WHERE content_id = ?', [existing.content_id]);
+          await db.runAsync('DELETE FROM images WHERE content_id = ?', [existing.content_id]);
+          await db.runAsync('DELETE FROM contents WHERE content_id = ?', [existing.content_id]);
+        }
+
+        await db.runAsync(
+          'INSERT INTO contents (content_id, type, book_id, page, height) VALUES (?, ?, ?, ?, ?)',
+          [contentId, 'text', bookId, page, 0]
+        );
+
+        const elems = pagesToSave[page] ?? [];
+        for (let i = 0; i < elems.length; i++) {
+          const el = elems[i];
+          const elemId = elemIds[i];
+          if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
+            await db.runAsync(
+              'INSERT INTO outlines (outline_id, type, outline, content_id) VALUES (?, ?, ?, ?)',
+              [elemId, el.type, (el as any).text, contentId]
+            );
+          } else if (el.type === 'word') {
+            await db.runAsync(
+              'INSERT INTO words (word_id, word, explanation, word_order, content_id, review_flag) VALUES (?, ?, ?, ?, ?, ?)',
+              [elemId, el.word, el.meaning || '', i, contentId, 0]
+            );
+          } else if (el.type === 'image') {
+            await db.runAsync(
+              'INSERT INTO images (image_id, image, content_id) VALUES (?, ?, ?)',
+              [elemId, serializeImagePayload(el), contentId]
+            );
+          } else if (el.type === 'text') {
+            await db.runAsync(
+              'INSERT INTO texts (text_id, text, content_id) VALUES (?, ?, ?)',
+              [elemId, el.text, contentId]
+            );
+          }
+        }
+
+        const extraUUID = extraPageImageUUIDs[page];
+        if (extraUUID) {
+          await db.runAsync(
+            'INSERT INTO page_images (page_image_id, image_path, page_order, book_id) VALUES (?, ?, ?, ?)',
+            [extraUUID, '', page, bookId]
+          );
+        }
       }
-    }
+    });
   };
 
   const handleAddElement = (type: NoteElement['type']) => {
@@ -783,11 +932,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       type === 'word'
         ? ({ type: 'word', word: '', meaning: '' } as any)
         : type === 'image'
-        ? { type: 'image', uri: '' }
+        ? { type: 'image', uri: '', rows: NOTE_IMAGE_DEFAULT_ROWS }
         : ({ type, text: '' } as any);
 
-    setPagesElements(prev => {
-      const next = [...prev];
+    applyWithUndo((next) => {
       if (!next[currentPageNumber]) next[currentPageNumber] = [];
       const arr = [...next[currentPageNumber]];
       arr.splice(addAfterIndex, 0, newEl);
@@ -853,13 +1001,29 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     try {
       Keyboard.dismiss();
       const maxRows = computeMaxRows(headerHeight);
-      const normalized = rebalancePagesByCapacity(pagesElementsRef.current, maxRows, screenWidth);
+      const currentPage = currentPageNumberRef.current;
+      const currentElements = pagesElementsRef.current[currentPage] ?? [];
+      const [, currentOverflow] = splitPageByCapacity(currentElements, maxRows, screenWidth);
+
+      let normalized: NoteElement[][];
+      if (currentOverflow.length > 0) {
+        const strategy = await askOverflowSaveStrategy();
+        if (strategy === 'cancel') {
+          return false;
+        }
+        normalized = strategy === 'insert-next-page'
+          ? insertOverflowAsNextPages(pagesElementsRef.current, currentPage, maxRows, screenWidth)
+          : rebalancePagesByCapacity(pagesElementsRef.current, maxRows, screenWidth);
+      } else {
+        normalized = rebalancePagesByCapacity(pagesElementsRef.current, maxRows, screenWidth);
+      }
       const numbered = applyOutlineNumberingAllPages(normalized, outlineNumberingEnabled);
 
       setPagesElements(numbered);
       await saveAllPagesToDB(numbered);
       await touchBook(bookId);
       setEditing(false);
+      setUndoStack([]);
       setPendingFocusIndex(undefined);
       // 体感遅延を減らすためサムネイル更新は非同期で実行
       scheduleThumbnailSync(Math.min(currentPageNumberRef.current, numbered.length - 1));
@@ -867,6 +1031,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     } catch (e) {
       console.error('保存エラー:', e);
       setEditing(false);
+      setUndoStack([]);
       setPendingFocusIndex(undefined);
       return false;
     } finally {
@@ -972,7 +1137,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           } else if (el.type === 'word') {
             await addWord({ word_id: elemId, word: (el as any).word, explanation: (el as any).meaning || '', word_order: i, content_id: contentId });
           } else if (el.type === 'image') {
-            await addImage({ image_id: elemId, image: (el as any).uri, content_id: contentId });
+            await addImage({ image_id: elemId, image: serializeImagePayload(el), content_id: contentId });
           } else if (el.type === 'text') {
             await addText({ text_id: elemId, text: (el as any).text, content_id: contentId });
           }
@@ -1039,7 +1204,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         }
         // image
         const img = item.data as typeof images[0];
-        return { type: 'image' as const, uri: (img as any).image_path || (img as any).image || '' };
+        const restored = parseStoredImagePayload((img as any).image_path || (img as any).image || '');
+        return {
+          type: 'image' as const,
+          uri: restored.uri,
+          rows: restored.rows,
+          aspectRatio: restored.aspectRatio,
+        };
       });
 
       // pagesElements を更新して UI が NoteElement を使えるようにする
@@ -1132,7 +1303,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           return { type: 'word' as const, word: w.word, meaning: w.explanation };
         }
         const img = item.data as typeof images[0];
-        return { type: 'image' as const, uri: (img as any).image_path || (img as any).image || '' };
+        const restored = parseStoredImagePayload((img as any).image_path || (img as any).image || '');
+        return {
+          type: 'image' as const,
+          uri: restored.uri,
+          rows: restored.rows,
+          aspectRatio: restored.aspectRatio,
+        };
       });
     }
 
@@ -1183,8 +1360,17 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   useEffect(() => {
     if (editing) {
       setShowHelpOverlay(false);
+      return;
     }
+    setUndoStack([]);
   }, [editing]);
+
+  useEffect(() => {
+    if (!editing) return;
+    // モード切替時に右上UIの状態をリセットして、ヘッダー再描画の競合を防ぐ
+    if (menuVisible) setMenuVisible(false);
+    if (showSearch) setShowSearch(false);
+  }, [editing, menuVisible, showSearch]);
 
   useEffect(() => {
     const loadContents = async () => {
@@ -1265,113 +1451,140 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
 
   useLayoutEffect(() => {
+    const HEADER_ICON_SIZE = 36;
+    const HEADER_ICON_GAP = 8;
+    const HEADER_RIGHT_WIDTH_EDIT = HEADER_ICON_SIZE * 2 + HEADER_ICON_GAP;
+    const HEADER_RIGHT_WIDTH_NORMAL = HEADER_ICON_SIZE;
+    const HEADER_RIGHT_WIDTH = editing ? HEADER_RIGHT_WIDTH_EDIT : HEADER_RIGHT_WIDTH_NORMAL;
+
     navigation.setOptions({
       headerStyle: {
         backgroundColor: '#E9DCCD',
       },
       headerShadowVisible: false,
-      headerTintColor: notebookColors.ink,
-      headerRightContainerStyle: { paddingRight: 2 },
-      headerLeft: () => (
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={[notebookStyles.menuBtn, { alignItems: 'center', justifyContent: 'center' }]}
-        >
-          <Ionicons name="chevron-back" size={24} color={notebookColors.ink} />
-        </TouchableOpacity>
-      ),
-      headerTitle: () => (
-        <TouchableOpacity
-          onPress={() => { setTocVisible(true); console.log('目次ボタン押下'); }}
-          activeOpacity={0.75}
-          style={notebookStyles.outlineBtnWrap}
-        >
-          <Text style={notebookStyles.outlineBtn}>目次 ▾</Text>
-        </TouchableOpacity>
-      ),
-      headerRight: () =>
-        editing ? (
-          // 編集中: チェックボタン（保存）
-          <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 8 }}>
-            <TouchableOpacity
-              onPress={() => { console.log('保存ボタン押下'); handleSave(); }}
-              style={[notebookStyles.menuBtn, notebookStyles.menuBtnPlainIcon]}
-            >
-              <Ionicons name="checkmark" size={24} color="white" />
-            </TouchableOpacity>
-          </View>
-        ) : (
-          // 通常: ミートボールメニュー
-          <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 8 }}>
-            <View>
-              <Menu
-                key={menuVisible ? 'open' : 'closed'}
-                visible={menuVisible}
-                onDismiss={closeMenu}
-                anchor={
+      header: () => {
+        const headerVisualHeight = 56;
+        const totalHeight = insets.top + headerVisualHeight;
+
+        return (
+          <View style={{ backgroundColor: '#E9DCCD', height: totalHeight, paddingTop: insets.top }}>
+            <View style={{ height: headerVisualHeight, justifyContent: 'center' }}>
+              <View style={{ position: 'absolute', left: 6, top: 10, bottom: 10, justifyContent: 'center' }}>
+                <TouchableOpacity
+                  onPress={() => navigation.goBack()}
+                  style={[notebookStyles.menuBtn, { alignItems: 'center', justifyContent: 'center' }]}
+                >
+                  <Ionicons name="chevron-back" size={24} color={notebookColors.ink} />
+                </TouchableOpacity>
+              </View>
+
+              {!editing ? (
+                <View style={{ position: 'absolute', left: 64, right: 64, alignItems: 'center' }}>
                   <TouchableOpacity
-                    onPress={() => { console.log('メニューボタン押下'); openMenu(); }}
-                    style={[notebookStyles.menuBtn, notebookStyles.menuBtnIcon, getDebugStyle('rgba(0, 255, 0, 0.15)')]}> 
-                    <Ionicons name="ellipsis-horizontal" size={18} color="white" />
+                    onPress={() => { setTocVisible(true); console.log('目次ボタン押下'); }}
+                    activeOpacity={0.75}
+                    style={notebookStyles.outlineBtnWrap}
+                  >
+                    <Text style={notebookStyles.outlineBtn} numberOfLines={1}>
+                      目次 ▾
+                    </Text>
                   </TouchableOpacity>
-                }
-                contentStyle={notebookStyles.menuOptionsContainer}
+                </View>
+              ) : null}
+
+              <View
+                style={{
+                  position: 'absolute',
+                  right: 14,
+                  top: 10,
+                  bottom: 10,
+                  width: HEADER_RIGHT_WIDTH,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                }}
               >
-              <Menu.Item
-                onPress={() => {
-                  console.log('メニュー/検索ボタン押下');
-                  closeMenu();
-                  setShowSearch(!showSearch);
-                }}
-                title="検索"
-                leadingIcon="magnify"
-                titleStyle={MENU_ITEM_TITLE_STYLE}
-              />
-              <Menu.Item
-                onPress={() => {
-                  console.log('メニュー/章節番号トグル押下');
-                  closeMenu();
-                  setOutlineNumberingEnabled((prev) => !prev);
-                }}
-                title={outlineNumberingEnabled ? '見出し番号を非表示' : '見出し番号を表示'}
-                leadingIcon={outlineNumberingEnabled ? 'eye-off' : 'eye'}
-                titleStyle={MENU_ITEM_TITLE_STYLE}
-              />
-              <Menu.Item
-                onPress={() => {
-                  console.log('メニュー/ページ削除ボタン押下');
-                  closeMenu();
-                  Alert.alert('ページを削除', 'このページを削除しますか？', [
-                    { text: 'キャンセル', style: 'cancel' },
-                    { text: '削除', style: 'destructive', onPress: deleteCurrentPage },
-                  ]);
-                }}
-                title="ページ削除"
-                leadingIcon={({ size }) => (
-                  <MaterialCommunityIcons name="trash-can" size={size} color="#B45145" />
+                {editing ? (
+                  <>
+                    <TouchableOpacity
+                      onPress={handleUndo}
+                      disabled={undoStack.length === 0}
+                      style={[
+                        notebookStyles.menuBtn,
+                        notebookStyles.menuBtnPlainIcon,
+                        { marginRight: HEADER_ICON_GAP },
+                        undoStack.length === 0 ? { opacity: 0.45 } : null,
+                      ]}
+                    >
+                      <Ionicons name="arrow-undo" size={20} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => { console.log('保存ボタン押下'); handleSave(); }}
+                      style={[notebookStyles.menuBtn, notebookStyles.menuBtnPlainIcon]}
+                    >
+                      <Ionicons name="checkmark" size={24} color="white" />
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <Menu
+                    key={menuVisible ? 'open' : 'closed'}
+                    visible={menuVisible}
+                    onDismiss={closeMenu}
+                    anchor={
+                      <TouchableOpacity
+                        onPress={() => { console.log('メニューボタン押下'); openMenu(); }}
+                        style={[notebookStyles.menuBtn, notebookStyles.menuBtnIcon, getDebugStyle('rgba(0, 255, 0, 0.15)')]}
+                      >
+                        <Ionicons name="ellipsis-horizontal" size={18} color="white" />
+                      </TouchableOpacity>
+                    }
+                    contentStyle={notebookStyles.menuOptionsContainer}
+                  >
+                    <Menu.Item
+                      onPress={() => {
+                        console.log('メニュー/検索ボタン押下');
+                        closeMenu();
+                        setShowSearch(!showSearch);
+                      }}
+                      title="検索"
+                      leadingIcon="magnify"
+                      titleStyle={MENU_ITEM_TITLE_STYLE}
+                    />
+                    <Menu.Item
+                      onPress={() => {
+                        console.log('メニュー/章節番号トグル押下');
+                        closeMenu();
+                        setOutlineNumberingEnabled((prev) => !prev);
+                      }}
+                      title={outlineNumberingEnabled ? '見出し番号を非表示' : '見出し番号を表示'}
+                      leadingIcon={outlineNumberingEnabled ? 'eye-off' : 'eye'}
+                      titleStyle={MENU_ITEM_TITLE_STYLE}
+                    />
+                    <Menu.Item
+                      onPress={() => {
+                        console.log('メニュー/ページ削除ボタン押下');
+                        closeMenu();
+                        Alert.alert('ページを削除', 'このページを削除しますか？', [
+                          { text: 'キャンセル', style: 'cancel' },
+                          { text: '削除', style: 'destructive', onPress: deleteCurrentPage },
+                        ]);
+                      }}
+                      title="ページ削除"
+                      leadingIcon={({ size }) => (
+                        <MaterialCommunityIcons name="trash-can" size={size} color={book?.is_sample ? '#C0B4A8' : '#B45145'} />
+                      )}
+                      titleStyle={book?.is_sample ? { ...notebookStyles.deleteOption, color: '#C0B4A8' } : notebookStyles.deleteOption}
+                      disabled={book?.is_sample === true}
+                    />
+                  </Menu>
                 )}
-                titleStyle={notebookStyles.deleteOption}
-              />
-              {/* <Menu.Item
-                onPress={() => {
-                  console.log('メニュー/本削除ボタン押下');
-                  closeMenu();
-                  Alert.alert('本を削除', 'この本とすべてのノートを削除しますか？', [
-                    { text: 'キャンセル', style: 'cancel' },
-                    { text: '削除', style: 'destructive', onPress: deleteBookHandler },
-                  ]);
-                }}
-                title="本削除"
-                titleStyle={notebookStyles.deleteOption}
-                leadingIcon="delete"
-              /> */}
-            </Menu>
+              </View>
             </View>
           </View>
-        ),
+        );
+      },
     });
-  }, [navigation, menuVisible, editing, currentPageNumber, showHelpOverlay]);
-
+  }, [navigation, menuVisible, editing, undoStack.length, showSearch, outlineNumberingEnabled, book?.is_sample, insets.top]);
   if (!book) return <Text>{MESSAGES.NOT_FOUND_BOOK}</Text>;
 
   const closeSearchPanel = () => {
