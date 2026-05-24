@@ -6,6 +6,7 @@ import { ENV } from '@config';
 import { logTable } from '../utils/logTable';
 
 const isDelete = ENV.INIT_DB; // trueにすると毎回初期化される
+const isPurgeOnly = ENV.PURGE_DB_ONLY; // trueのとき: 削除のみ実行し初期データは投入しない
 
 export type Book = {
   book_id: string;
@@ -195,13 +196,15 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
             );
           `);
 
-          const nowIso = new Date().toISOString();
-          // 初期データを挿入
-          for (const b of initialBooks) {
-            await database.runAsync(
-              'INSERT INTO books (id, title, color, order_index, is_pinned, is_sample, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-              [b.book_id, b.title, b.color, b.order_index, 0, b.is_sample ? 1 : 0, nowIso, nowIso]
-            );
+          if (!isPurgeOnly) {
+            const nowIso = new Date().toISOString();
+            // 初期データを挿入
+            for (const b of initialBooks) {
+              await database.runAsync(
+                'INSERT INTO books (id, title, color, order_index, is_pinned, is_sample, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [b.book_id, b.title, b.color, b.order_index, 0, b.is_sample ? 1 : 0, nowIso, nowIso]
+              );
+            }
           }
 
           await database.runAsync(
@@ -246,7 +249,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }));
 
         // ✅ データベースが空なら初期データを挿入
-        if (books.length === 0) {
+        if (books.length === 0 && !isPurgeOnly) {
           const nowIso = new Date().toISOString();
           for (const book of initialBooks) {
             await database.runAsync(

@@ -35,6 +35,7 @@ import { useHeaderHeight } from '@react-navigation/elements';
 import { Dimensions, PixelRatio } from 'react-native';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Asset } from 'expo-asset';
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 interface Props {
@@ -405,6 +406,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const floatingButtonBorder = '#DED2C3';
   const floatingButtonIcon = notebookColors.ink;
   const [isSavingPage, setIsSavingPage] = useState(false);
+  const hasCurrentPageOverflowRef = useRef(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [showHelpOverlay, setShowHelpOverlay] = useState(false);
   const [outlineNumberingEnabled, setOutlineNumberingEnabled] = useState(true);
@@ -462,7 +464,71 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const openMenu = () => setMenuVisible(true);
   const closeMenu = () => setMenuVisible(false);
 
+  const getOrCreateDefaultThumbnailPath = async (): Promise<string> => {
+    try {
+      const baseDir = FileSystem.documentDirectory;
+      if (!baseDir) return '';
+      const thumbDir = `${baseDir}thumbnails/`;
+      const destPath = `${thumbDir}default_note.png`;
+      await FileSystem.makeDirectoryAsync(thumbDir, { intermediates: true });
+
+      const info = await FileSystem.getInfoAsync(destPath);
+      if (!info.exists) {
+        const asset = Asset.fromModule(require('../../assets/images/note.png'));
+        await asset.downloadAsync();
+        if (asset.localUri) {
+          await FileSystem.copyAsync({ from: asset.localUri, to: destPath });
+        }
+      }
+      return destPath;
+    } catch (e) {
+      console.warn('default thumbnail creation failed (NotebookScreen):', e);
+      return '';
+    }
+  };
+
+  const ensurePageImagesForCurrentBook = async () => {
+    const contents = await getContentsByBookId(bookId);
+    const pageOrders = Array.from(new Set(contents.map((c) => Number(c.page)))).sort((a, b) => a - b);
+    if (pageOrders.length === 0) return;
+
+    const defaultThumbPath = await getOrCreateDefaultThumbnailPath();
+    if (!defaultThumbPath) return;
+
+    const images = await getPageImagesByBookId(bookId);
+    const pageImageMap = new Map<number, any>();
+    images.forEach((img: any) => {
+      const pageOrder = Number(img.page_order);
+      if (!pageImageMap.has(pageOrder)) pageImageMap.set(pageOrder, img);
+    });
+
+    for (const pageOrder of pageOrders) {
+      const row = pageImageMap.get(pageOrder);
+      if (!row) {
+        await addPageImage({
+          page_image_id: await Crypto.randomUUID(),
+          image_path: defaultThumbPath,
+          page_order: pageOrder,
+          book_id: bookId,
+        });
+        continue;
+      }
+
+      const currentPath = String(row.image_path ?? '');
+      if (!currentPath) {
+        await updatePageImage(String(row.page_image_id), { image_path: defaultThumbPath });
+        continue;
+      }
+
+      const existsInfo = await FileSystem.getInfoAsync(currentPath);
+      if (!existsInfo.exists) {
+        await updatePageImage(String(row.page_image_id), { image_path: defaultThumbPath });
+      }
+    }
+  };
+
   const refreshPageImageUris = async () => {
+    await ensurePageImagesForCurrentBook();
     const imgs = await getPageImagesByBookId(bookId);
     const uriMap: Record<number, string> = {};
     imgs.forEach(img => { uriMap[Number(img.page_order)] = img.image_path; });
@@ -492,7 +558,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // ===== ページ一覧モーダルを開く（サムネイルをDBから読み込む） =====
   const openPageList = async () => {
-    if (isSavingPage) return;
+    if (isSavingPage || book?.is_sample) return;
     try {
       if (pendingThumbnailTaskRef.current) {
         await pendingThumbnailTaskRef.current;
@@ -519,7 +585,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   // モーダル表示状態
   const [tocVisible, setTocVisible] = useState(false);
-  const [isTocExpanded, setIsTocExpanded] = useState(false);
+  const [isTocExpanded, setIsTocExpanded] = useState(true);
   const [tocOpenSections, setTocOpenSections] = useState<Record<string, boolean>>({});
   const [pageListVisible, setPageListVisible] = useState(false);
   const [typePickerVisible, setTypePickerVisible] = useState(false);
@@ -559,6 +625,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   };
 
   const insertPageAfterCurrent = async () => {
+    if (book?.is_sample) {
+      Alert.alert('ページ追加できません', 'サンプルノートはページ追加できません。');
+      return;
+    }
     if (isAddingPageRef.current) return;
     isAddingPageRef.current = true;
 
@@ -735,22 +805,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       setOutlineNumberingEnabled(true);
     }
 
-    const prevEl = pagesElementsRef.current[currentPageNumber]?.[index];
-    const hasPrefixAfter = OUTLINE_PREFIX_RE.test((newEl as any).text || '');
-
     let nextEl: NoteElement = newEl;
     if (newEl.type === 'chapter' || newEl.type === 'section' || newEl.type === 'subsection') {
-      const autoDisabledBefore = (prevEl as any)?.autoNumberingDisabled === true;
-      if (hasPrefixAfter) {
-        nextEl = { ...newEl, autoNumberingDisabled: false };
-      } else {
-        nextEl = { ...newEl, autoNumberingDisabled: true };
-      }
-
-      // preserve explicit disable when prefix was already removed and user continues editing without prefix
-      if (!hasPrefixAfter && autoDisabledBefore) {
-        nextEl.autoNumberingDisabled = true;
-      }
+      nextEl = { ...newEl, autoNumberingDisabled: !outlineNumberingEnabled };
     }
 
     applyWithUndo((next) => {
@@ -1006,7 +1063,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       const [, currentOverflow] = splitPageByCapacity(currentElements, maxRows, screenWidth);
 
       let normalized: NoteElement[][];
-      if (currentOverflow.length > 0) {
+      if (hasCurrentPageOverflowRef.current && currentOverflow.length > 0) {
         const strategy = await askOverflowSaveStrategy();
         if (strategy === 'cancel') {
           return false;
@@ -1227,10 +1284,16 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   };
 
   const loadAllPages = async () => {
+    await ensurePageImagesForCurrentBook();
     let contents = await getContentsByBookId(bookId);
+    let effectiveOutlineNumberingEnabled = outlineNumberingEnabled;
 
     // DB が空なら空のページを2つ作成
     if (!contents || contents.length === 0) {
+      if (!outlineNumberingEnabled) {
+        setOutlineNumberingEnabled(true);
+      }
+      effectiveOutlineNumberingEnabled = true;
       for (let p = 0; p < 2; p++) {
         const contentId = await Crypto.randomUUID();
         await addContent({
@@ -1292,7 +1355,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           return {
             type: o.type as 'chapter' | 'section' | 'subsection',
             text: slimText,
-            autoNumberingDisabled: !hasPrefix && !outlineNumberingEnabled,
+            autoNumberingDisabled: !hasPrefix && !effectiveOutlineNumberingEnabled,
           };
         }
         if (item.kind === 'text') {
@@ -1314,7 +1377,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     }
 
     // 一括で State を更新（順序が確実に保証される）。全ページ通しで章番号を連番付与する。
-    setPagesElements(applyOutlineNumberingAllPages(newPagesElements, outlineNumberingEnabled));
+    setPagesElements(applyOutlineNumberingAllPages(newPagesElements, effectiveOutlineNumberingEnabled));
   };
 
   useEffect(() => { // 初回ロード時に DB からページデータを読み込む
@@ -1627,6 +1690,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             key={noteContentKey}
             backgroundColor={book.color}
             elements={(pagesElements[currentPageNumber] || []).filter((el): el is NoteElement => Boolean(el && (el as any).type))}
+            onOverflowStateChange={(hasOverflow) => {
+              hasCurrentPageOverflowRef.current = hasOverflow;
+            }}
             onSwipePage={handleNoteSwipePage}
             isEditing={editing}
             onElementChange={handleElementChange}
@@ -1692,7 +1758,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             {/* ページ一覧ボタン（左下） */}
             {!editing && (
               <TouchableOpacity
-                disabled={editing || isSavingPage}
+                disabled={editing || isSavingPage || Boolean(book?.is_sample)}
                 onPress={() => {
                   console.log('ページ一覧ボタン押下');
                   openPageList();
@@ -1700,7 +1766,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 style={[
                   notebookStyles.pageListBtn,
                   { backgroundColor: floatingButtonBg, borderColor: floatingButtonBorder },
-                  isSavingPage ? { opacity: 0.6 } : null,
+                  (isSavingPage || book?.is_sample) ? { opacity: 0.45 } : null,
                   { position: 'absolute', bottom: commonStyle.screenHeight * 0.02 + (commonStyle.screenWidth / 6 - commonStyle.screenWidth / 7) / 2, left: 20 },
                   getDebugStyle('rgba(0, 0, 0, 0.4)'),
                 ]}
@@ -1733,10 +1799,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             {/* ページ追加ボタン（右下）+ */}
             {!editing && (
               <TouchableOpacity
+                disabled={Boolean(book?.is_sample)}
                 style={[
                   notebookStyles.editButton,
                   { backgroundColor: floatingButtonBg, borderColor: floatingButtonBorder },
-                  { bottom: commonStyle.screenHeight * 0.02 }
+                  { bottom: commonStyle.screenHeight * 0.02 },
+                  book?.is_sample ? { opacity: 0.45 } : null,
                 ]}
                 onPress={async () => {
                   console.log('ページ追加ボタン押下');
@@ -1877,7 +1945,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                   color={notebookColors.ink}
                 />
                 <Text style={notebookStyles.tocModeToggleText}>
-                  {isTocExpanded ? 'プルダウン' : '全体表示'}
+                  {isTocExpanded ? '大見出しのみ表示' : '全見出しを表示'}
                 </Text>
               </TouchableOpacity>
             </View>

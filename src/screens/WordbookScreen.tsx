@@ -353,7 +353,7 @@ const WordbookScreen: React.FC = () => {
               borderRadius: 18,
               borderWidth: 1,
               borderColor: '#D6C5B2',
-              backgroundColor: '#FFF9F2',
+              backgroundColor: '#FFFDF9',
               padding: 18,
               minHeight: questionCardMinHeight,
             }}
@@ -398,13 +398,15 @@ const WordbookScreen: React.FC = () => {
             </View>
 
             <Text style={{ fontSize: 14, color: '#7D7064' }}>答え</Text>
-            <View
+            <TouchableOpacity
+              onPress={() => setRevealed(!revealed)}
+              activeOpacity={0.85}
               style={{
                 marginTop: 8,
                 borderRadius: 12,
                 borderWidth: 1,
                 borderColor: '#E1D2C3',
-                backgroundColor: '#FCF6EE',
+                backgroundColor: '#FFFDF9',
                 paddingHorizontal: 14,
                 paddingVertical: 16,
                 height: 120,
@@ -416,19 +418,14 @@ const WordbookScreen: React.FC = () => {
                 <ScrollView
                   showsVerticalScrollIndicator={true}
                   contentContainerStyle={{ justifyContent: 'center', minHeight: '100%' }}
+                  scrollEnabled={false}
                 >
                   <Text style={{ fontSize: 22, lineHeight: 32, color: '#3E332A' }}>{answerText}</Text>
                 </ScrollView>
               ) : (
-                <TouchableOpacity
-                  onPress={() => setRevealed(true)}
-                  activeOpacity={0.85}
-                  style={{ flex: 1, justifyContent: 'center' }}
-                >
-                  <Text style={{ fontSize: 22, lineHeight: 32, color: '#3E332A' }}>タップして表示</Text>
-                </TouchableOpacity>
+                <Text style={{ fontSize: 22, lineHeight: 32, color: '#3E332A' }}>タップして表示</Text>
               )}
-            </View>
+            </TouchableOpacity>
 
             <TouchableOpacity
               onPress={() => navigation.navigate('Notebook', { bookId: currentCard.bookId, initialPage: currentCard.page, source: 'wordbook' })}

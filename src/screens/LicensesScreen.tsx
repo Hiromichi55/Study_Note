@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { RootStackParamList } from '../App';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const LICENSES: Array<{ name: string; version: string; license: string }> = [
   { name: '@expo/vector-icons', version: '15.0.2', license: 'MIT' },
@@ -55,26 +56,37 @@ const FONT_LICENSES: Array<{
 
 const LicenseScreen: React.FC = () => {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
+  const insets = useSafeAreaInsets();
   const appVersion = Constants.expoConfig?.version ?? Constants.nativeAppVersion ?? '1.0.0';
   const buildVersion = Constants.nativeBuildVersion ?? '-';
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerTitle: '詳細情報',
-      headerTitleStyle: { fontSize: 17, fontWeight: '700', color: '#342C24' },
       headerStyle: { backgroundColor: '#E9DCCD' },
       headerShadowVisible: false,
-      headerTintColor: '#342C24',
-      headerLeft: () => (
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}
-        >
-          <Ionicons name="chevron-back" size={24} color="#342C24" />
-        </TouchableOpacity>
-      ),
+      header: () => {
+        const headerVisualHeight = 56;
+        const totalHeight = insets.top + headerVisualHeight;
+        return (
+          <View style={{ backgroundColor: '#E9DCCD', height: totalHeight, paddingTop: insets.top }}>
+            <View style={{ height: headerVisualHeight, justifyContent: 'center' }}>
+              <View style={{ position: 'absolute', left: 6, top: 10, bottom: 10, justifyContent: 'center' }}>
+                <TouchableOpacity
+                  onPress={() => navigation.goBack()}
+                  style={{ alignItems: 'center', justifyContent: 'center', borderRadius: 100, paddingHorizontal: 6, marginLeft: 4 }}
+                >
+                  <Ionicons name="chevron-back" size={24} color="#342C24" />
+                </TouchableOpacity>
+              </View>
+              <View style={{ justifyContent: 'center', alignItems: 'center' }}>
+                <Text style={{ fontSize: 17, fontWeight: '700', color: '#342C24' }}>詳細情報</Text>
+              </View>
+            </View>
+          </View>
+        );
+      },
     });
-  }, [navigation]);
+  }, [navigation, insets]);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>

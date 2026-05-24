@@ -1,6 +1,6 @@
 // App.tsx
-import React, { useEffect } from 'react';
-import { ScrollView, Text } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ScrollView, Text, View, Image, Animated, StyleSheet, Dimensions } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -59,7 +59,7 @@ export default function App() {
   }, [fontsLoaded]);
 
   // フォント読み込みまで待機
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded) return <LoadingScreen />;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -69,6 +69,96 @@ export default function App() {
     </GestureHandlerRootView>
   );
 }
+
+// ==================== ローディング画面 ====================
+function LoadingScreen() {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.88)).current;
+  const dotAnim1 = useRef(new Animated.Value(0.3)).current;
+  const dotAnim2 = useRef(new Animated.Value(0.3)).current;
+  const dotAnim3 = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    // アイコン＋タイトルのフェードインとスケール
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 700,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 6,
+        tension: 60,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // ドットのウェーブアニメーション
+    const pulse = (anim: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, { toValue: 1, duration: 380, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0.3, duration: 380, useNativeDriver: true }),
+          Animated.delay(760 - delay),
+        ])
+      );
+
+    const d1 = pulse(dotAnim1, 0);
+    const d2 = pulse(dotAnim2, 200);
+    const d3 = pulse(dotAnim3, 400);
+    d1.start(); d2.start(); d3.start();
+    return () => { d1.stop(); d2.stop(); d3.stop(); };
+  }, []);
+
+  return (
+    <View style={loadingStyles.container}>
+      <Animated.View style={[loadingStyles.content, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
+        <Image
+          source={require('../assets/images/loading.png')}
+          style={loadingStyles.icon}
+          resizeMode="contain"
+        />
+      </Animated.View>
+      <Animated.View style={[loadingStyles.dotsRow, { opacity: fadeAnim }]}>
+        {([dotAnim1, dotAnim2, dotAnim3] as Animated.Value[]).map((anim, i) => (
+          <Animated.View key={i} style={[loadingStyles.dot, { opacity: anim }]} />
+        ))}
+      </Animated.View>
+    </View>
+  );
+}
+
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+
+const loadingStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F5EFE6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: {
+    alignItems: 'center',
+  },
+  icon: {
+    width: SCREEN_W * 0.9,
+    height: SCREEN_W * 0.9,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    position: 'absolute',
+    bottom: SCREEN_H * 0.14,
+    gap: 10,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#8B6F52',
+  },
+});
 
 // ==================== 本番用コンポーネント ====================
 function ProductionApp() {

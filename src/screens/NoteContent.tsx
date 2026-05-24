@@ -28,7 +28,6 @@ const TOOLBAR_BG = '#FCFAF6';
 const TOOLBAR_BORDER = '#DED2C3';
 const WORD_ACCENT_COLOR = '#D13A3A';
 const RESERVED_TOP_LINES = 1;
-
 const snapToLineGrid = (height: number, lineHeight: number): number => {
   const safeHeight = Math.max(lineHeight, height);
   return Math.ceil(safeHeight / lineHeight) * lineHeight;
@@ -109,9 +108,11 @@ type Props = {
   onEditStart?: (index: number) => void;
   /** 編集開始時にフォーカスする要素インデックス */
   initialFocusIndex?: number;
+  /** 赤枠（超過）表示状態の通知 */
+  onOverflowStateChange?: (hasOverflow: boolean) => void;
 };
 
-const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackground = true, elements, onNoteLayout, onSwipePage, onBackgroundGenerated, isEditing, onElementChange, onDeleteElement, onTapEmpty, onSplitToNextTextBlock, onMergeWithPrevious, onEditStart, initialFocusIndex }) => {
+const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackground = true, elements, onNoteLayout, onSwipePage, onBackgroundGenerated, isEditing, onElementChange, onDeleteElement, onTapEmpty, onSplitToNextTextBlock, onMergeWithPrevious, onEditStart, initialFocusIndex, onOverflowStateChange }) => {
   const bgColor = COLOR_MAP[backgroundColor ?? 'red'];
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -125,10 +126,13 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     selectedRows: 3,
     dropdownOpen: false,
   });
+
   const measuredWordLinesRef = useRef<Record<number, number>>({});
   const measuredTextLinesRef = useRef<Record<number, number>>({});
   const inputRefs = useRef<Record<string, TextInput | null>>({});
   const scrollViewRef = useRef<ScrollView>(null);
+  const noteSheetRef = useRef<View | null>(null);
+  const noteBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const scrollOffsetRef = useRef(0);
   const swipeStateRef = useRef<{ startX: number; startY: number; swiped: boolean }>({ startX: 0, startY: 0, swiped: false });
   const lastSwipeAtRef = useRef<number>(0);
@@ -169,6 +173,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     setDisplayTextLines({ ...measuredTextLinesRef.current });
   }, [isEditing, elements]);
 
+
+
+
+
   const TOOLBAR_TYPES: { label: string; type: NoteElement['type']; iconName?: keyof typeof Ionicons.glyphMap }[] = [
     { label: '文章', type: 'text', iconName: 'text-outline' },
     { label: '大', type: 'chapter' },
@@ -178,7 +186,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     { label: '画像', type: 'image', iconName: 'image-outline' },
   ];
 
-  const noteX = PixelRatio.roundToNearestPixel(NOTE_OUTER_MARGIN);
+  const noteX = PixelRatio.roundToNearestPixel((width - width * 0.98) / 2);
   const noteY = PixelRatio.roundToNearestPixel(NOTE_OUTER_MARGIN);
   const noteWidth = PixelRatio.roundToNearestPixel(width * 0.98);
   const noteHeight = PixelRatio.roundToNearestPixel((height - headerHeight) * 0.87 - noteY);
@@ -287,6 +295,26 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     });
     return Math.ceil(usedHeight / interval);
   };
+
+  useEffect(() => {
+    if (!onOverflowStateChange) return;
+    const capacityHeight = maxRows * interval;
+    let consumedHeight = 0;
+    let hasOverflow = false;
+
+    (elements ?? []).forEach((el, idx) => {
+      if (!isValidElement(el)) return;
+      const h = getRowHeight(el, idx);
+      if (!hasOverflow && consumedHeight > 0 && consumedHeight + h > capacityHeight) {
+        hasOverflow = true;
+      }
+      if (!hasOverflow) {
+        consumedHeight += h;
+      }
+    });
+
+    onOverflowStateChange(hasOverflow);
+  }, [elements, isEditing, measuredTextLines, displayWordLines, maxRows, noteWidth, onOverflowStateChange]);
 
   const updateMeasuredTextLines = (idx: number, nextLines: number) => {
     const lines = Math.max(1, nextLines);
@@ -440,11 +468,24 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     }
   };
 
-  const handleRowResponderRelease = (onTap: () => void) => {
+  const handleRowResponderRelease = (e: any, onTap: () => void) => {
     if (swipeStateRef.current.swiped) {
       swipeStateRef.current.swiped = false;
       return;
     }
+
+    const x = e?.nativeEvent?.pageX;
+    const y = e?.nativeEvent?.pageY;
+    if (typeof x === 'number' && typeof y === 'number') {
+      const bounds = noteBoundsRef.current;
+      const isInsideNote = bounds
+        ? x >= bounds.x && x <= bounds.x + bounds.width && y >= bounds.y && y <= bounds.y + bounds.height
+        : x >= noteX && x <= noteX + noteWidth && y >= noteY && y <= noteY + noteHeight;
+      if (!isInsideNote) {
+        return;
+      }
+    }
+
     onTap();
   };
 
@@ -768,8 +809,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
             onStartShouldSetResponder={() => true}
             onResponderGrant={handleRowResponderGrant}
             onResponderMove={handleRowResponderMove}
-            onResponderRelease={() =>
-              handleRowResponderRelease(() => {
+            onResponderRelease={(e) =>
+              handleRowResponderRelease(e, () => {
                 if (!isEditing) {
                   onEditStart?.(idx);
                   return;
@@ -866,8 +907,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
             onStartShouldSetResponder={() => true}
             onResponderGrant={handleRowResponderGrant}
             onResponderMove={handleRowResponderMove}
-            onResponderRelease={() =>
-              handleRowResponderRelease(() => {
+            onResponderRelease={(e) =>
+              handleRowResponderRelease(e, () => {
                 if (!isEditing) {
                   onEditStart?.(idx);
                   return;
@@ -1086,6 +1127,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       const isOutlineType = el.type === 'chapter' || el.type === 'section' || el.type === 'subsection';
       const isOverflow = overflowStartIndex !== null && idx >= overflowStartIndex;
       const textRowHeightStyle = { minHeight: estHeight };
+      const headingUnderlineStyle = isOutlineType ? { textDecorationLine: 'underline' as const } : null;
       const mainText = 'text' in el ? el.text : (el as any).text || '';
       rendered.push(
         <View
@@ -1093,10 +1135,16 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           onStartShouldSetResponder={() => true}
           onResponderGrant={handleRowResponderGrant}
           onResponderMove={handleRowResponderMove}
-          onResponderRelease={() =>
-            handleRowResponderRelease(() => {
+          onResponderRelease={(e) =>
+            handleRowResponderRelease(e, () => {
               if (!isEditing) {
                 onEditStart?.(idx);
+                return;
+              }
+              // 見出し（大中小）が既にアクティブな場合、2回目のタップで文章に変換
+              const isOutline = el.type === 'chapter' || el.type === 'section' || el.type === 'subsection';
+              if (isOutline && effectiveActiveIndex === idx) {
+                handleTypeChange('text');
                 return;
               }
               setActiveIndex(idx);
@@ -1160,6 +1208,23 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   if (nativeEvent.key === 'Backspace') {
                     const current = 'text' in el ? el.text : (el as any).text || '';
                     const isBlankOrNewlineOnly = !current.trim();
+                    const inputKey = getInputKey(idx, 'main');
+                    const selection = selectionRef.current[inputKey];
+                    const outlinePrefixMatch = current.match(OUTLINE_PREFIX_RE);
+                    const outlinePrefix = outlinePrefixMatch?.[0] ?? '';
+                    const outlineBody = stripOutlinePrefix(current);
+
+                    const isCursorRightOfOutlinePrefix = isOutlineType
+                      && outlinePrefix.length > 0
+                      && selection
+                      && selection.start === selection.end
+                      && selection.start === outlinePrefix.length;
+
+                    if (isCursorRightOfOutlinePrefix) {
+                      onElementChange?.(idx, { type: 'text', text: outlineBody });
+                      return;
+                    }
+
                     const mergeWithPreviousKeepingKeyboard = () => {
                       if (idx <= 0) {
                         focusPrevElement(idx);
@@ -1197,7 +1262,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                       return;
                     }
                     
-                    const selection = selectionRef.current[getInputKey(idx, 'main')];
                     // 空要素の先頭でBackspace → 前要素へ結合（selectionが未記録の場合も包含）
                     if (el.type === 'text' && current.length === 0) {
                       mergeWithPreviousKeepingKeyboard();
@@ -1236,11 +1300,14 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   fontFamily: font.family,
                   backgroundColor: 'transparent',
                   width: '100%',
+                  color: '#2D251D',
                   minHeight: font.lineHeight,
                   padding: 0,
                   textAlignVertical: 'top',
                   includeFontPadding: false,
+                  ...(headingUnderlineStyle ?? {}),
                 }}
+                selectionColor="#8A6F56"
                 multiline
                 blurOnSubmit={true}
                 submitBehavior="submit"
@@ -1270,10 +1337,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   fontFamily: font.family,
                   flexWrap: 'wrap',
                   width: '100%',
+                  color: '#2D251D',
                   minHeight: font.lineHeight,
                   padding: 0,
                   textAlignVertical: 'top',
                   includeFontPadding: false,
+                  ...(headingUnderlineStyle ?? {}),
                 }}
               />
             )}
@@ -1291,8 +1360,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           onStartShouldSetResponder={() => true}
           onResponderGrant={handleRowResponderGrant}
           onResponderMove={handleRowResponderMove}
-          onResponderRelease={() =>
-            handleRowResponderRelease(() => {
+          onResponderRelease={(e) =>
+            handleRowResponderRelease(e, () => {
               if (!isEditing) {
                 // 非編集モード：新要素追加 → 編集モード開始
                 onTapEmpty?.(currentCount);
@@ -1316,10 +1385,27 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   // ===================================================
   //  JSX レンダリング
   // ===================================================
+
+  const updateNoteBounds = () => {
+    noteSheetRef.current?.measureInWindow((x, y, w, h) => {
+      if (w <= 0 || h <= 0) return;
+      noteBoundsRef.current = { x, y, width: w, height: h };
+      onNoteLayout?.({ x, y, width: w, height: h });
+    });
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: fillBackground ? bgColor : 'transparent' }}>
       {/* 白いノート用紙。Animated.View の translateY でキーボード出現時に全体がスライドアップ */}
       <Animated.View
+        ref={(ref) => {
+          noteSheetRef.current = ref as unknown as View;
+        }}
+        onLayout={() => {
+          requestAnimationFrame(() => {
+            updateNoteBounds();
+          });
+        }}
         style={{
           position: 'absolute',
           top: noteY,
@@ -1364,7 +1450,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       {isEditing && keyboardVisible && (
         <View style={[style.keyboardToolbar, { position: 'absolute', bottom: keyboardHeight, left: 0, right: 0 }]}>
           {(() => {
-            const current = activeIndex !== null ? elements?.[activeIndex] : undefined;
+            const current = effectiveActiveIndex !== null && effectiveActiveIndex !== undefined ? elements?.[effectiveActiveIndex] : undefined;
             const currentType: NoteElement['type'] = isValidElement(current) ? current.type : 'text';
 
             const renderButton = ({ label, type, iconName }: { label: string; type: NoteElement['type']; iconName?: keyof typeof Ionicons.glyphMap }) => {
@@ -1414,12 +1500,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 : '#513D2D';
 
               const iconSize = type === 'chapter'
-                ? 18
+                ? 20
                 : type === 'section'
-                ? 16
+                ? 18
                 : type === 'subsection'
-                ? 14
-                : 14;
+                ? 16
+                : 16;
 
               return (
                 <TouchableOpacity
@@ -1434,10 +1520,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   disabled={isImageButtonDisabled}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    {iconName ? <Ionicons name={iconName} size={iconSize} color={iconColor} style={{ marginRight: 4 }} /> : null}
+                    {iconName ? <Ionicons name={iconName} size={iconSize} color={iconColor} style={{ marginRight: 6 }} /> : null}
                     <Text
                       allowFontScaling={false}
                       maxFontSizeMultiplier={1}
+                      numberOfLines={1}
+                      ellipsizeMode="clip"
                       style={[
                         style.toolbarButtonLabel,
                         baseTextStyle,
@@ -1543,17 +1631,18 @@ const style = StyleSheet.create({
     backgroundColor: TOOLBAR_BG,
     borderTopWidth: 1,
     borderTopColor: TOOLBAR_BORDER,
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     flexDirection: 'column',
     flexShrink: 0,
     alignItems: 'center',
   },
   toolbarSectionLabel: {
-    fontSize: 12,
+    fontSize: 11,
+    lineHeight: 13,
     fontWeight: '600',
     color: '#7A6B5D',
-    marginBottom: 3,
+    marginBottom: 1,
     alignSelf: 'flex-start',
   },
   toolbarButtonList: {
@@ -1561,25 +1650,28 @@ const style = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'center',
     gap: 6,
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
   },
   toolbarOutlineInlineGroup: {
     flexDirection: 'column',
     alignItems: 'flex-start',
+    justifyContent: 'flex-end',
   },
   toolbarOutlineButtons: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: 6,
   },
   toolbarStandaloneButton: {
     alignSelf: 'flex-end',
   },
   toolbarButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 9,
-    borderRadius: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 10,
     borderWidth: 1,
+    minHeight: 34,
+    justifyContent: 'center',
   },
   toolbarButtonDisabled: {
     opacity: 0.45,
@@ -1617,7 +1709,8 @@ const style = StyleSheet.create({
     borderColor: '#58498A',
   },
   toolbarButtonLabel: {
-    fontSize: 13,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: '600',
   },
   toolbarButtonOutlineText: {

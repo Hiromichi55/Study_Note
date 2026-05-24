@@ -6,6 +6,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Asset } from 'expo-asset';
 
 const isDelete = ENV.INIT_DB; // trueのとき: コンテンツ系テーブルを全削除して再作成
+const isPurgeOnly = ENV.PURGE_DB_ONLY; // trueのとき: 削除のみ実行し初期データは投入しない
 
 type SeedPage = {
   chapter: string;
@@ -584,10 +585,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         console.warn('page_images migration warning:', merr);
       }
 
-      // コンテンツが空の場合のみ、起動モードに応じた初期ページを投入する
-      await seedInitialPages(database);
-      const defaultThumbPath = await getOrCreateDefaultSeedThumbnailPath();
-      await ensurePageImagesForAllPages(database, defaultThumbPath);
+      if (!isPurgeOnly) {
+        // コンテンツが空の場合のみ、起動モードに応じた初期ページを投入する
+        await seedInitialPages(database);
+        const defaultThumbPath = await getOrCreateDefaultSeedThumbnailPath();
+        await ensurePageImagesForAllPages(database, defaultThumbPath);
+      }
 
       await database.runAsync(
         'INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?);',

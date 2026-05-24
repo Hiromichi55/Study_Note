@@ -132,7 +132,7 @@ const WordListScreen: React.FC = () => {
           <View pointerEvents="auto" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, backgroundColor: 'rgba(39, 30, 22, 0.14)' }}>
             <View style={{ position: 'absolute', top: 18, right: 16, maxWidth: '52%', backgroundColor: 'rgba(255, 253, 249, 0.99)', borderRadius: 12, borderWidth: 1.5, borderColor: '#DCCAB4', paddingHorizontal: 12, paddingVertical: 10 }}>
               <Text style={{ fontSize: 13, color: '#3E3125', fontWeight: '700', marginBottom: 4 }}>表示条件</Text>
-              <Text style={{ fontSize: 12, color: '#4E4034', lineHeight: 17 }}>すべて/保存のみを切り替えできます。</Text>
+              <Text style={{ fontSize: 12, color: '#4E4034', lineHeight: 17 }}>すべて/保存を切り替えできます。</Text>
             </View>
             <View style={{ position: 'absolute', top: 96, left: 16, maxWidth: '56%', backgroundColor: 'rgba(255, 253, 249, 0.99)', borderRadius: 12, borderWidth: 1.5, borderColor: '#DCCAB4', paddingHorizontal: 12, paddingVertical: 10 }}>
               <Text style={{ fontSize: 13, color: '#3E3125', fontWeight: '700', marginBottom: 4 }}>本の選択</Text>
@@ -226,7 +226,7 @@ const WordListScreen: React.FC = () => {
                 size={13}
                 color={savedOnly ? '#FFFFFF' : '#6E4423'}
               />
-              <Text style={{ color: savedOnly ? '#FFFFFF' : '#6E4423', fontWeight: '700', fontSize: 12 }}>保存のみ</Text>
+              <Text style={{ color: savedOnly ? '#FFFFFF' : '#6E4423', fontWeight: '700', fontSize: 12 }}>保存</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -263,27 +263,33 @@ const WordListScreen: React.FC = () => {
               <Text style={{ flex: 3, padding: 10, fontWeight: '700', color: '#3E332A' }}>意味</Text>
             </View>
 
-            {filteredRows.map((row, index) => (
-              <TouchableOpacity
-                key={row.key}
-                activeOpacity={0.78}
-                onPress={() => navigation.navigate('Notebook', { bookId: row.bookId, initialPage: row.page, source: 'wordbook' })}
-                style={{
-                  flexDirection: 'row',
-                  borderWidth: 1,
-                  borderTopWidth: 0,
-                  borderColor: '#E1D2C3',
-                  backgroundColor: index % 2 === 0 ? '#FFFCF8' : '#FCF6EE',
-                }}
-              >
-                <Text style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 10, color: '#3E332A', lineHeight: 20, flexWrap: 'wrap' }}>
-                  {row.word || '---'}
-                </Text>
-                <Text style={{ flex: 3, paddingHorizontal: 10, paddingVertical: 10, color: '#3E332A', lineHeight: 20, flexWrap: 'wrap' }}>
-                  {row.meaning || '---'}
-                </Text>
-              </TouchableOpacity>
-            ))}
+            {filteredRows.map((row, index) => {
+              const isLastRow = index === filteredRows.length - 1;
+              return (
+                <TouchableOpacity
+                  key={row.key}
+                  activeOpacity={0.78}
+                  onPress={() => navigation.navigate('Notebook', { bookId: row.bookId, initialPage: row.page, source: 'wordbook' })}
+                  style={{
+                    flexDirection: 'row',
+                    borderWidth: 1,
+                    borderTopWidth: 0,
+                    borderColor: '#E1D2C3',
+                    backgroundColor: index % 2 === 0 ? '#FFFCF8' : '#FCF6EE',
+                    borderBottomLeftRadius: isLastRow ? 10 : 0,
+                    borderBottomRightRadius: isLastRow ? 10 : 0,
+                    overflow: isLastRow ? 'hidden' : 'visible',
+                  }}
+                >
+                  <Text style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 10, color: '#3E332A', lineHeight: 20, flexWrap: 'wrap' }}>
+                    {row.word || '---'}
+                  </Text>
+                  <Text style={{ flex: 3, paddingHorizontal: 10, paddingVertical: 10, color: '#3E332A', lineHeight: 20, flexWrap: 'wrap' }}>
+                    {row.meaning || '---'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </ScrollView>
       )}
