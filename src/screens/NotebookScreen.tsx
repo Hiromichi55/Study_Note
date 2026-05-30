@@ -1008,6 +1008,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       setShowHelpOverlay(false);
       return;
     }
+    // サンプルノートは編集不可
+    if (book?.is_sample) {
+      // Alert.alert('編集不可', 'このノートはサンプルのため編集できません。');
+      return;
+    }
     setPendingFocusIndex(index);
     // Ensure NoteContent re-mounts so initialFocusIndex is applied deterministically.
     setNoteContentKey((prev) => prev + 1);
