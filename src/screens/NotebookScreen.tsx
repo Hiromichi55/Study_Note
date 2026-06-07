@@ -108,6 +108,27 @@ const NOTE_LINE_HEIGHT = 30;
 const NOTE_RESERVED_TOP_LINES = 1;
 const NOTE_HORIZONTAL_SPACE = 0.03;
 const NOTE_IMAGE_DEFAULT_ROWS = 3;
+const NEW_PAGE_MIN_BODY_LINES = 2;
+const NEW_PAGE_BODY_FOCUS_INDEX = 1;
+
+const createEmptyTextElement = (): NoteElement => ({ type: 'text', text: '' });
+
+const ensureMinBodyLines = (page: NoteElement[] | undefined): NoteElement[] => {
+  const normalized = [...(page ?? [])];
+  while (normalized.length < NEW_PAGE_MIN_BODY_LINES) {
+    normalized.push(createEmptyTextElement());
+  }
+  return normalized;
+};
+
+const isEffectivelyBlankPage = (page: NoteElement[] | undefined): boolean => {
+  const normalized = page ?? [];
+  if (normalized.length === 0) return true;
+  return normalized.every((el) => {
+    if (el.type !== 'text') return false;
+    return (el.text || '').trim().length === 0;
+  });
+};
 
 const parseStoredImagePayload = (raw: unknown): { uri: string; rows?: number; aspectRatio?: number } => {
   const asText = typeof raw === 'string' ? raw : '';
@@ -284,11 +305,12 @@ const splitPageByCapacity = (elements: NoteElement[], maxRows: number, screenWid
 
   for (const el of elements) {
     const h = getNoteElementHeight(el, screenWidth);
+    const isBlankOnly = el.type === 'text' && (el.text || '').trim().length === 0;
     if (overflow.length > 0) {
       overflow.push(el);
       continue;
     }
-    if (used > 0 && used + h > maxHeight) {
+    if (!isBlankOnly && used + h > maxHeight) {
       overflow.push(el);
       continue;
     }
@@ -344,7 +366,9 @@ const insertOverflowAsNextPages = (
   let carry = overflow;
   while (carry.length > 0) {
     const [fitPage, nextOverflow] = splitPageByCapacity(carry, maxRows, screenWidth);
-    insertedPages.push(fitPage);
+    // 超過要素を2行目から開始するため、1行目に空のtext要素を追加
+    const pageWithEmptyFirstLine = [{ type: 'text' as const, text: '' }, ...fitPage];
+    insertedPages.push(pageWithEmptyFirstLine);
     if (nextOverflow.length === carry.length) {
       break;
     }
@@ -386,6 +410,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     width: Math.round(screenWidth * 0.98),
     height: Math.round((screenHeight - headerHeight) * 0.87 - NOTE_OUTER_MARGIN),
   };
+  // ノートの実際のアスペクト比を計算（ページ一覧で使用）
+  const noteAspectRatio = noteCapRect.width / noteCapRect.height;
   const { 
   addContent, addText, addWord, addImage, addOutline, getContentsByBookId, 
   getTextsByContentId, getOutlinesByContentId, getWordsByContentId, getImagesByContentId,
@@ -407,6 +433,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const floatingButtonIcon = notebookColors.ink;
   const [isSavingPage, setIsSavingPage] = useState(false);
   const hasCurrentPageOverflowRef = useRef(false);
+  const [showOverflowNotice, setShowOverflowNotice] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [showHelpOverlay, setShowHelpOverlay] = useState(false);
   const [outlineNumberingEnabled, setOutlineNumberingEnabled] = useState(true);
@@ -542,9 +569,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
   const scheduleThumbnailSync = (pageNumber: number) => {
     const task = (async () => {
-      // 編集状態解除後の描画を待ってからキャプチャし、アクティブ行ハイライトを含めない
-      await waitForNextFrame();
-      await waitForNextFrame();
+      // キーボード非表示アニメーション＋スクロールリセット完了を待ってからキャプチャする
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
       await saveThumbnailAsync(pageNumber);
       await refreshPageImageUris();
     })();
@@ -556,6 +582,25 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     });
   };
 
+  // 複数ページのサムネイルを順番に撮影する（超過保存時に現在ページ→次ページと撮影する用）
+  const scheduleThumbnailSyncForPages = (pageNumbers: number[], onFinish?: () => void) => {
+    const task = (async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+      for (const pageNumber of pageNumbers) {
+        setcurrentPageNumber(pageNumber);
+        await new Promise<void>((resolve) => setTimeout(resolve, 300));
+        await saveThumbnailAsync(pageNumber);
+      }
+      await refreshPageImageUris();
+      onFinish?.();
+    })();
+    pendingThumbnailTaskRef.current = task;
+    task.finally(() => {
+      if (pendingThumbnailTaskRef.current === task) {
+        pendingThumbnailTaskRef.current = null;
+      }
+    });
+  };
   // ===== ページ一覧モーダルを開く（サムネイルをDBから読み込む） =====
   const openPageList = async () => {
     if (isSavingPage || book?.is_sample) return;
@@ -689,7 +734,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       // 新ページを現在ページの次に挿入
       setPagesElements(prev => {
         const newPages = [...prev];
-        newPages.splice(insertPosition, 0, []);
+        newPages.splice(insertPosition, 0, ensureMinBodyLines([]));
         return newPages;
       });
 
@@ -819,15 +864,28 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   };
 
   const handleDeleteElement = (index: number) => {
+    console.log(`[handleDeleteElement] index=${index}, 現在のページ要素数=${pagesElementsRef.current[currentPageNumberRef.current]?.length ?? 0}`);
     applyWithUndo((next) => {
-      if (!next[currentPageNumber]) return next;
-      const updated = next[currentPageNumber].filter((_, i) => i !== index);
-      next[currentPageNumber] = updated;
+      const page = currentPageNumberRef.current;
+      if (!next[page]) return next;
+      const updated = next[page].filter((_, i) => i !== index);
+      next[page] = updated;
+      console.log(`[handleDeleteElement] 削除後の要素数=${updated.length}`);
       return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
     });
   };
 
   const handleTapEmpty = (afterIndex: number) => {
+    const page = pagesElementsRef.current[currentPageNumberRef.current] ?? [];
+    if (isEffectivelyBlankPage(page)) {
+      applyWithUndo((next) => {
+        if (!next[currentPageNumber]) next[currentPageNumber] = [];
+        next[currentPageNumber] = ensureMinBodyLines(next[currentPageNumber]);
+        return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
+      });
+      return true;
+    }
+
     const newEl: NoteElement = { type: 'text', text: '' };
     applyWithUndo((next) => {
       if (!next[currentPageNumber]) next[currentPageNumber] = [];
@@ -840,6 +898,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   };
 
   const handleSplitToNextTextBlock = (index: number, before: string, after: string) => {
+    console.log(`[handleSplitToNextTextBlock] index=${index}`);
     applyWithUndo((next) => {
       const page = [...(next[currentPageNumber] ?? [])];
       const current = page[index];
@@ -856,23 +915,40 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
     });
 
-    setPendingFocusIndex(index + 1);
+    // フォーカスを移さない（NoteContent側で直接処理）
+    console.log(`[handleSplitToNextTextBlock] 完了、フォーカスはNoteContent側で処理`);
     return true;
   };
 
   const handleMergeWithPrevious = (index: number) => {
+    console.log(`[handleMergeWithPrevious] index=${index}, currentPage=${currentPageNumberRef.current}`);
     if (index <= 0) return;
 
     applyWithUndo((next) => {
-      const page = [...(next[currentPageNumber] ?? [])];
+      const page = [...(next[currentPageNumberRef.current] ?? [])];
+      console.log(`[handleMergeWithPrevious] マージ前の要素数=${page.length}`);
       const prevEl = page[index - 1];
       const currEl = page[index];
+      console.log(`[handleMergeWithPrevious] prevEl(${index-1}): type=${prevEl?.type}, text="${prevEl?.type === 'text' ? prevEl.text : ''}"`);
+      console.log(`[handleMergeWithPrevious] currEl(${index}): type=${currEl?.type}, text="${currEl?.type === 'text' ? currEl.text : ''}"`);
+      
       if (!prevEl || !currEl) return next;
-      if (prevEl.type !== 'text' || currEl.type !== 'text') return next;
-
-      page[index - 1] = { type: 'text', text: `${prevEl.text}${currEl.text}` };
-      page.splice(index, 1);
-      next[currentPageNumber] = page;
+      
+      // 両方がtext型の場合のみマージ（word型の後のtext型は削除のみ）
+      if (prevEl.type === 'text' && currEl.type === 'text') {
+        page[index - 1] = { type: 'text', text: `${prevEl.text}${currEl.text}` };
+        page.splice(index, 1);
+        console.log(`[handleMergeWithPrevious] マージ完了、削除後の要素数=${page.length}`);
+      } else if (currEl.type === 'text' && (currEl.text || '').trim().length === 0) {
+        // 前がword型で現在が空のtext型の場合は、現在の要素を削除
+        console.log(`[handleMergeWithPrevious] 空のtext要素を削除`);
+        page.splice(index, 1);
+      } else {
+        console.log(`[handleMergeWithPrevious] マージ条件に合わないため終了`);
+        return next;
+      }
+      
+      next[currentPageNumberRef.current] = page;
       return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
     });
 
@@ -1013,7 +1089,21 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       // Alert.alert('編集不可', 'このノートはサンプルのため編集できません。');
       return;
     }
-    setPendingFocusIndex(index);
+
+    const pageIndex = currentPageNumberRef.current;
+    const currentPageElements = pagesElementsRef.current[pageIndex] ?? [];
+    const shouldStartFromSecondLine = isEffectivelyBlankPage(currentPageElements);
+
+    if (shouldStartFromSecondLine) {
+      setPagesElements((prev) => {
+        const next = clonePages(prev);
+        next[pageIndex] = ensureMinBodyLines(next[pageIndex]);
+        return next;
+      });
+      setPendingFocusIndex(NEW_PAGE_BODY_FOCUS_INDEX);
+    } else {
+      setPendingFocusIndex(index);
+    }
     // Ensure NoteContent re-mounts so initialFocusIndex is applied deterministically.
     setNoteContentKey((prev) => prev + 1);
     setEditing(true);
@@ -1025,6 +1115,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       if (!noteContentRef.current) return;
       const uri = await captureRef(noteContentRef, { format: 'jpg', quality: 0.7, result: 'tmpfile' });
       const pr = PixelRatio.get();
+      
+      // ノート領域をクロップ
       const cropped = await manipulateAsync(
         uri,
         [{ crop: {
@@ -1035,10 +1127,24 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         }}],
         { compress: 0.7, format: SaveFormat.JPEG }
       );
+      
+      // サムネイル用にリサイズ（ページ一覧で表示しやすいサイズに）
+      // 幅を200pxに縮小（アスペクト比を維持）
+      const thumbnailWidth = 200;
+      const aspectRatio = noteCapRect.width / noteCapRect.height;
+      const thumbnailHeight = Math.round(thumbnailWidth / aspectRatio);
+      
+      const resized = await manipulateAsync(
+        cropped.uri,
+        [{ resize: { width: thumbnailWidth, height: thumbnailHeight } }],
+        { compress: 0.8, format: SaveFormat.JPEG }
+      );
+      
       const destDir = FileSystem.documentDirectory + 'thumbnails/';
       await FileSystem.makeDirectoryAsync(destDir, { intermediates: true });
       const destPath = destDir + `book_${bookId}_page_${pageNumber}.jpg`;
-      await FileSystem.copyAsync({ from: cropped.uri, to: destPath });
+      await FileSystem.copyAsync({ from: resized.uri, to: destPath });
+      
       const existing = await getPageImagesByBookId(bookId);
       const existingPage = existing.find(img => Number(img.page_order) === pageNumber);
       if (existingPage) {
@@ -1060,24 +1166,22 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const handleSave = async (): Promise<boolean> => {
     if (isSavingPage) return false;
     setIsSavingPage(true);
+    // 超過時はサムネイル撮影が終わるまで isSavingPage を維持するため finally でのリセットをスキップするフラグ
+    let keepSavingPageForThumbnail = false;
     try {
       Keyboard.dismiss();
       const maxRows = computeMaxRows(headerHeight);
       const currentPage = currentPageNumberRef.current;
       const currentElements = pagesElementsRef.current[currentPage] ?? [];
       const [, currentOverflow] = splitPageByCapacity(currentElements, maxRows, screenWidth);
+      const hasOverflow = currentOverflow.length > 0;
 
       let normalized: NoteElement[][];
-      if (hasCurrentPageOverflowRef.current && currentOverflow.length > 0) {
-        const strategy = await askOverflowSaveStrategy();
-        if (strategy === 'cancel') {
-          return false;
-        }
-        normalized = strategy === 'insert-next-page'
-          ? insertOverflowAsNextPages(pagesElementsRef.current, currentPage, maxRows, screenWidth)
-          : rebalancePagesByCapacity(pagesElementsRef.current, maxRows, screenWidth);
+      if (hasOverflow) {
+        // 超過分を次ページに移動する
+        normalized = insertOverflowAsNextPages(pagesElementsRef.current, currentPage, maxRows, screenWidth);
       } else {
-        normalized = rebalancePagesByCapacity(pagesElementsRef.current, maxRows, screenWidth);
+        normalized = clonePages(pagesElementsRef.current);
       }
       const numbered = applyOutlineNumberingAllPages(normalized, outlineNumberingEnabled);
 
@@ -1087,8 +1191,18 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       setEditing(false);
       setUndoStack([]);
       setPendingFocusIndex(undefined);
-      // 体感遅延を減らすためサムネイル更新は非同期で実行
-      scheduleThumbnailSync(Math.min(currentPageNumberRef.current, numbered.length - 1));
+
+      if (hasOverflow) {
+        // 超過あり：現在ページ → 次ページの順にスクショを撮り、最終的に次ページに留まる
+        keepSavingPageForThumbnail = true;
+        const nextPage = Math.min(currentPage + 1, numbered.length - 1);
+        scheduleThumbnailSyncForPages(
+          [currentPage, nextPage],
+          () => setIsSavingPage(false),
+        );
+      } else {
+        scheduleThumbnailSync(Math.min(currentPage, numbered.length - 1));
+      }
       return true;
     } catch (e) {
       console.error('保存エラー:', e);
@@ -1097,7 +1211,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       setPendingFocusIndex(undefined);
       return false;
     } finally {
-      setIsSavingPage(false);
+      if (!keepSavingPageForThumbnail) {
+        setIsSavingPage(false);
+      }
     }
   };
 
@@ -1278,7 +1394,10 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       // pagesElements を更新して UI が NoteElement を使えるようにする
       setPagesElements(prev => {
         const next = [...prev];
-        next[pageNumber] = elements;
+        const normalized = isEffectivelyBlankPage(elements)
+          ? ensureMinBodyLines(elements)
+          : elements;
+        next[pageNumber] = normalized;
         return applyOutlineNumberingAllPages(next, outlineNumberingEnabled);
       });
 
@@ -1352,7 +1471,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       ];
       all.sort((a, b) => a.id.localeCompare(b.id));
 
-      newPagesElements[p] = all.map(item => {
+      const pageElements = all.map(item => {
         if (item.kind === 'outline') {
           const o = item.data as typeof outlines[0];
           const slimText = stripOutlinePrefix(o.outline || '');
@@ -1379,6 +1498,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           aspectRatio: restored.aspectRatio,
         };
       });
+      newPagesElements[p] = isEffectivelyBlankPage(pageElements)
+        ? ensureMinBodyLines(pageElements)
+        : pageElements;
     }
 
     // 一括で State を更新（順序が確実に保証される）。全ページ通しで章番号を連番付与する。
@@ -1431,6 +1553,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       return;
     }
     setUndoStack([]);
+    hasCurrentPageOverflowRef.current = false;
+    setShowOverflowNotice(false);
   }, [editing]);
 
   useEffect(() => {
@@ -1697,6 +1821,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             elements={(pagesElements[currentPageNumber] || []).filter((el): el is NoteElement => Boolean(el && (el as any).type))}
             onOverflowStateChange={(hasOverflow) => {
               hasCurrentPageOverflowRef.current = hasOverflow;
+              setShowOverflowNotice(hasOverflow);
             }}
             onSwipePage={handleNoteSwipePage}
             isEditing={editing}
@@ -1712,6 +1837,30 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             }}
           />
           </Animated.View>
+
+          {/* 超過通知バナー（行ごとの赤枠の代わり） */}
+          {editing && showOverflowNotice && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                top: 10,
+                left: 12,
+                right: 12,
+                backgroundColor: 'rgba(255, 245, 230, 0.96)',
+                borderColor: '#D4852A',
+                borderWidth: 1,
+                borderRadius: 10,
+                paddingHorizontal: 10,
+                paddingVertical: 8,
+                zIndex: 40,
+              }}
+            >
+              <Text style={{ color: '#7A3E00', fontSize: 12, fontWeight: '600' }}>
+                超過しています。保存すると超過部分は次のページに移動します。
+              </Text>
+            </View>
+          )}
 
           {showSearch && !editing && (
             <TouchableWithoutFeedback onPress={closeSearchPanel}>
@@ -2074,7 +2223,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                         }}
                       >
                         <View style={[notebookStyles.pageListItem, isCurrentPage && notebookStyles.pageListItemActive]}>
-                          <View style={{ width: '100%', aspectRatio: 0.65, backgroundColor: '#F3ECE2' }}>
+                          <View style={{ width: '100%', aspectRatio: noteAspectRatio, backgroundColor: '#F3ECE2', overflow: 'hidden' }}>
                             {thumbUri ? (
                               <Image
                                 source={{ uri: thumbUri }}

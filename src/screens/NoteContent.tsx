@@ -34,7 +34,8 @@ const snapToLineGrid = (height: number, lineHeight: number): number => {
 };
 
 const measureLinesFromHeight = (height: number, lineHeight: number): number => {
-  return Math.max(1, Math.ceil((height - 0.5) / lineHeight));
+  // 端数を最も近い整数行数に丸める（0.5行以上なら切り上げ、未満なら切り捨て）
+  return Math.max(1, Math.round(height / lineHeight));
 };
 
 const OUTLINE_PREFIX_RE = /^\s*\d+(?:\.\d+)*\.\s*/;
@@ -128,10 +129,14 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   });
 
   const measuredWordLinesRef = useRef<Record<number, number>>({});
+  const measuredWordTermLinesRef = useRef<Record<number, number>>({});
   const measuredTextLinesRef = useRef<Record<number, number>>({});
   const inputRefs = useRef<Record<string, TextInput | null>>({});
+  const toolbarKeyboardKeeperRef = useRef<TextInput | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const noteSheetRef = useRef<View | null>(null);
+  // word行を押し下げた後のフォーカス先インデックスを保持する ref
+  const pendingWordRefocusRef = useRef<number | null>(null);
   const noteBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const scrollOffsetRef = useRef(0);
   const swipeStateRef = useRef<{ startX: number; startY: number; swiped: boolean }>({ startX: 0, startY: 0, swiped: false });
@@ -144,9 +149,16 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const pendingFocusAfterAddRef = useRef<number | null>(null);
   const selectionRef = useRef<Record<string, { start: number; end: number }>>({});
   const splitGuardRef = useRef<{ key: string; ts: number } | null>(null);
+  const deleteGuardRef = useRef<{ key: string; ts: number } | null>(null);
+  // mergeWithPrevious の setTimeout をキャンセルするための ref
+  const mergeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastElementsLengthRef = useRef<number>(0);
+  // 改行時のアクティブインデックスを即座に更新するためのref
+  const pendingSplitActiveIndexRef = useRef<number | null>(null);
   const effectiveActiveIndex = isEditing && activeIndex === null && initialFocusIndex !== undefined && initialFocusIndex !== null
     ? initialFocusIndex
+    : pendingSplitActiveIndexRef.current !== null
+    ? pendingSplitActiveIndexRef.current
     : activeIndex;
   activeIndexRef.current = effectiveActiveIndex;
   elementsRef.current = elements;
@@ -161,6 +173,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
         // (インデックスシフトで不正な参照を防ぐ)
         if (currentLen < prevLen) {
           measuredWordLinesRef.current = {};
+          measuredWordTermLinesRef.current = {};
           measuredTextLinesRef.current = {};
           setMeasuredTextLines({});
         }
@@ -231,13 +244,22 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     if (el.type === 'image') return snapToLineGrid(getImageHeight(el), interval);
     const contentWidth = noteWidth * (1 - 2 * space);
     if (el.type === 'word') {
-      const rw = contentWidth * 0.75 - 12;
+      const usable = Math.max(1, contentWidth - 12); // paddingHorizontal: 6 * 2
       const meaning = ((el as any).meaning || '') as string;
-      const meaningCharsPerLine = Math.max(6, Math.floor(rw / Math.max(1, font.size)));
-      const meaningLines = meaning
+      const word = (el.word || '') as string;
+      // 実際のレイアウト: flex: 0.5（単語）と flex: 0.6（意味）
+      const termWidth = Math.max(1, usable * 0.5 / 1.1 - 24); // 点とスペース分を引く
+      const meaningWidth = Math.max(1, usable * 0.6 / 1.1 - 4); // paddingLeft: 4
+      const termFontSize = font.size + 2;
+      const termCharsPerLine = Math.max(4, Math.floor(termWidth / Math.max(1, termFontSize)));
+      const meaningCharsPerLine = Math.max(6, Math.floor(meaningWidth / Math.max(1, font.size)));
+      const termLines = word.trim().length === 0 ? 1 : word
+        .split('\n')
+        .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / termCharsPerLine)), 0);
+      const meaningLines = meaning.trim().length === 0 ? 1 : meaning
         .split('\n')
         .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / meaningCharsPerLine)), 0);
-      return snapToLineGrid(meaningLines * font.lineHeight, font.lineHeight);
+      return snapToLineGrid(Math.max(termLines, meaningLines) * font.lineHeight, font.lineHeight);
     }
 
     const text = 'text' in el ? el.text : '';
@@ -265,16 +287,22 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     const font = FONT_MAP[el.type];
     if (el.type === 'image') return getElementHeight(el);
     if (el.type === 'word') {
-      const measuredLines = displayWordLines[idx] ?? 0;
-      return snapToLineGrid(
-        Math.max(getElementHeight(el), Math.max(1, measuredLines) * font.lineHeight),
-        font.lineHeight
-      );
+      // onContentSizeChange のフィードバックに依存せず、
+      // getElementHeight（文字数ベースの計算）で高さを決定する
+      return getElementHeight(el);
     }
-    // テキスト系：編集中は常にテキスト内容から直接計算（キャッシュ無視）
+    // テキスト系：実測値があれば優先して使う（自動改行による高さズレを防ぐ）
     const textValue = 'text' in el ? el.text : ((el as any).text || '');
+    if (textValue.trim().length === 0) {
+      return font.lineHeight;
+    }
+    // 実測値（onContentSizeChange で更新）があれば常に優先する
+    const measuredFromRef = measuredTextLinesRef.current[idx];
+    if (measuredFromRef) {
+      return snapToLineGrid(measuredFromRef * font.lineHeight, font.lineHeight);
+    }
     if (isEditing) {
-      // 各行を個別にカウント。空行（改行だけ）も1行として数える
+      // 実測値未到着時のフォールバック：文字数ベースの推定
       const lineCount = textValue === '' ? 1 : textValue.split('\n').reduce((sum: number, line: string) => {
         return sum + Math.max(1, Math.ceil(line.length / Math.max(8, Math.floor((noteWidth * (1 - 2 * space) - 12) / Math.max(1, font.size)) - 1)));
       }, 0);
@@ -305,7 +333,9 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     (elements ?? []).forEach((el, idx) => {
       if (!isValidElement(el)) return;
       const h = getRowHeight(el, idx);
-      if (!hasOverflow && consumedHeight > 0 && consumedHeight + h > capacityHeight) {
+      // 空白・改行のみのテキスト行は超過判定に含めない
+      const isBlankOnly = el.type === 'text' && (el.text || '').trim().length === 0;
+      if (!hasOverflow && !isBlankOnly && consumedHeight + h > capacityHeight) {
         hasOverflow = true;
       }
       if (!hasOverflow) {
@@ -378,23 +408,21 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   useEffect(() => {
     if (!isEditing) {
       setActiveIndex(null);
-      // スライドアニメ完了を待ってからリセット（200ms＋余裕）
-      const t = setTimeout(() => {
-        scrollToPosition(0, false);
-      }, 250);
-      return () => clearTimeout(t);
+      // アニメーションなしで即リセットし、サムネイルキャプチャ時にスクロールがずれないようにする
+      scrollToPosition(0, false);
     }
   }, [isEditing]);
 
   // 編集モード開始時に initialFocusIndex の要素にフォーカス
   useEffect(() => {
     if (isEditing && initialFocusIndex !== undefined && initialFocusIndex !== null) {
+      console.log(`[initialFocusIndex useEffect] フォーカス先: ${initialFocusIndex}`);
       setActiveIndex(initialFocusIndex);
       shouldDisableNextScrollAnimationRef.current = true;
-      // Explicit focus is more reliable than relying on autoFocus during mode switch.
-      setTimeout(() => {
+      // 要素のマウント完了を待ってからフォーカス
+      requestAnimationFrame(() => {
         focusElementInput(initialFocusIndex);
-      }, 0);
+      });
     }
   }, [isEditing, initialFocusIndex]);
 
@@ -429,15 +457,54 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     }, 100);
   }, [effectiveActiveIndex, keyboardVisible, keyboardHeight, isEditing, elements]);
 
-  // 新しい要素が追加された直後にフォーカスを当てる（Enter で末尾行追加した場合）
+  // 文字入力による自動改行でアクティブ行の高さが変わったときにスクロールを追従させる
+  const activeRowMeasuredLines =
+    effectiveActiveIndex !== null ? (measuredTextLines[effectiveActiveIndex] ?? null) : null;
   useEffect(() => {
-    const pending = pendingFocusAfterAddRef.current;
+    if (effectiveActiveIndex === null || !keyboardVisible || !isEditing || !elements) return;
+    const activeElement = elements[effectiveActiveIndex];
+    if (!isValidElement(activeElement)) return;
+    if (activeElement.type !== 'text' && activeElement.type !== 'chapter' &&
+        activeElement.type !== 'section' && activeElement.type !== 'subsection') return;
+    const coveredByKb = Math.max(0, keyboardHeight - bottomMargin);
+    const visibleHeight = noteHeight - coveredByKb;
+    const measuredLines = measuredTextLinesRef.current[effectiveActiveIndex] ?? 1;
+    const font = FONT_MAP[activeElement.type];
+    let elementTop = RESERVED_TOP_LINES * interval;
+    for (let i = 0; i < effectiveActiveIndex && i < elements.length; i++) {
+      const el = elements[i];
+      if (!isValidElement(el)) continue;
+      if ((el.type === 'text' || el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') && measuredTextLinesRef.current[i]) {
+        const elFont = FONT_MAP[el.type];
+        elementTop += snapToLineGrid(measuredTextLinesRef.current[i] * elFont.lineHeight, elFont.lineHeight);
+      } else {
+        elementTop += getRowHeight(el, i);
+      }
+    }
+    const elementBottom = elementTop + snapToLineGrid(measuredLines * font.lineHeight, font.lineHeight);
+    const currentScrollY = scrollOffsetRef.current;
+    const visibleBottom = currentScrollY + visibleHeight;
+    if (elementBottom > visibleBottom - interval) {
+      scrollToPosition(elementBottom - visibleHeight + interval, true);
+    }
+  }, [activeRowMeasuredLines]);
+
+  // word行の押し下げ後に word フィールドへフォーカスを戻す
+  useEffect(() => {
+    const pending = pendingWordRefocusRef.current;
     if (pending === null) return;
     if (!elements || elements.length <= pending) return;
-    pendingFocusAfterAddRef.current = null;
-    requestAnimationFrame(() => {
-      focusElementInput(pending);
-    });
+    const targetEl = elements[pending];
+    if (targetEl?.type !== 'word') return;
+    pendingWordRefocusRef.current = null;
+    setActiveIndex(pending);
+    // mount 完了を待たずに即時フォーカス
+    const ref = inputRefs.current[getInputKey(pending, 'word')];
+    if (ref) {
+      try { ref.focus(); } catch (_) {}
+    } else {
+      requestAnimationFrame(() => focusElementInput(pending, 'word'));
+    }
   }, [elements?.length]);
 
   const getInputKey = (index: number, field: 'main' | 'word' | 'meaning' = 'main') => `${index}:${field}`;
@@ -576,11 +643,20 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     if (type === 'image' && current.type !== 'image' && hasAnyTextInput) return;
     if (current.type === type) return;
 
+    // タイプ変換で現在の Input がアンマウントされる前に keeper へフォーカスしてキーボードを維持する
+    if (type !== 'image') {
+      try { toolbarKeyboardKeeperRef.current?.focus(); } catch (_) {}
+    }
+
     const converted = convertElementType(current, type);
     onElementChange?.(activeIndex, converted);
     setTimeout(() => {
-      if (type !== 'image') focusElementInput(activeIndex);
-    }, 0);
+      if (type !== 'image') {
+        // word 型は 'word' フィールドへフォーカス
+        const field = type === 'word' ? 'word' : 'main';
+        focusElementInput(activeIndex, field as any);
+      }
+    }, 50);
   };
 
   const processPickedImage = async (
@@ -697,46 +773,94 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   };
 
   const splitToNextTextBlock = (index: number, currentText: string, splitAt: number) => {
+    console.log(`[splitToNextTextBlock] idx=${index}, splitAt=${splitAt}`);
     const safeSplitAt = Math.max(0, Math.min(splitAt, currentText.length));
     const before = currentText.slice(0, safeSplitAt);
     const after = currentText.slice(safeSplitAt);
 
+    // 先にアクティブ状態を次の行に移動（グレー背景を先に移す）
+    const nextIdx = index + 1;
+    pendingSplitActiveIndexRef.current = nextIdx;
+    setActiveIndex(nextIdx);
+    activeIndexRef.current = nextIdx;
+    console.log(`[splitToNextTextBlock] アクティブ状態を ${nextIdx} に先行移動`);
+
     const inserted = onSplitToNextTextBlock?.(index, before, after);
     if (inserted !== undefined) {
-      if (inserted === false) return;
-      pendingFocusAfterAddRef.current = index + 1;
-      setActiveIndex(index + 1);
+      if (inserted === false) {
+        console.log(`[splitToNextTextBlock] 親が false を返したため中断`);
+        pendingSplitActiveIndexRef.current = null;
+        return;
+      }
+      console.log(`[splitToNextTextBlock] 親で処理済み`);
+      // 親で要素が追加された後、次の行にフォーカスを移す
+      // requestAnimationFrameを使わず、直接実行
+      const key = getInputKey(nextIdx, 'main');
+      const ref = inputRefs.current[key];
+      if (ref) {
+        try { 
+          ref.focus();
+          console.log(`[splitToNextTextBlock] ref.focus() 即座に成功`);
+        } catch (e) {
+          console.log(`[splitToNextTextBlock] ref.focus() エラー:`, e);
+          // フォールバック
+          setTimeout(() => {
+            focusElementInput(nextIdx);
+          }, 0);
+        }
+      } else {
+        console.log(`[splitToNextTextBlock] ref が見つからない、次のフレームで再試行`);
+        requestAnimationFrame(() => {
+          focusElementInput(nextIdx);
+        });
+      }
+      
       splitGuardRef.current = {
         key: getInputKey(index, 'main'),
         ts: Date.now(),
       };
+      pendingSplitActiveIndexRef.current = null;
       return;
     }
 
+    console.log(`[splitToNextTextBlock] フォールバック処理を実行`);
     const current = elements?.[index];
-    if (!isValidElement(current) || !('text' in current)) return;
+    if (!isValidElement(current) || !('text' in current)) {
+      pendingSplitActiveIndexRef.current = null;
+      return;
+    }
     onElementChange?.(index, { ...current, text: before } as any);
     const fallbackInserted = onTapEmpty?.(index + 1);
-    if (fallbackInserted === false) return;
+    if (fallbackInserted === false) {
+      pendingSplitActiveIndexRef.current = null;
+      return;
+    }
 
-    pendingFocusAfterAddRef.current = index + 1;
+    // フォールバック時も同様に、アクティブ状態は既に移動済み
     setTimeout(() => {
       onElementChange?.(index + 1, { type: 'text', text: after });
-      setActiveIndex(index + 1);
       splitGuardRef.current = {
         key: getInputKey(index, 'main'),
         ts: Date.now(),
       };
+      // 次の行にフォーカス
+      requestAnimationFrame(() => {
+        focusElementInput(nextIdx);
+        pendingSplitActiveIndexRef.current = null;
+      });
     }, 0);
   };
 
   const splitByEnter = (index: number, currentText: string) => {
     const key = getInputKey(index, 'main');
     const guard = splitGuardRef.current;
-    if (guard && guard.key === key && Date.now() - guard.ts < 120) {
+    // ガード時間を短縮（50ms）して、改行が動作しないケースを減らす
+    if (guard && guard.key === key && Date.now() - guard.ts < 50) {
+      console.log(`[splitByEnter] ガード中のためスキップ: idx=${index}`);
       return;
     }
 
+    console.log(`[splitByEnter] idx=${index}, currentText.length=${currentText.length}`);
     const selection = selectionRef.current[key] ?? {
       start: currentText.length,
       end: currentText.length,
@@ -783,7 +907,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     (elements ?? []).forEach((el, idx) => {
       if (!isValidElement(el)) return;
       const h = getRowHeight(el, idx);
-      if (overflowStartIndex === null && consumedHeight > 0 && consumedHeight + h > capacityHeight) {
+      const isBlankOnly = el.type === 'text' && (el.text || '').trim().length === 0;
+      if (overflowStartIndex === null && !isBlankOnly && consumedHeight + h > capacityHeight) {
         overflowStartIndex = idx;
       }
       if (overflowStartIndex === null) {
@@ -822,9 +947,9 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
             }
             style={{
               height: getImageHeight(el),
-              borderWidth: isEditing && effectiveActiveIndex === idx ? 2 : isOverflow ? 1.5 : 1,
-              borderColor: isOverflow ? '#D13A3A' : ACTIVE_BORDER,
-              backgroundColor: isOverflow ? 'rgba(209, 58, 58, 0.10)' : '#FFFFFF',
+              borderWidth: isEditing && effectiveActiveIndex === idx ? 2 : 1,
+              borderColor: ACTIVE_BORDER,
+              backgroundColor: '#FFFFFF',
               overflow: 'hidden',
               ...debugStyle,
             }}
@@ -920,16 +1045,15 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
               })
             }
             style={{
-              minHeight: estHeight,
+              height: estHeight,
               flexDirection: 'row',
-              backgroundColor: isOverflow
-                ? 'rgba(209, 58, 58, 0.10)'
-                : isEditing && effectiveActiveIndex === idx
+              backgroundColor: isEditing && effectiveActiveIndex === idx
                 ? ACTIVE_TINT
                 : 'transparent',
               alignItems: 'stretch',
-              borderWidth: isOverflow ? 1 : 0,
-              borderColor: isOverflow ? '#D13A3A' : 'transparent',
+              borderWidth: 0,
+              borderColor: 'transparent',
+              overflow: 'hidden',
               ...debugStyle,
             }}
           >
@@ -956,23 +1080,104 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     allowFontScaling={false}
                     maxFontSizeMultiplier={1}
                     value={el.word}
-                    onChangeText={(t) => onElementChange?.(idx, { ...el, word: t })}
+                    onChangeText={(t) => {
+                      // Enter キーで \n が混入するのを防ぐ
+                      if (t.includes('\n')) return;
+                      onElementChange?.(idx, { ...el, word: t });
+                    }}
                     onKeyPress={({ nativeEvent }) => {
                       if (nativeEvent.key === 'Backspace') {
                         const isWordEmpty = !(el.word || '').trim();
                         const isMeaningEmpty = !(((el as any).meaning || '') as string).trim();
                         if (isWordEmpty && isMeaningEmpty) {
-                          onDeleteElement?.(idx);
+                          // 両方空のとき → 文章ツールに変換（行は残す）
+                          console.log(`[単語/意味 両方空削除] idx=${idx} を文章ツールに変換`);
+                          onElementChange?.(idx, { type: 'text', text: '' });
+                          // フォーカスを維持
+                          setTimeout(() => {
+                            const textKey = getInputKey(idx, 'main');
+                            const textRef = inputRefs.current[textKey];
+                            if (textRef) {
+                              try { textRef.focus(); } catch (_) {}
+                            } else {
+                              setActiveIndex(idx);
+                              focusElementInput(idx, 'main');
+                            }
+                          }, 0);
+                          return;
+                        }
+                        // 単語が空 → 意味フィールドへ移動
+                        if (isWordEmpty) {
+                          setActiveIndex(idx);
+                          setTimeout(() => focusElementInput(idx, 'meaning'), 0);
                           return;
                         }
                       }
                       if (nativeEvent.key === 'Enter') {
-                        focusNextElement(idx);
+                        const wordKey = getInputKey(idx, 'word');
+                        const selection = selectionRef.current[wordKey];
+                        // selectionRef がない場合は el.word の長さで判定
+                        const wordLen = (el.word || '').length;
+                        const cursorPos = selection ? selection.start : wordLen;
+                        const isCursorAtStart = cursorPos === 0;
+                        const isCursorAtEnd = cursorPos === wordLen;
+                        
+                        // 単語先頭でEnter → この行ごと下に下げる（現在位置に空text行を挿入）
+                        if (isCursorAtStart) {
+                          try { toolbarKeyboardKeeperRef.current?.focus(); } catch (_) {}
+                          pendingWordRefocusRef.current = idx + 1;
+                          onTapEmpty?.(idx);
+                          return;
+                        }
+                        
+                        // 単語末尾でEnter → 常に意味フィールドの末尾に移動（単語や意味が入力済みでも）
+                        if (isCursorAtEnd) {
+                          setActiveIndex(idx);
+                          setTimeout(() => {
+                            const meaningKey = getInputKey(idx, 'meaning');
+                            const meaningRef = inputRefs.current[meaningKey];
+                            if (meaningRef) {
+                              try {
+                                meaningRef.focus();
+                                // 意味の末尾にカーソルを移動
+                                const meaningLen = (((el as any).meaning || '') as string).length;
+                                meaningRef.setNativeProps?.({
+                                  selection: { start: meaningLen, end: meaningLen }
+                                });
+                              } catch (_) {}
+                            } else {
+                              focusElementInput(idx, 'meaning');
+                            }
+                          }, 0);
+                          return;
+                        }
+                        
+                        // それ以外の位置 → 意味フィールドの末尾に移動
+                        setActiveIndex(idx);
+                        setTimeout(() => {
+                          const meaningKey = getInputKey(idx, 'meaning');
+                          const meaningRef = inputRefs.current[meaningKey];
+                          if (meaningRef) {
+                            try {
+                              meaningRef.focus();
+                              // 意味の末尾にカーソルを移動
+                              const meaningLen = (((el as any).meaning || '') as string).length;
+                              meaningRef.setNativeProps?.({
+                                selection: { start: meaningLen, end: meaningLen }
+                              });
+                            } catch (_) {}
+                          } else {
+                            focusElementInput(idx, 'meaning');
+                          }
+                        }, 0);
                       }
                     }}
                     ref={(ref) => { inputRefs.current[getInputKey(idx, 'word')] = ref; }}
                     autoFocus={effectiveActiveIndex === idx}
                     onFocus={() => setActiveIndex(idx)}
+                    onSelectionChange={({ nativeEvent }) => {
+                      selectionRef.current[getInputKey(idx, 'word')] = nativeEvent.selection;
+                    }}
                     style={{
                       fontSize: WORD_TERM_FONT_SIZE,
                       lineHeight: interval,
@@ -985,8 +1190,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                       includeFontPadding: false,
                     }}
                     multiline
-                    blurOnSubmit={true}
-                    submitBehavior="submit"
+                    blurOnSubmit={false}
+                    submitBehavior="newline"
                     returnKeyType="next"
                     onSubmitEditing={() => {
                       const currentValue = inputRefs.current[getInputKey(idx, 'word')]?.props?.value;
@@ -1033,6 +1238,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   maxFontSizeMultiplier={1}
                   value={(el as any).meaning}
                   onChangeText={(t) => {
+                    // Enter キーで \n が混入するのを防ぐ
+                    if (t.includes('\n')) return;
                     // 意味更新時にキャッシュをクリアして基税を変更させる
                     const cleaned = { ...measuredWordLinesRef.current };
                     delete cleaned[idx];
@@ -1047,10 +1254,28 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   onKeyPress={({ nativeEvent }) => {
                     if (nativeEvent.key === 'Backspace') {
                       const isMeaningEmpty = !(((el as any).meaning || '') as string).trim();
+                      const isWordEmpty = !(el.word || '').trim();
+                      if (isMeaningEmpty && isWordEmpty) {
+                        // 両方空のとき → 文章ツールに変換（行は残す）
+                        console.log(`[単語/意味 両方空削除（意味側）] idx=${idx} を文章ツールに変換`);
+                        onElementChange?.(idx, { type: 'text', text: '' });
+                        // フォーカスを維持
+                        setTimeout(() => {
+                          const textKey = getInputKey(idx, 'main');
+                          const textRef = inputRefs.current[textKey];
+                          if (textRef) {
+                            try { textRef.focus(); } catch (_) {}
+                          } else {
+                            setActiveIndex(idx);
+                            focusElementInput(idx, 'main');
+                          }
+                        }, 0);
+                        return;
+                      }
                       if (isMeaningEmpty) {
                         setActiveIndex(idx);
                         setTimeout(() => {
-                          focusElementInput(idx);
+                          focusElementInput(idx, 'word');
                         }, 0);
                         return;
                       }
@@ -1061,18 +1286,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   }}
                   ref={(ref) => { inputRefs.current[getInputKey(idx, 'meaning')] = ref; }}
                   onFocus={() => setActiveIndex(idx)}
-                  onContentSizeChange={(e) => {
-                    const h = e.nativeEvent.contentSize.height;
-                    // contentSize は端末差で端数が出るため、常に切り上げて過小計上を防ぐ。
-                    const measuredLines = measureLinesFromHeight(h, interval);
-                    measuredWordLinesRef.current[idx] = measuredLines;
-                    if (isEditing) {
-                      setDisplayWordLines((prev) => {
-                        if (prev[idx] === measuredLines) return prev;
-                        return { ...prev, [idx]: measuredLines };
-                      });
-                    }
-                  }}
                   style={{
                     fontSize: font.size,
                     lineHeight: interval,
@@ -1084,8 +1297,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     includeFontPadding: false,
                   }}
                   multiline
-                  blurOnSubmit={true}
-                  submitBehavior="submit"
+                  blurOnSubmit={false}
+                  submitBehavior="newline"
                   returnKeyType="next"
                   onSubmitEditing={() => {
                     const currentValue = inputRefs.current[getInputKey(idx, 'meaning')]?.props?.value;
@@ -1105,14 +1318,6 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   value={(el as any).meaning}
                   multiline
                   scrollEnabled={false}
-                  onContentSizeChange={(e) => {
-                    const h = Math.round(e.nativeEvent.contentSize.height);
-                    const lines = Math.max(1, Math.ceil(h / font.lineHeight));
-                    setDisplayWordLines((prev) => {
-                      if (prev[idx] === lines) return prev;
-                      return { ...prev, [idx]: lines };
-                    });
-                  }}
                   style={{ fontSize: font.size, lineHeight: font.lineHeight, fontFamily: font.family, flexShrink: 1, flexWrap: 'wrap', width: '100%', minHeight: interval, padding: 0, textAlignVertical: 'top', includeFontPadding: false }}
                 />
               )}
@@ -1161,14 +1366,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           }}
           style={{
             ...textRowHeightStyle,
-            backgroundColor: isOverflow
-              ? 'rgba(209, 58, 58, 0.10)'
-              : isEditing && effectiveActiveIndex === idx
+            backgroundColor: isEditing && effectiveActiveIndex === idx
               ? ACTIVE_TINT
               : 'transparent',
             position: 'relative',
-            borderWidth: isOverflow ? 1 : 0,
-            borderColor: isOverflow ? '#D13A3A' : 'transparent',
+            borderWidth: 0,
+            borderColor: 'transparent',
             ...debugStyle,
           }}
         >
@@ -1180,18 +1383,25 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 value={mainText}
                 scrollEnabled={false}
                 onChangeText={(t) => {
-                  // 最初にキャッシュをクリアして常に最新判定を保つ（改行処理前）
-                  const cleaned = { ...measuredTextLinesRef.current };
-                  delete cleaned[idx];
-                  measuredTextLinesRef.current = cleaned;
-                  setMeasuredTextLines((prev) => {
-                    const next = { ...prev };
-                    delete next[idx];
-                    return next;
-                  });
-
                   const newlineIndex = t.indexOf('\n');
                   if (newlineIndex >= 0) {
+                    console.log(`[onChangeText] 改行検出: idx=${idx}, newlineIndex=${newlineIndex}`);
+                    // onKeyPress の Enter と二重発火するのを防ぐ
+                    const key = getInputKey(idx, 'main');
+                    const guard = splitGuardRef.current;
+                    if (guard && guard.key === key && Date.now() - guard.ts < 50) {
+                      console.log(`[onChangeText] ガード中のためスキップ`);
+                      return;
+                    }
+                    // 改行で行分割するときだけキャッシュをクリアして高さを再計算させる
+                    const cleaned = { ...measuredTextLinesRef.current };
+                    delete cleaned[idx];
+                    measuredTextLinesRef.current = cleaned;
+                    setMeasuredTextLines((prev) => {
+                      const next = { ...prev };
+                      delete next[idx];
+                      return next;
+                    });
                     const merged = `${t.slice(0, newlineIndex)}${t.slice(newlineIndex + 1)}`;
                     splitToNextTextBlock(idx, merged, newlineIndex);
                     return;
@@ -1201,11 +1411,13 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 }}
                 onKeyPress={({ nativeEvent }) => {
                   if (nativeEvent.key === 'Enter' || nativeEvent.key === 'Return' || nativeEvent.key === '\n') {
+                    console.log(`[onKeyPress Enter] idx=${idx}`);
                     const current = 'text' in el ? el.text : (el as any).text || '';
                     splitByEnter(idx, current);
                     return;
                   }
                   if (nativeEvent.key === 'Backspace') {
+                    console.log(`[onKeyPress Backspace] idx=${idx}`);
                     const current = 'text' in el ? el.text : (el as any).text || '';
                     const isBlankOrNewlineOnly = !current.trim();
                     const inputKey = getInputKey(idx, 'main');
@@ -1226,30 +1438,101 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     }
 
                     const mergeWithPreviousKeepingKeyboard = () => {
+                      console.log(`[mergeWithPreviousKeepingKeyboard] idx=${idx}`);
                       if (idx <= 0) {
                         focusPrevElement(idx);
                         return;
                       }
+                      
+                      const prevEl = elements?.[idx - 1];
+                      
+                      // キーボードを維持するために、先にkeeperにフォーカス（全てのケースで実行）
+                      try { 
+                        toolbarKeyboardKeeperRef.current?.focus(); 
+                        console.log(`[mergeWithPreviousKeepingKeyboard] keeperにフォーカスしてキーボード維持`);
+                      } catch (_) {}
+                      
                       // 先に前要素へ即時フォーカスを移してから次tickで結合し、キーボードのチラつきを抑える
                       setActiveIndex(idx - 1);
-                      const prevKey = getInputKey(idx - 1, 'main');
+                      // word 型は 'main' キーを持たないので 'meaning' フィールドへフォーカスする
+                      const prevField = prevEl?.type === 'word' ? 'meaning' : 'main';
+                      const prevKey = getInputKey(idx - 1, prevField);
                       const prevRef = inputRefs.current[prevKey];
-                      if (prevRef) {
-                        try {
-                          prevRef.focus();
-                        } catch (error) {
-                          // ignore focus errors
-                        }
-                      }
+                      
+                      // 30ms待ってから前要素にフォーカス（keeperからの切り替えを滑らかにする）
                       setTimeout(() => {
+                        if (prevRef) {
+                          try {
+                            prevRef.focus();
+                            console.log(`[mergeWithPreviousKeepingKeyboard] 前要素(${idx-1})の${prevField}フィールドにフォーカス`);
+                            // word型の場合、meaningフィールドの末尾にカーソルを移動
+                            if (prevEl?.type === 'word') {
+                              const meaningLen = (((prevEl as any).meaning || '') as string).length;
+                              setTimeout(() => {
+                                prevRef.setNativeProps?.({
+                                  selection: { start: meaningLen, end: meaningLen }
+                                });
+                              }, 0);
+                            } else if (prevEl?.type === 'text' || prevEl?.type === 'chapter' || 
+                                      prevEl?.type === 'section' || prevEl?.type === 'subsection') {
+                              // text系の場合も末尾にカーソルを移動
+                              const textLen = ((prevEl as any).text || '').length;
+                              setTimeout(() => {
+                                prevRef.setNativeProps?.({
+                                  selection: { start: textLen, end: textLen }
+                                });
+                              }, 0);
+                            }
+                          } catch (error) {
+                            console.log(`[mergeWithPreviousKeepingKeyboard] フォーカスエラー:`, error);
+                            // ignore focus errors
+                          }
+                        } else {
+                          console.log(`[mergeWithPreviousKeepingKeyboard] prevRef が見つからない、focusPrevElement呼び出し`);
+                          focusPrevElement(idx);
+                        }
+                      }, 30);
+                      
+                      if (mergeTimeoutRef.current) clearTimeout(mergeTimeoutRef.current);
+                      mergeTimeoutRef.current = setTimeout(() => {
+                        mergeTimeoutRef.current = null;
+                        console.log(`[mergeTimeout実行] onMergeWithPrevious(${idx}) を呼び出し`);
                         onMergeWithPrevious?.(idx);
-                      }, 0);
+                      }, 60);
                     };
-                    
+
+                    // 空要素の先頭でBackspace → 前の要素と統合（merge）
+                    if (el.type === 'text' && current.length === 0) {
+                      console.log(`[空行削除] idx=${idx} を merge で処理`);
+                      // 進行中の merge をキャンセルして干渉を防ぐ
+                      if (mergeTimeoutRef.current) {
+                        clearTimeout(mergeTimeoutRef.current);
+                        mergeTimeoutRef.current = null;
+                      }
+                      
+                      // idx=0 の場合は削除のみ（キーボードを維持しながら）
+                      if (idx === 0) {
+                        console.log(`[空行削除] idx=0 なので削除のみ`);
+                        // キーボードを維持するためにkeeperにフォーカス
+                        try { 
+                          toolbarKeyboardKeeperRef.current?.focus(); 
+                        } catch (_) {}
+                        setTimeout(() => {
+                          onDeleteElement?.(idx);
+                        }, 30);
+                        return;
+                      }
+                      
+                      // mergeWithPreviousKeepingKeyboard を使って前の要素にフォーカスを移しながら統合
+                      // これによりキーボードが維持される
+                      console.log(`[空行削除] mergeWithPreviousKeepingKeyboard を呼び出し`);
+                      mergeWithPreviousKeepingKeyboard();
+                      return;
+                    }
+
                     // 改行だけの状態でバックスペース → 改行を1つ削除して赤枠を消す
                     if (isBlankOrNewlineOnly && current.length > 0) {
-                      const newText = current.slice(0, -1);  // 最後の1文字（改行）削除
-                      // テキスト変更時と同じくキャッシュクリアして判定を即座に更新
+                      const newText = current.slice(0, -1);
                       const cleaned = { ...measuredTextLinesRef.current };
                       delete cleaned[idx];
                       measuredTextLinesRef.current = cleaned;
@@ -1261,13 +1544,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                       onElementChange?.(idx, { ...el, text: newText } as any);
                       return;
                     }
-                    
-                    // 空要素の先頭でBackspace → 前要素へ結合（selectionが未記録の場合も包含）
-                    if (el.type === 'text' && current.length === 0) {
-                      mergeWithPreviousKeepingKeyboard();
-                      return;
-                    }
+
                     if (el.type === 'text' && selection && selection.start === 0 && selection.end === 0) {
+                      console.log(`[先頭Backspace] idx=${idx} で mergeWithPrevious を呼び出し`);
+                      // カーソルが先頭で内容あり → 前要素と結合
                       mergeWithPreviousKeepingKeyboard();
                       return;
                     }
@@ -1309,8 +1589,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 }}
                 selectionColor="#8A6F56"
                 multiline
-                blurOnSubmit={true}
-                submitBehavior="submit"
+                blurOnSubmit={false}
+                submitBehavior="newline"
                 returnKeyType="next"
                 onSubmitEditing={() => {
                   const current = 'text' in el ? el.text : (el as any).text || '';
@@ -1610,6 +1890,17 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           </View>
         </View>
       </Modal>
+      {isEditing && (
+        <TextInput
+          allowFontScaling={false}
+          maxFontSizeMultiplier={1}
+          ref={toolbarKeyboardKeeperRef}
+          style={{ position: 'absolute', width: 1, height: 1, opacity: 0, left: -1000, top: -1000, padding: 0 }}
+          multiline={false}
+          blurOnSubmit={false}
+          showSoftInputOnFocus={true}
+        />
+      )}
       {children}
     </View>
   );
