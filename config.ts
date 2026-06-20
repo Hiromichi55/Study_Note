@@ -34,3 +34,51 @@ const createEnv = (mode: AppMode) => ({
 });
 
 export const ENV = createEnv(APP_MODE);
+
+// ==========================================
+// AdMob（広告）設定
+// ==========================================
+// アプリID（AdMob 管理画面で発行されるアプリ単位のID。"~" を含む）
+// iOS と Android で別IDになる。Android 用が発行できたら ANDROID_APP_ID を差し替える。
+export const ADMOB = {
+  // ▼ Android 用アプリID（未発行のため暫定で iOS 用を流用）。
+  //   Google Play 用に AdMob でアプリを登録したら、正しい Android 用IDへ差し替える。
+  ANDROID_APP_ID: 'ca-app-pub-3019459894605015~7482724561',
+  // ▼ iOS 用アプリID（確定）。
+  IOS_APP_ID: 'ca-app-pub-3019459894605015~7482724561',
+
+  // 画面（配置）ごとのバナー広告ユニットID（"/" を含む）。
+  // 空のままなら AdBanner 側で Google 公式のテストIDが使われる。
+  BANNER_UNIT_IDS: {
+    HOME: {
+      ANDROID: '',
+      IOS: 'ca-app-pub-3019459894605015/5870525929',
+    },
+    WORD_LIST: {
+      ANDROID: '',
+      IOS: 'ca-app-pub-3019459894605015/6768674626',
+    },
+    WORDBOOK: {
+      ANDROID: '',
+      IOS: 'ca-app-pub-3019459894605015/9203266272',
+    },
+  },
+
+  // 画面（機能）ごとのリワード広告ユニットID（"/" を含む）。
+  // 空のままなら showRewardedAd 側で Google 公式のテストIDが使われる。
+  REWARDED_UNIT_IDS: {
+    ADD_BOOK: {
+      ANDROID: '',
+      IOS: 'ca-app-pub-3019459894605015/3329112744',
+    },
+    ADD_PAGE: {
+      ANDROID: '',
+      IOS: 'ca-app-pub-3019459894605015/3868168790',
+    },
+    EXPORT_TEXT: {
+      ANDROID: '',
+      IOS: 'ca-app-pub-3019459894605015/3616887352',
+    },
+  },
+} as const;
+

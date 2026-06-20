@@ -33,10 +33,12 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../App';
 import { Book } from '../context/LibraryContext';
 import { ENV } from '@config';
-import { BOOK_BTN_HEIGHT, homeStyles } from '../styles/homeStyles';
+import { BOOK_BTN_HEIGHT, HOME_AD_BANNER_HEIGHT, homeStyles } from '../styles/homeStyles';
 import * as commonStyle from '../styles/commonStyle';
 import { logTable } from '../utils/logTable';
 import { initDB } from '../db/db';
+import AdBanner from '../components/AdBanner';
+import { showRewardedAd } from '../utils/admob';
 
 
 
@@ -95,6 +97,9 @@ interface Props {
 
 // ✅ 開発用フラグ
 const DEBUG_LAYOUT = ENV.SCREEN_DEV; // true: レイアウトデバッグ用枠線表示
+
+// 無料で追加できる本の冊数(サンプルノートは含まない)。これを超える追加にはリワード広告の視聴が必要。
+const FREE_BOOK_LIMIT = 2;
 
 const MENU_ITEM_TITLE_STYLE = {
   fontSize: 14,
@@ -380,6 +385,68 @@ const parseImportedTextContent = (raw: string): ImportedItem[] => {
   return items;
 };
 
+// インポートしたページ1枚あたりの最大行数。ノート編集画面の改ページ判定(computeMaxRows)を
+// 簡易的な文字数ベースで近似したもの。ヘッダー高さは概算値を使う。
+const IMPORT_HEADER_HEIGHT_ESTIMATE = 110;
+const calcImportMaxRows = (screenHeight: number): number =>
+  Math.max(1, Math.floor(((screenHeight - IMPORT_HEADER_HEIGHT_ESTIMATE) * 0.87) / NOTE_LINE_HEIGHT) - NOTE_RESERVED_TOP_LINES);
+
+const calcImportItemRows = (item: ImportedItem, availableWidth: number): number => {
+  if (item.kind === 'word') {
+    // ノート編集画面の単語/意味は「単語」列(50%)と「意味」列(60%)に分かれて並ぶ実レイアウト
+    // (NoteContent.tsx の getElementHeight と同じ比率)に合わせて見積もる。
+    // 全幅で連結して見積もると「意味」列の折返し行数を過少に数えてしまい、
+    // 超過分が次ページに送られなくなる。
+    const word = item.word || '';
+    const meaning = item.explanation || '';
+    const termWidth = Math.max(1, (availableWidth * 0.5) / 1.1 - 24);
+    const meaningWidth = Math.max(1, (availableWidth * 0.6) / 1.1 - 4);
+    const termCharsPerLine = Math.max(4, Math.floor(termWidth / 17));
+    const meaningCharsPerLine = Math.max(6, Math.floor(meaningWidth / 15));
+    const termLines = !word.trim()
+      ? 1
+      : word.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / termCharsPerLine)), 0);
+    const meaningLines = !meaning.trim()
+      ? 1
+      : meaning.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / meaningCharsPerLine)), 0);
+    return Math.max(1, termLines, meaningLines);
+  }
+
+  const fontSize = item.kind === 'chapter' ? 22 : item.kind === 'section' ? 18 : 15;
+  const charsPerLine = Math.max(8, Math.floor(availableWidth / Math.max(1, fontSize)) - 1);
+  const lines = Math.max(
+    1,
+    String(item.text || '')
+      .split('\n')
+      .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / charsPerLine)), 0)
+  );
+  return Math.max(1, lines);
+};
+
+// 行数の見積もりに基づき、ノート編集画面と同様の改ページ単位でアイテムをページ分割する。
+const splitImportedItemsIntoPages = (
+  items: ImportedItem[],
+  maxRows: number,
+  availableWidth: number
+): ImportedItem[][] => {
+  const pages: ImportedItem[][] = [[]];
+  let usedRows = 0;
+
+  for (const item of items) {
+    const rows = calcImportItemRows(item, availableWidth);
+    const isBlankOnly = item.kind === 'text' && !(item.text || '').trim();
+    if (!isBlankOnly && usedRows > 0 && usedRows + rows > maxRows) {
+      // 改ページ時は一番上の行を空ける(ノート編集画面の NOTE_RESERVED_TOP_LINES と同様)
+      pages.push([{ kind: 'text', text: '' }]);
+      usedRows = 1;
+    }
+    pages[pages.length - 1].push(item);
+    usedRows += rows;
+  }
+
+  return pages;
+};
+
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { state, addBook, deleteBook, renameBook, recolorBook, toggleBookPin } = useLibrary();
   const [bookData, setBookData] = useState<Book[]>([]);
@@ -414,7 +481,14 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const [showHelpOverlay, setShowHelpOverlay] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingText, setIsExportingText] = useState(false);
+  // バナー広告の実測高さ(dp)。アダプティブバナーは端末で高さが変わる(最大90dp)ため、
+  // 実測値で枠・FAB・リスト余白を補正し、被りや無駄な空白を防ぐ。初期値は確保枠と同じ。
+  const [adBannerHeight, setAdBannerHeight] = useState(HOME_AD_BANNER_HEIGHT);
+  // 確保済みの基準高さを超えた分だけ、追加で持ち上げる量
+  const adBannerExtra = Math.max(0, adBannerHeight - HOME_AD_BANNER_HEIGHT);
   const [isImportingBook, setIsImportingBook] = useState(false);
+  // リワード広告の読み込み・表示中かどうか(本を追加するボタンを再度押せないようにする)
+  const [isLoadingRewardedAd, setIsLoadingRewardedAd] = useState(false);
   const [isPreparingPdfPreview, setIsPreparingPdfPreview] = useState(false);
   const [pdfPreviewVisible, setPdfPreviewVisible] = useState(false);
   const [pdfPreviewPages, setPdfPreviewPages] = useState<PdfPreviewPage[]>([]);
@@ -549,6 +623,74 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     );
   };
 
+  const handlePressAddBook = () => {
+    setShowBookOptions((prev) => !prev);
+  };
+
+  // 本の作成・インポートを実行する直前に呼ぶ。
+  // サンプルノートを除く保有冊数が無料枠を超えていたら広告視聴の確認ダイアログを挟み、
+  // 視聴して報酬を獲得できた場合のみ true を返す(無料枠内なら確認なしで true)。
+  const confirmAndWatchRewardedAdForNewBook = (): Promise<boolean> => {
+    const ownedBookCount = state.books.filter((b) => !b.is_sample).length;
+    if (ownedBookCount < FREE_BOOK_LIMIT) return Promise.resolve(true);
+
+    return new Promise<boolean>((resolve) => {
+      Alert.alert(
+        '広告を見て本を追加',
+        `本は${FREE_BOOK_LIMIT}冊まで無料で追加できます。${FREE_BOOK_LIMIT + 1}冊目以降は広告を見ると追加できます。`,
+        [
+          { text: 'キャンセル', style: 'cancel', onPress: () => resolve(false) },
+          {
+            text: '広告を見て追加',
+            onPress: async () => {
+              setIsLoadingRewardedAd(true);
+              try {
+                const earned = await showRewardedAd('ADD_BOOK');
+                if (!earned) {
+                  Alert.alert('広告を視聴できませんでした', 'もう一度お試しください。');
+                }
+                resolve(earned);
+              } finally {
+                setIsLoadingRewardedAd(false);
+              }
+            },
+          },
+        ],
+        { cancelable: false }
+      );
+    });
+  };
+
+  // テキストファイル化(エクスポート)を実行する直前に呼ぶ。
+  // 広告視聴の確認ダイアログを挟み、視聴して報酬を獲得できた場合のみ true を返す。
+  const confirmAndWatchRewardedAdForExport = (): Promise<boolean> => {
+    return new Promise<boolean>((resolve) => {
+      Alert.alert(
+        '広告を見てエクスポート',
+        '広告を見るとエクスポートできます。',
+        [
+          { text: 'キャンセル', style: 'cancel', onPress: () => resolve(false) },
+          {
+            text: '広告を見てエクスポート',
+            onPress: async () => {
+              setIsLoadingRewardedAd(true);
+              try {
+                const earned = await showRewardedAd('EXPORT_TEXT');
+                if (!earned) {
+                  Alert.alert('広告を視聴できませんでした', 'もう一度お試しください。');
+                }
+                resolve(earned);
+              } finally {
+                setIsLoadingRewardedAd(false);
+              }
+            },
+          },
+        ],
+        { cancelable: false }
+      );
+    });
+  };
+
   const handleColorSelection = (color: Book['color']) => {
     setSelectedColorForNewBook(color);
     setShowBookOptions(false);
@@ -563,7 +705,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleAddBookWithTitle = async () => {
     if (!selectedColorForNewBook) return;
-    
+
+    const canProceed = await confirmAndWatchRewardedAdForNewBook();
+    if (!canProceed) return;
+
     const newId = Date.now().toString();
     const newBook: Book = {
       book_id: newId,
@@ -624,9 +769,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
 
-      const firstChapter = parsedItems.find((item) => item.kind === 'chapter') as { kind: 'chapter'; text: string } | undefined;
-      const fallbackTitle = name.replace(/\.(md|txt)$/i, '').trim();
-      const importedTitle = (firstChapter?.text || fallbackTitle || 'インポートノート').trim();
+      const importedTitle = (name.replace(/\.(md|txt)$/i, '').trim() || 'インポートノート').trim();
       const nowIso = new Date().toISOString();
       const newId = `${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 
@@ -639,43 +782,53 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         updated_at: nowIso,
       };
 
+      const canProceed = await confirmAndWatchRewardedAdForNewBook();
+      if (!canProceed) return;
+
       await addBook(newBook);
       const updatedBooks = sortBooks([...state.books, newBook], sortMode);
       setBookData(updatedBooks);
 
-      const database = await initDB();
-      const contentId = `content_${newId}_0`;
-      await database.withTransactionAsync(async () => {
-        await database.runAsync(
-          'INSERT OR IGNORE INTO contents (content_id, type, book_id, page, height) VALUES (?, ?, ?, ?, ?)',
-          [contentId, 'text', newId, 0, 0]
-        );
-        await database.runAsync(
-          'INSERT OR IGNORE INTO page_images (page_image_id, image_path, page_order, book_id) VALUES (?, ?, ?, ?)',
-          [`pageimg_${newId}_0`, '', 0, newId]
-        );
+      // 長文は1ページに収まらないため、ノート編集画面の改ページ判定に合わせて複数ページへ分割する
+      const importAvailableWidth = Math.max(1, commonStyle.screenWidth * 0.98 * (1 - 2 * NOTE_HORIZONTAL_SPACE) - 12);
+      const importMaxRows = calcImportMaxRows(commonStyle.screenHeight);
+      const importPages = splitImportedItemsIntoPages(parsedItems, importMaxRows, importAvailableWidth);
 
-        let order = 0;
-        for (const item of parsedItems) {
-          const orderPrefix = String(order).padStart(4, '0');
-          const suffix = `${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-          if (item.kind === 'chapter' || item.kind === 'section' || item.kind === 'subsection') {
-            await database.runAsync(
-              'INSERT OR IGNORE INTO outlines (outline_id, outline, type, content_id) VALUES (?, ?, ?, ?)',
-              [`${orderPrefix}_outline_${suffix}`, item.text, item.kind, contentId]
-            );
-          } else if (item.kind === 'text') {
-            await database.runAsync(
-              'INSERT OR IGNORE INTO texts (text_id, text, content_id) VALUES (?, ?, ?)',
-              [`${orderPrefix}_text_${suffix}`, item.text, contentId]
-            );
-          } else if (item.kind === 'word') {
-            await database.runAsync(
-              'INSERT OR IGNORE INTO words (word_id, word, explanation, word_order, content_id, review_flag) VALUES (?, ?, ?, ?, ?, ?)',
-              [`${orderPrefix}_word_${suffix}`, item.word, item.explanation, order, contentId, 0]
-            );
+      const database = await initDB();
+      await database.withTransactionAsync(async () => {
+        for (let pageIndex = 0; pageIndex < importPages.length; pageIndex += 1) {
+          const contentId = `content_${newId}_${pageIndex}`;
+          await database.runAsync(
+            'INSERT OR IGNORE INTO contents (content_id, type, book_id, page, height) VALUES (?, ?, ?, ?, ?)',
+            [contentId, 'text', newId, pageIndex, 0]
+          );
+          await database.runAsync(
+            'INSERT OR IGNORE INTO page_images (page_image_id, image_path, page_order, book_id) VALUES (?, ?, ?, ?)',
+            [`pageimg_${newId}_${pageIndex}`, '', pageIndex, newId]
+          );
+
+          let order = 0;
+          for (const item of importPages[pageIndex]) {
+            const orderPrefix = String(order).padStart(4, '0');
+            const suffix = `${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+            if (item.kind === 'chapter' || item.kind === 'section' || item.kind === 'subsection') {
+              await database.runAsync(
+                'INSERT OR IGNORE INTO outlines (outline_id, outline, type, content_id) VALUES (?, ?, ?, ?)',
+                [`${orderPrefix}_outline_${suffix}`, item.text, item.kind, contentId]
+              );
+            } else if (item.kind === 'text') {
+              await database.runAsync(
+                'INSERT OR IGNORE INTO texts (text_id, text, content_id) VALUES (?, ?, ?)',
+                [`${orderPrefix}_text_${suffix}`, item.text, contentId]
+              );
+            } else if (item.kind === 'word') {
+              await database.runAsync(
+                'INSERT OR IGNORE INTO words (word_id, word, explanation, word_order, content_id, review_flag) VALUES (?, ?, ?, ?, ?, ?)',
+                [`${orderPrefix}_word_${suffix}`, item.word, item.explanation, order, contentId, 0]
+              );
+            }
+            order += 1;
           }
-          order += 1;
         }
       });
 
@@ -1187,6 +1340,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleExportBookText = async (book: Book, format: TextExportFormat) => {
     if (isExportingText) return;
+
+    const canProceed = await confirmAndWatchRewardedAdForExport();
+    if (!canProceed) return;
+
     setIsExportingText(true);
     try {
       const database = await initDB();
@@ -1196,7 +1353,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       ) as Array<{ content_id: string; page: number }>;
 
       if (!contents || contents.length === 0) {
-        Alert.alert('テキストファイル化', 'このノートには出力できる内容がありません。');
+        Alert.alert('エクスポート', 'このノートには出力できる内容がありません。');
         return;
       }
 
@@ -1277,7 +1434,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       }
 
       if (!hasAnyContent) {
-        Alert.alert('テキストファイル化', 'このノートには出力できる内容がありません。');
+        Alert.alert('エクスポート', 'このノートには出力できる内容がありません。');
         return;
       }
 
@@ -1299,7 +1456,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       }
     } catch (error) {
       console.error('Text export error:', error);
-      Alert.alert('テキストファイル化に失敗しました', 'しばらくしてからもう一度お試しください。');
+      Alert.alert('エクスポートに失敗しました', 'しばらくしてからもう一度お試しください。');
     } finally {
       setIsExportingText(false);
     }
@@ -1436,7 +1593,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             leadingIcon={item.is_pinned ? 'pin-off' : 'pin'}
             titleStyle={MENU_ITEM_TITLE_STYLE}
           />
-          <Menu.Item
+          {/* <Menu.Item
             onPress={async () => {
               setMenuVisibleBookId(null);
               await handleExportBookPdf(item);
@@ -1444,7 +1601,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             title="PDF化"
             leadingIcon="file-pdf-box"
             titleStyle={MENU_ITEM_TITLE_STYLE}
-          />
+          /> */}
           <Menu.Item
             onPress={async () => {
               setMenuVisibleBookId(null);
@@ -1452,7 +1609,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               if (!format) return;
               await handleExportBookText(item, format);
             }}
-            title="テキストファイル化"
+            title="エクスポート"
             leadingIcon="file-document-outline"
             titleStyle={MENU_ITEM_TITLE_STYLE}
           />
@@ -1530,7 +1687,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         keyExtractor={(item) => item.book_id}
         renderItem={renderItem}
         extraData={bookData}
-        contentContainerStyle={homeStyles.verticalScrollContainer}
+        contentContainerStyle={[homeStyles.verticalScrollContainer, adBannerExtra > 0 && { paddingBottom: (commonStyle.screenWidth / 6 + commonStyle.screenHeight * 0.045 + HOME_AD_BANNER_HEIGHT) + adBannerExtra }]}
         getItemLayout={(data, index) => ({
           length: BOOK_BTN_HEIGHT,
           offset: BOOK_BTN_HEIGHT * index,
@@ -1786,11 +1943,13 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
       <TouchableOpacity
         ref={addBookBtnWrapRef}
-        onPress={() => {
-          console.log('本を追加ボタン押下');
-          setShowBookOptions(prev => !prev);
-        }}
-        style={homeStyles.addBookBtn}
+        onPress={handlePressAddBook}
+        disabled={isLoadingRewardedAd}
+        style={[
+          homeStyles.addBookBtn,
+          adBannerExtra > 0 && { bottom: commonStyle.screenHeight * 0.02 + HOME_AD_BANNER_HEIGHT + adBannerExtra },
+          isLoadingRewardedAd && { opacity: 0.6 },
+        ]}
       >
         <Ionicons
           name="add"
@@ -1864,6 +2023,17 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         </Modal>
       )}
 
+      {isLoadingRewardedAd && (
+        <Modal transparent animationType="fade">
+          <View style={homeStyles.modalBackdropCenter}>
+            <View style={{ width: '78%', backgroundColor: '#FFFDF9', borderRadius: 14, borderWidth: 1, borderColor: '#D7C7B6', paddingHorizontal: 16, paddingVertical: 14, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color="#8A6A52" />
+              <Text style={{ marginTop: 10, fontSize: 14, fontWeight: '700', color: '#3E332A' }}>広告を読み込み中…</Text>
+            </View>
+          </View>
+        </Modal>
+      )}
+
       <Modal
         visible={showTitleInputModal}
         transparent
@@ -1897,7 +2067,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={handleAddBookWithTitle}
-                      style={homeStyles.renamePrimaryButton}
+                      disabled={isLoadingRewardedAd}
+                      style={[homeStyles.renamePrimaryButton, isLoadingRewardedAd && { opacity: 0.6 }]}
                     >
                       <Text style={homeStyles.renamePrimaryButtonText}>作成</Text>
                     </TouchableOpacity>
@@ -2009,6 +2180,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* ホーム画面下部のバナー広告（固定表示）。ネイティブ未ビルド時は描画されない。 */}
+      <View style={homeStyles.adBannerContainer} pointerEvents="box-none">
+        <AdBanner placement="HOME" onHeightChange={setAdBannerHeight} />
+      </View>
 
     </View>
   );

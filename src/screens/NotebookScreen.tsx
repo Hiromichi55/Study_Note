@@ -11,6 +11,7 @@ import {
   FlatList,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { RouteProp, useNavigation, usePreventRemove } from '@react-navigation/native';
@@ -36,6 +37,7 @@ import { Dimensions, PixelRatio } from 'react-native';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Asset } from 'expo-asset';
+import { showRewardedAd } from '../utils/admob';
 
 type NotebookScreenRouteProp = RouteProp<RootStackParamList, 'Notebook'>;
 interface Props {
@@ -110,6 +112,8 @@ const NOTE_HORIZONTAL_SPACE = 0.03;
 const NOTE_IMAGE_DEFAULT_ROWS = 3;
 const NEW_PAGE_MIN_BODY_LINES = 2;
 const NEW_PAGE_BODY_FOCUS_INDEX = 1;
+// 無料で追加できるページ数。これを超える追加にはリワード広告の視聴が必要。
+const FREE_PAGE_LIMIT = 10;
 
 const createEmptyTextElement = (): NoteElement => ({ type: 'text', text: '' });
 
@@ -487,6 +491,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   // アニメーション
   const isSwipeAnimatingRef = useRef(false);
   const isAddingPageRef = useRef(false);
+  // リワード広告の読み込み・表示中かどうか(ページ追加ボタンを再度押せないようにする)
+  const [isLoadingRewardedAd, setIsLoadingRewardedAd] = useState(false);
 
   const openMenu = () => setMenuVisible(true);
   const closeMenu = () => setMenuVisible(false);
@@ -669,14 +675,9 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     });
   };
 
-  const insertPageAfterCurrent = async () => {
-    if (book?.is_sample) {
-      Alert.alert('ページ追加できません', 'サンプルノートはページ追加できません。');
-      return;
-    }
-    if (isAddingPageRef.current) return;
+  // DB挿入を含む実際のページ追加処理。広告ゲートを通過した後に呼ぶ。
+  const performInsertPageAfterCurrent = async () => {
     isAddingPageRef.current = true;
-
     try {
       const insertPosition = currentPageNumberRef.current + 1;
 
@@ -747,6 +748,45 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
     } finally {
       isAddingPageRef.current = false;
     }
+  };
+
+  const handleWatchRewardedAdForNewPage = async () => {
+    setIsLoadingRewardedAd(true);
+    try {
+      const earned = await showRewardedAd('ADD_PAGE');
+      if (earned) {
+        await performInsertPageAfterCurrent();
+      } else {
+        Alert.alert('広告を視聴できませんでした', 'もう一度お試しください。');
+      }
+    } finally {
+      setIsLoadingRewardedAd(false);
+    }
+  };
+
+  // ページ追加のエントリーポイント(+ボタン・末尾スワイプの両方から呼ばれる)。
+  // ページ数が FREE_PAGE_LIMIT の倍数に達するたび(10, 20, 30...ページ目の次)、
+  // 広告視聴の確認ダイアログを挟む。
+  const insertPageAfterCurrent = async () => {
+    if (book?.is_sample) {
+      Alert.alert('ページ追加できません', 'サンプルノートはページ追加できません。');
+      return;
+    }
+    if (isAddingPageRef.current || isLoadingRewardedAd) return;
+
+    if (pagesElements.length > 0 && pagesElements.length % FREE_PAGE_LIMIT === 0) {
+      Alert.alert(
+        '広告を見てページを追加',
+        `ページは${FREE_PAGE_LIMIT}ページごとに広告を見ると追加できます。`,
+        [
+          { text: 'キャンセル', style: 'cancel' },
+          { text: '広告を見て追加', onPress: () => void handleWatchRewardedAdForNewPage() },
+        ]
+      );
+      return;
+    }
+
+    await performInsertPageAfterCurrent();
   };
 
   const handleNoteSwipePage = (direction: 1 | -1) => {
@@ -1953,12 +1993,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             {/* ページ追加ボタン（右下）+ */}
             {!editing && (
               <TouchableOpacity
-                disabled={Boolean(book?.is_sample)}
+                disabled={Boolean(book?.is_sample) || isLoadingRewardedAd}
                 style={[
                   notebookStyles.editButton,
                   { backgroundColor: floatingButtonBg, borderColor: floatingButtonBorder },
                   { bottom: commonStyle.screenHeight * 0.02 },
-                  book?.is_sample ? { opacity: 0.45 } : null,
+                  (book?.is_sample || isLoadingRewardedAd) ? { opacity: 0.45 } : null,
                 ]}
                 onPress={async () => {
                   console.log('ページ追加ボタン押下');
@@ -2075,6 +2115,17 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
 
       </View>
     </TouchableWithoutFeedback>
+
+      {isLoadingRewardedAd && (
+        <Modal transparent animationType="fade">
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(39, 30, 22, 0.22)' }}>
+            <View style={{ width: '78%', backgroundColor: '#FFFDF9', borderRadius: 14, borderWidth: 1, borderColor: '#D7C7B6', paddingHorizontal: 16, paddingVertical: 14, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color="#8A6A52" />
+              <Text style={{ marginTop: 10, fontSize: 14, fontWeight: '700', color: '#3E332A' }}>広告を読み込み中…</Text>
+            </View>
+          </View>
+        </Modal>
+      )}
 
       {/* ===== 目次モーダル ===== */}
       <Modal

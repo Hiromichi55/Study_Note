@@ -2,7 +2,7 @@
 // NoteContent.tsx
 // ==========================================
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { View, Text, Image, Dimensions, StyleSheet, TextInput, TouchableOpacity, Keyboard, Platform, Animated, ScrollView, Alert, ActionSheetIOS, PixelRatio, Modal } from 'react-native';
 import { Skia, PaintStyle } from '@shopify/react-native-skia';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -137,6 +137,9 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const noteSheetRef = useRef<View | null>(null);
   // word行を押し下げた後のフォーカス先インデックスを保持する ref
   const pendingWordRefocusRef = useRef<number | null>(null);
+  // 改行分割後にフォーカスを移す新行インデックス。useLayoutEffect で
+  // 描画前に同期フォーカスし、カーソルが一瞬消える（チカっとする）のを防ぐ。
+  const pendingSplitFocusRef = useRef<number | null>(null);
   const noteBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const scrollOffsetRef = useRef(0);
   const swipeStateRef = useRef<{ startX: number; startY: number; swiped: boolean }>({ startX: 0, startY: 0, swiped: false });
@@ -150,18 +153,19 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const selectionRef = useRef<Record<string, { start: number; end: number }>>({});
   const splitGuardRef = useRef<{ key: string; ts: number } | null>(null);
   const deleteGuardRef = useRef<{ key: string; ts: number } | null>(null);
+  // 改行分割中、ネイティブ TextInput が一瞬 "\n" 入り（2行）を描画した高さを
+  // onContentSizeChange が拾って行が伸び→縮みする「高さスラッシング」を抑制するためのガード。
+  // until までの間、対象 idx の行数「増加」更新を無視する。
+  const splitHeightSuppressRef = useRef<{ idx: number; until: number } | null>(null);
   // mergeWithPrevious の setTimeout をキャンセルするための ref
   const mergeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastElementsLengthRef = useRef<number>(0);
-  // 改行時のアクティブインデックスを即座に更新するためのref
-  const pendingSplitActiveIndexRef = useRef<number | null>(null);
   const effectiveActiveIndex = isEditing && activeIndex === null && initialFocusIndex !== undefined && initialFocusIndex !== null
     ? initialFocusIndex
-    : pendingSplitActiveIndexRef.current !== null
-    ? pendingSplitActiveIndexRef.current
     : activeIndex;
   activeIndexRef.current = effectiveActiveIndex;
   elementsRef.current = elements;
+
 
   useEffect(() => {
     if (isEditing) {
@@ -353,6 +357,35 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       return { ...prev, [idx]: lines };
     });
   };
+
+  // 配列インデックスをキーにしている数値レコードを、insertAt 位置に1要素挿入された
+  // 前提でシフトする（k >= insertAt の値を k+1 へ移し、insertAt は空にする）。
+  // 改行などで要素を挿入すると以降のインデックスが1つずれるため、行高キャッシュを
+  // シフトしないと「前にそこにあった要素の高さ」で1フレーム描画されてチラつく。
+  const shiftIndexRecordForInsert = (
+    rec: Record<number, number>,
+    insertAt: number
+  ): Record<number, number> => {
+    const next: Record<number, number> = {};
+    Object.keys(rec).forEach((k) => {
+      const ki = Number(k);
+      if (ki >= insertAt) next[ki + 1] = rec[ki];
+      else next[ki] = rec[ki];
+    });
+    return next;
+  };
+
+  // 改行で insertAt（= 新しい行のインデックス）に空要素が挿入される直前に、
+  // インデックスキーの各種行高キャッシュを同期的にシフトしておく。
+  const shiftLineCachesForInsert = (insertAt: number) => {
+    measuredTextLinesRef.current = shiftIndexRecordForInsert(measuredTextLinesRef.current, insertAt);
+    measuredWordLinesRef.current = shiftIndexRecordForInsert(measuredWordLinesRef.current, insertAt);
+    measuredWordTermLinesRef.current = shiftIndexRecordForInsert(measuredWordTermLinesRef.current, insertAt);
+    setMeasuredTextLines((prev) => shiftIndexRecordForInsert(prev, insertAt));
+    setDisplayTextLines((prev) => shiftIndexRecordForInsert(prev, insertAt));
+    setDisplayWordLines((prev) => shiftIndexRecordForInsert(prev, insertAt));
+  };
+
   // アクティブ要素のY位置（ScrollView内）を計算するヘルパー
   const getActiveElementY = (curIdx: number | null, curElements: NoteElement[] | undefined): number => {
     if (curIdx === null || !curElements) return noteHeight; // 不明なら最下部扱い
@@ -504,6 +537,25 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       try { ref.focus(); } catch (_) {}
     } else {
       requestAnimationFrame(() => focusElementInput(pending, 'word'));
+    }
+  }, [elements?.length]);
+
+  // 改行分割後のフォーカス移動を「描画前」に同期実行する。
+  // setTimeout + requestAnimationFrame だと現在行のフォーカスが外れてから新行へ
+  // フォーカスが当たるまでに空白フレームが生じ、カーソルが一瞬消えて（チカっと）見える。
+  // useLayoutEffect は新要素マウント後・描画前に走るため、ここで focus すれば
+  // カーソルが現在行→新行へ途切れずに移り、消える瞬間がなくなる。
+  useLayoutEffect(() => {
+    const pending = pendingSplitFocusRef.current;
+    if (pending === null) return;
+    if (!elements || elements.length <= pending) return;
+    pendingSplitFocusRef.current = null;
+    const ref = inputRefs.current[getInputKey(pending, 'main')];
+    if (ref) {
+      try { ref.focus(); } catch (_) {}
+    } else {
+      // 万一未マウントなら次フレームで再試行（通常は到達しない）
+      requestAnimationFrame(() => focusElementInput(pending));
     }
   }, [elements?.length]);
 
@@ -773,94 +825,82 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   };
 
   const splitToNextTextBlock = (index: number, currentText: string, splitAt: number) => {
-    console.log(`[splitToNextTextBlock] idx=${index}, splitAt=${splitAt}`);
+    console.log(`[splitToNextTextBlock] START idx=${index}, splitAt=${splitAt}, text.length=${currentText.length}`);
     const safeSplitAt = Math.max(0, Math.min(splitAt, currentText.length));
     const before = currentText.slice(0, safeSplitAt);
     const after = currentText.slice(safeSplitAt);
+    console.log(`[splitToNextTextBlock] before="${before}", after="${after}"`);
 
-    // 先にアクティブ状態を次の行に移動（グレー背景を先に移す）
+    // 次の行のインデックス
     const nextIdx = index + 1;
-    pendingSplitActiveIndexRef.current = nextIdx;
-    setActiveIndex(nextIdx);
-    activeIndexRef.current = nextIdx;
-    console.log(`[splitToNextTextBlock] アクティブ状態を ${nextIdx} に先行移動`);
+
+    // ここではキーパーへフォーカスを逃がさない。
+    // キーパー経由だと「現行→（画面外でカーソルが一旦消える）→新行」と
+    // カーソルが点滅して見える。現行(index)は新行へフォーカスを移すまで
+    // マウント・フォーカスを保持したままなのでキーボードは閉じず、
+    // カーソルは index 末尾→nextIdx 先頭へ一回だけ滑らかに移動する。
 
     const inserted = onSplitToNextTextBlock?.(index, before, after);
     if (inserted !== undefined) {
       if (inserted === false) {
         console.log(`[splitToNextTextBlock] 親が false を返したため中断`);
-        pendingSplitActiveIndexRef.current = null;
         return;
       }
-      console.log(`[splitToNextTextBlock] 親で処理済み`);
-      // 親で要素が追加された後、次の行にフォーカスを移す
-      // requestAnimationFrameを使わず、直接実行
-      const key = getInputKey(nextIdx, 'main');
-      const ref = inputRefs.current[key];
-      if (ref) {
-        try { 
-          ref.focus();
-          console.log(`[splitToNextTextBlock] ref.focus() 即座に成功`);
-        } catch (e) {
-          console.log(`[splitToNextTextBlock] ref.focus() エラー:`, e);
-          // フォールバック
-          setTimeout(() => {
-            focusElementInput(nextIdx);
-          }, 0);
-        }
-      } else {
-        console.log(`[splitToNextTextBlock] ref が見つからない、次のフレームで再試行`);
-        requestAnimationFrame(() => {
-          focusElementInput(nextIdx);
-        });
-      }
-      
-      splitGuardRef.current = {
-        key: getInputKey(index, 'main'),
-        ts: Date.now(),
-      };
-      pendingSplitActiveIndexRef.current = null;
+      console.log(`[splitToNextTextBlock] 親で処理完了、次の行(${nextIdx})にフォーカス移動を準備`);
+
+      // 親が nextIdx に空要素を挿入したことで、それ以降のインデックスが1つずれる。
+      // 行高キャッシュ（インデックスキー）を同じバッチで同期シフトしておかないと、
+      // 挿入位置以降の行が「前にそこにあった要素の高さ」で1フレーム描画され、
+      // 行の高さがガクッと揺れてチラついて見える。
+      shiftLineCachesForInsert(nextIdx);
+
+      // アクティブ行（ハイライト）の移動は状態更新と同じバッチで同期的に行う。
+      // setTimeout に入れると現在行がハイライトされたまま1フレーム残り、遅れて
+      // 移動する段差が見えてチラつくため、ここで即座に nextIdx へ移す。
+      setActiveIndex(nextIdx);
+      activeIndexRef.current = nextIdx;
+
+      // フォーカス移動は useLayoutEffect（描画前・新要素マウント後）で同期実行する。
+      // ここで予約だけしておく。setTimeout/rAF を使わないことで、現在行→新行への
+      // フォーカス移動に空白フレームが入らず、カーソルが一瞬消える（チカっと）のを防ぐ。
+      pendingSplitFocusRef.current = nextIdx;
+
       return;
     }
 
-    console.log(`[splitToNextTextBlock] フォールバック処理を実行`);
+    console.log(`[splitToNextTextBlock] フォールバック処理開始`);
     const current = elements?.[index];
     if (!isValidElement(current) || !('text' in current)) {
-      pendingSplitActiveIndexRef.current = null;
+      console.log(`[splitToNextTextBlock] 無効な要素、中断`);
       return;
     }
+    
     onElementChange?.(index, { ...current, text: before } as any);
     const fallbackInserted = onTapEmpty?.(index + 1);
     if (fallbackInserted === false) {
-      pendingSplitActiveIndexRef.current = null;
+      console.log(`[splitToNextTextBlock] onTapEmptyがfalseを返したため中断`);
       return;
     }
 
-    // フォールバック時も同様に、アクティブ状態は既に移動済み
+    console.log(`[splitToNextTextBlock] フォールバック: 次の行に要素追加`);
+    
     setTimeout(() => {
       onElementChange?.(index + 1, { type: 'text', text: after });
-      splitGuardRef.current = {
-        key: getInputKey(index, 'main'),
-        ts: Date.now(),
-      };
-      // 次の行にフォーカス
+      console.log(`[splitToNextTextBlock] フォールバック: after設定完了`);
+      
+      // 状態更新とフォーカスを次のフレームで実行
       requestAnimationFrame(() => {
+        setActiveIndex(nextIdx);
+        activeIndexRef.current = nextIdx;
         focusElementInput(nextIdx);
-        pendingSplitActiveIndexRef.current = null;
       });
     }, 0);
   };
 
   const splitByEnter = (index: number, currentText: string) => {
-    const key = getInputKey(index, 'main');
-    const guard = splitGuardRef.current;
-    // ガード時間を短縮（50ms）して、改行が動作しないケースを減らす
-    if (guard && guard.key === key && Date.now() - guard.ts < 50) {
-      console.log(`[splitByEnter] ガード中のためスキップ: idx=${index}`);
-      return;
-    }
-
     console.log(`[splitByEnter] idx=${index}, currentText.length=${currentText.length}`);
+    
+    const key = getInputKey(index, 'main');
     const selection = selectionRef.current[key] ?? {
       start: currentText.length,
       end: currentText.length,
@@ -868,6 +908,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     const splitAt = Math.max(0, Math.min(selection.start, currentText.length));
     const end = Math.max(splitAt, Math.min(selection.end, currentText.length));
     const normalized = `${currentText.slice(0, splitAt)}${currentText.slice(end)}`;
+    
     splitToNextTextBlock(index, normalized, splitAt);
   };
 
@@ -1383,26 +1424,35 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 value={mainText}
                 scrollEnabled={false}
                 onChangeText={(t) => {
+                  // 改行文字が含まれている場合は改行処理を実行
                   const newlineIndex = t.indexOf('\n');
                   if (newlineIndex >= 0) {
                     console.log(`[onChangeText] 改行検出: idx=${idx}, newlineIndex=${newlineIndex}`);
-                    // onKeyPress の Enter と二重発火するのを防ぐ
-                    const key = getInputKey(idx, 'main');
-                    const guard = splitGuardRef.current;
-                    if (guard && guard.key === key && Date.now() - guard.ts < 50) {
-                      console.log(`[onChangeText] ガード中のためスキップ`);
-                      return;
-                    }
-                    // 改行で行分割するときだけキャッシュをクリアして高さを再計算させる
-                    const cleaned = { ...measuredTextLinesRef.current };
-                    delete cleaned[idx];
-                    measuredTextLinesRef.current = cleaned;
-                    setMeasuredTextLines((prev) => {
-                      const next = { ...prev };
-                      delete next[idx];
-                      return next;
-                    });
+
+                    // 改行文字を除去したテキストで分割
                     const merged = `${t.slice(0, newlineIndex)}${t.slice(newlineIndex + 1)}`;
+                    const before = merged.slice(0, newlineIndex);
+                    console.log(`[onChangeText] 改行処理実行: before="${before}", after="${merged.slice(newlineIndex)}"`);
+
+                    // ネイティブ TextInput が一瞬 "\n" 入りテキスト（2行）を描画して
+                    // カーソルが下行へ降り、行の高さも伸びるのがチラつきの原因。
+                    // 改行を検出した瞬間にネイティブテキストを before に戻し、改行が
+                    // 描画されること自体を防ぐ（カーソルの「下→戻る」を消す）。
+                    // selection を before 末尾に揃えるのでカーソルはそのまま、
+                    // その後 nextIdx へ一回だけ移動する（余計なキーパー経由はしない）。
+                    //
+                    // さらに、改行検出と同時に高さスラッシング抑制ガードを張る。
+                    // ネイティブが一瞬描画した "\n"（2行）の高さを onContentSizeChange が
+                    // 拾って行が伸び→縮みするのを防ぐため、一定時間 idx の行数「増加」を無視する。
+                    splitHeightSuppressRef.current = { idx, until: Date.now() + 350 };
+                    const curRef = inputRefs.current[getInputKey(idx, 'main')];
+                    try {
+                      curRef?.setNativeProps?.({
+                        text: before,
+                        selection: { start: before.length, end: before.length },
+                      });
+                    } catch (_) {}
+
                     splitToNextTextBlock(idx, merged, newlineIndex);
                     return;
                   }
@@ -1411,9 +1461,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 }}
                 onKeyPress={({ nativeEvent }) => {
                   if (nativeEvent.key === 'Enter' || nativeEvent.key === 'Return' || nativeEvent.key === '\n') {
-                    console.log(`[onKeyPress Enter] idx=${idx}`);
-                    const current = 'text' in el ? el.text : (el as any).text || '';
-                    splitByEnter(idx, current);
+                    console.log(`[onKeyPress Enter] idx=${idx} - onChangeTextで処理される`);
+                    // onChangeTextで処理されるため、ここでは何もしない
                     return;
                   }
                   if (nativeEvent.key === 'Backspace') {
@@ -1562,6 +1611,17 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 onContentSizeChange={(e) => {
                   const h = Math.round(e.nativeEvent.contentSize.height);
                   const measuredLines = measureLinesFromHeight(h, font.lineHeight);
+                  // 改行分割中は、ネイティブが一瞬描画した "\n"（2行）由来の高さ増加を無視する。
+                  // これをしないと行が伸び→縮みし、カーソルが「下→戻る」と見える。
+                  const suppress = splitHeightSuppressRef.current;
+                  if (
+                    suppress &&
+                    suppress.idx === idx &&
+                    Date.now() < suppress.until &&
+                    measuredLines > (measuredTextLinesRef.current[idx] ?? 1)
+                  ) {
+                    return;
+                  }
                   measuredTextLinesRef.current[idx] = measuredLines;
                   updateMeasuredTextLines(idx, measuredLines);
                   if (isEditing) {
@@ -1589,10 +1649,22 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 }}
                 selectionColor="#8A6F56"
                 multiline
-                blurOnSubmit={false}
-                submitBehavior="newline"
-                returnKeyType="next"
+                returnKeyType="default"
+                // カーソル（caret）は「アクティブな行」にだけ描画する。
+                // 分割直後の1フレーム、フォーカスは旧行(idx)に残ったままハイライト
+                // (activeIndex)だけ新行へ移ることがあり、カーソルとハイライトが別の行に
+                // 見える＝ちらつきの原因になる。caretHidden を activeIndex に完全連動させると
+                // カーソルは常にアクティブ行にのみ表示され、このズレが原理的に消える。
+                caretHidden={effectiveActiveIndex !== idx}
+                // submitBehavior="submit" にすると Enter で改行（"\n"）を挿入せず
+                // onSubmitEditing が発火する。これが根本修正の要：
+                // 従来は Enter でネイティブが一瞬 "text\n"（2行）を描画し、改行行が
+                // 2行分の高さになって新行が元の「次の次の行」位置へ押し下げられ、
+                // そこにカーソルが乗って見えていた。\n を挿入させないことで、その
+                // 一時的な2行描画そのものが起きなくなり、カーソルの瞬間移動が消える。
+                submitBehavior="submit"
                 onSubmitEditing={() => {
+                  // Enter は \n を挿入しないため、selection を使って論理的に分割する。
                   const current = 'text' in el ? el.text : (el as any).text || '';
                   splitByEnter(idx, current);
                 }}

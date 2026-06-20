@@ -50,6 +50,16 @@
           "photosPermission": "ノートに画像を追加するために写真へのアクセスを許可してください",
           "cameraPermission": "ノートに写真を撮影するためにカメラへのアクセスを許可してください"
         }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-3019459894605015~7482724561",
+          "iosAppId": "ca-app-pub-3019459894605015~7482724561",
+          "skAdNetworkItems": [
+            "cstr6suwn9.skadnetwork"
+          ]
+        }
       ]
     ],
     "extra": {

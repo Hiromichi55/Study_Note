@@ -4,7 +4,7 @@ import { ScrollView, Text, View, Image, Animated, StyleSheet, Dimensions } from 
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { LibraryProvider } from './context/LibraryContext';
+import { LibraryProvider, useLibrary } from './context/LibraryContext';
 import { EditorProvider, useEditor, Content } from './context/EditorContext';
 import { Provider as PaperProvider } from 'react-native-paper';
 import * as Font from 'expo-font';
@@ -166,44 +166,55 @@ function ProductionApp() {
     <LibraryProvider>
       <PaperProvider>
         {ENV.ENABLE_DB_LOGGER && <StartupDBLogger />}
-        <NavigationContainer>
-          <Stack.Navigator
-            initialRouteName="Home"
-            screenOptions={{
-              // headerTitleStyle: { fontFamily: 'piroji' },
-              gestureEnabled: true,
-              animation: 'slide_from_right',
-            }}
-          >
-            <Stack.Screen
-              name="Home"
-              component={HomeScreenProduction}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="Notebook"
-              component={NotebookScreen as any}
-              options={{ title: MESSAGES.NOTE_TITLE }}
-            />
-            <Stack.Screen
-              name="Wordbook"
-              component={WordbookScreen as any}
-              options={{ title: '一問一答', animation: 'slide_from_left', gestureEnabled: false, headerBackTitle: '' }}
-            />
-            <Stack.Screen
-              name="WordList"
-              component={WordListScreen as any}
-              options={{ title: '単語リスト', headerBackTitle: '' }}
-            />
-            <Stack.Screen
-              name="License"
-              component={LicensesScreen as any}
-              options={{ title: '詳細情報' }}
-            />
-          </Stack.Navigator>
-        </NavigationContainer>
+        <ProductionAppContent />
       </PaperProvider>
     </LibraryProvider>
+  );
+}
+
+// DB初期化(state.isLoading)が終わるまではローディング画面を表示する
+function ProductionAppContent() {
+  const { state } = useLibrary();
+
+  if (state.isLoading) return <LoadingScreen />;
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator
+        initialRouteName="Home"
+        screenOptions={{
+          // headerTitleStyle: { fontFamily: 'piroji' },
+          gestureEnabled: true,
+          animation: 'slide_from_right',
+        }}
+      >
+        <Stack.Screen
+          name="Home"
+          component={HomeScreenProduction}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Notebook"
+          component={NotebookScreen as any}
+          options={{ title: MESSAGES.NOTE_TITLE }}
+        />
+        <Stack.Screen
+          name="Wordbook"
+          component={WordbookScreen as any}
+          options={{ title: '一問一答', animation: 'slide_from_left', gestureEnabled: false, headerBackTitle: '' }}
+        />
+        <Stack.Screen
+          name="WordList"
+          component={WordListScreen as any}
+          options={{ title: '単語リスト', headerBackTitle: '' }}
+        />
+        <Stack.Screen
+          name="License"
+          component={LicensesScreen as any}
+          options={{ title: '詳細情報' }}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 

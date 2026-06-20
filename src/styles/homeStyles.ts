@@ -5,6 +5,10 @@ export const BOOK_BTN_HEIGHT = commonStyle.screenHeight / 10.5;
 export const BOOK_BTN_WIDTH = commonStyle.screenWidth / 1.12;
 export const font = commonStyle.screenHeight / 36;
 
+// ホーム画面下部に固定表示する AdMob バナーの確保高さ（dp）。
+// アンカー型アダプティブバナーは概ね 50dp。上下の余白を含めて確保する。
+export const HOME_AD_BANNER_HEIGHT = 58;
+
 const PAPER = '#F5EFE6';
 const PAPER_DARK = '#E8DECF';
 const INK = '#342C24';
@@ -80,7 +84,7 @@ export const homeStyles = StyleSheet.create({
   verticalScrollContainer: {
     width: commonStyle.screenWidth * 0.92,
     paddingTop: 8,
-    paddingBottom: commonStyle.screenWidth / 6 + commonStyle.screenHeight * 0.045,
+    paddingBottom: commonStyle.screenWidth / 6 + commonStyle.screenHeight * 0.045 + HOME_AD_BANNER_HEIGHT,
   },
   listHeaderStrip: {
     flexDirection: 'row',
@@ -226,7 +230,7 @@ export const homeStyles = StyleSheet.create({
   addBookBtn: {
     position: 'absolute',
     right: 20,
-    bottom: commonStyle.screenHeight * 0.02,
+    bottom: commonStyle.screenHeight * 0.02 + HOME_AD_BANNER_HEIGHT,
     backgroundColor: ACTION_BG,
     borderWidth: 1,
     borderColor: '#7D644E',
@@ -244,7 +248,7 @@ export const homeStyles = StyleSheet.create({
   manualBtn: {
     position: 'absolute',
     left: 20,
-    bottom: commonStyle.screenHeight * 0.02 + (commonStyle.screenWidth / 6 - commonStyle.screenWidth / 7) / 2,
+    bottom: commonStyle.screenHeight * 0.02 + (commonStyle.screenWidth / 6 - commonStyle.screenWidth / 7) / 2 + HOME_AD_BANNER_HEIGHT,
     backgroundColor: ACTION_BG_SOFT,
     borderWidth: 1,
     borderColor: '#816955',
@@ -263,6 +267,19 @@ export const homeStyles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(39, 30, 22, 0.16)',
+  },
+  adBannerContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    minHeight: HOME_AD_BANNER_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+    backgroundColor: PAPER,
+    borderTopWidth: 1,
+    borderTopColor: PAPER_DARK,
   },
   modalBackdropCenter: {
     flex: 1,

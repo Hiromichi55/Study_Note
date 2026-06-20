@@ -7,7 +7,10 @@ import { useEditor, Content, Word } from '../context/EditorContext';
 import { RootStackParamList } from '../App';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AdBanner from '../components/AdBanner';
 
+// バナー広告の確保高さ(dp)。アンカー型アダプティブバナーは概ね 50dp。
+const AD_BANNER_HEIGHT = 58;
 
 type QuizMode = 'hideWord' | 'hideMeaning';
 type OrderMode = 'sequential' | 'random';
@@ -33,6 +36,9 @@ const WordbookScreen: React.FC = () => {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const [showHelpOverlay, setShowHelpOverlay] = useState(false);
+  // バナー広告の実測高さ(dp)。実測値でコンテンツ下部の余白を補正する。
+  const [adBannerHeight, setAdBannerHeight] = useState(AD_BANNER_HEIGHT);
+  const adBannerExtra = Math.max(0, adBannerHeight - AD_BANNER_HEIGHT);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -285,7 +291,7 @@ const WordbookScreen: React.FC = () => {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 12 }}
+        contentContainerStyle={{ paddingBottom: 12 + AD_BANNER_HEIGHT + adBannerExtra }}
       >
 
       <View style={{ height: 40, justifyContent: 'center', marginBottom: 4 }}>
@@ -634,6 +640,26 @@ const WordbookScreen: React.FC = () => {
         </View>
       </View>
       </ScrollView>
+
+      {/* 画面下部のバナー広告（固定表示）。ネイティブ未ビルド時は描画されない。 */}
+      <View
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          minHeight: AD_BANNER_HEIGHT,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingVertical: 4,
+          backgroundColor: '#F5EFE6',
+          borderTopWidth: 1,
+          borderTopColor: '#E8DECF',
+        }}
+        pointerEvents="box-none"
+      >
+        <AdBanner placement="WORDBOOK" onHeightChange={setAdBannerHeight} />
+      </View>
     </View>
   );
 };
