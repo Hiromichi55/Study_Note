@@ -604,7 +604,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleDeleteBook = (bookId: string, title: string, isSample: boolean = false) => {
     if (isSample) {
-      Alert.alert('削除できません', 'サンプルノートは削除できません。');
+      Alert.alert('削除できません', `「${title}」は削除できません。`);
       return;
     }
     Alert.alert(

@@ -8,184 +8,181 @@ import { Asset } from 'expo-asset';
 const isDelete = ENV.INIT_DB; // trueのとき: コンテンツ系テーブルを全削除して再作成
 const isPurgeOnly = ENV.PURGE_DB_ONLY; // trueのとき: 削除のみ実行し初期データは投入しない
 
-type SeedPage = {
-  chapter: string;
-  section: string;
-  subsection: string;
-  text: string;
-  word: string;
-  explanation: string;
-};
+type SeedElement =
+  | { type: 'chapter' | 'section' | 'subsection' | 'text'; text: string }
+  | { type: 'word'; word: string; explanation: string };
+
+type SeedPage = SeedElement[];
 
 const SHOWCASE_BOOK_PAGES: Record<string, SeedPage[]> = {
   国語: [
-    {
-      chapter: '説明文の読み取り',
-      section: '要旨の捉え方',
-      subsection: '段落ごとの役割',
-      text: '説明文では、各段落が何を説明しているかを短くまとめると、筆者の主張が見えやすくなる。接続語に注目すると話の流れを追いやすい。',
-      word: '要旨',
-      explanation: '文章全体でいちばん伝えたい中心内容。',
-    },
-    {
-      chapter: '古文入門',
-      section: '歴史的仮名遣い',
-      subsection: '現代仮名遣いとの違い',
-      text: '古文は現代語と発音や表記が異なるため、声に出して読む練習が大切である。意味の切れ目を意識すると内容理解が進む。',
-      word: '歴史的仮名遣い',
-      explanation: '昔の日本語の書き方で、現在の仮名遣いと異なる表記。',
-    },
-    {
-      chapter: '作文の技法',
-      section: '意見文の構成',
-      subsection: '根拠の示し方',
-      text: '意見文では、主張・理由・具体例・結論の順に書くと説得力が高まる。具体例は数字や体験を入れると読み手に伝わりやすい。',
-      word: '根拠',
-      explanation: '主張を支える理由や事実。',
-    },
+    [
+      { type: 'chapter', text: '説明文の読み取り' },
+      { type: 'section', text: '要旨の捉え方' },
+      { type: 'subsection', text: '段落ごとの役割' },
+      { type: 'text', text: '説明文では、各段落が何を説明しているかを短くまとめると、筆者の主張が見えやすくなる。接続語に注目すると話の流れを追いやすい。' },
+      { type: 'word', word: '要旨', explanation: '文章全体でいちばん伝えたい中心内容。' },
+    ],
+    [
+      { type: 'chapter', text: '古文入門' },
+      { type: 'section', text: '歴史的仮名遣い' },
+      { type: 'subsection', text: '現代仮名遣いとの違い' },
+      { type: 'text', text: '古文は現代語と発音や表記が異なるため、声に出して読む練習が大切である。意味の切れ目を意識すると内容理解が進む。' },
+      { type: 'word', word: '歴史的仮名遣い', explanation: '昔の日本語の書き方で、現在の仮名遣いと異なる表記。' },
+    ],
+    [
+      { type: 'chapter', text: '作文の技法' },
+      { type: 'section', text: '意見文の構成' },
+      { type: 'subsection', text: '根拠の示し方' },
+      { type: 'text', text: '意見文では、主張・理由・具体例・結論の順に書くと説得力が高まる。具体例は数字や体験を入れると読み手に伝わりやすい。' },
+      { type: 'word', word: '根拠', explanation: '主張を支える理由や事実。' },
+    ],
   ],
   算数: [
-    {
-      chapter: '方程式',
-      section: '一次方程式',
-      subsection: '移項の考え方',
-      text: '等式は左右のつり合いが成り立っているので、同じ数を足したり引いたりしても関係は変わらない。移項はこの性質を使った計算である。',
-      word: '移項',
-      explanation: '等式の一方の辺の項を、符号を変えて他方に移す計算。',
-    },
-    {
-      chapter: '比例と反比例',
-      section: 'グラフの特徴',
-      subsection: '変化の割合',
-      text: '比例のグラフは原点を通る直線になり、反比例のグラフは双曲線になる。表と式とグラフを対応させて考えることが重要である。',
-      word: '比例定数',
-      explanation: '比例の式 y=ax における a の値。',
-    },
-    {
-      chapter: '図形',
-      section: '三角形の合同',
-      subsection: '合同条件の活用',
-      text: '合同な図形では対応する辺の長さと角の大きさが等しい。証明では、どの合同条件を使うかを先に決めると書きやすい。',
-      word: '合同',
-      explanation: '形も大きさも同じで、ぴったり重なる関係。',
-    },
+    [
+      { type: 'chapter', text: '方程式' },
+      { type: 'section', text: '一次方程式' },
+      { type: 'subsection', text: '移項の考え方' },
+      { type: 'text', text: '等式は左右のつり合いが成り立っているので、同じ数を足したり引いたりしても関係は変わらない。移項はこの性質を使った計算である。' },
+      { type: 'word', word: '移項', explanation: '等式の一方の辺の項を、符号を変えて他方に移す計算。' },
+    ],
+    [
+      { type: 'chapter', text: '比例と反比例' },
+      { type: 'section', text: 'グラフの特徴' },
+      { type: 'subsection', text: '変化の割合' },
+      { type: 'text', text: '比例のグラフは原点を通る直線になり、反比例のグラフは双曲線になる。表と式とグラフを対応させて考えることが重要である。' },
+      { type: 'word', word: '比例定数', explanation: '比例の式 y=ax における a の値。' },
+    ],
+    [
+      { type: 'chapter', text: '図形' },
+      { type: 'section', text: '三角形の合同' },
+      { type: 'subsection', text: '合同条件の活用' },
+      { type: 'text', text: '合同な図形では対応する辺の長さと角の大きさが等しい。証明では、どの合同条件を使うかを先に決めると書きやすい。' },
+      { type: 'word', word: '合同', explanation: '形も大きさも同じで、ぴったり重なる関係。' },
+    ],
   ],
   数学: [
-    {
-      chapter: '方程式',
-      section: '一次方程式',
-      subsection: '移項の考え方',
-      text: '等式は左右のつり合いが成り立っているので、同じ数を足したり引いたりしても関係は変わらない。移項はこの性質を使った計算である。',
-      word: '移項',
-      explanation: '等式の一方の辺の項を、符号を変えて他方に移す計算。',
-    },
-    {
-      chapter: '比例と反比例',
-      section: 'グラフの特徴',
-      subsection: '変化の割合',
-      text: '比例のグラフは原点を通る直線になり、反比例のグラフは双曲線になる。表と式とグラフを対応させて考えることが重要である。',
-      word: '比例定数',
-      explanation: '比例の式 y=ax における a の値。',
-    },
-    {
-      chapter: '図形',
-      section: '三角形の合同',
-      subsection: '合同条件の活用',
-      text: '合同な図形では対応する辺の長さと角の大きさが等しい。証明では、どの合同条件を使うかを先に決めると書きやすい。',
-      word: '合同',
-      explanation: '形も大きさも同じで、ぴったり重なる関係。',
-    },
+    [
+      { type: 'chapter', text: '方程式' },
+      { type: 'section', text: '一次方程式' },
+      { type: 'subsection', text: '移項の考え方' },
+      { type: 'text', text: '等式は左右のつり合いが成り立っているので、同じ数を足したり引いたりしても関係は変わらない。移項はこの性質を使った計算である。' },
+      { type: 'word', word: '移項', explanation: '等式の一方の辺の項を、符号を変えて他方に移す計算。' },
+    ],
+    [
+      { type: 'chapter', text: '比例と反比例' },
+      { type: 'section', text: 'グラフの特徴' },
+      { type: 'subsection', text: '変化の割合' },
+      { type: 'text', text: '比例のグラフは原点を通る直線になり、反比例のグラフは双曲線になる。表と式とグラフを対応させて考えることが重要である。' },
+      { type: 'word', word: '比例定数', explanation: '比例の式 y=ax における a の値。' },
+    ],
+    [
+      { type: 'chapter', text: '図形' },
+      { type: 'section', text: '三角形の合同' },
+      { type: 'subsection', text: '合同条件の活用' },
+      { type: 'text', text: '合同な図形では対応する辺の長さと角の大きさが等しい。証明では、どの合同条件を使うかを先に決めると書きやすい。' },
+      { type: 'word', word: '合同', explanation: '形も大きさも同じで、ぴったり重なる関係。' },
+    ],
   ],
   理科: [
-    {
-      chapter: '化学変化',
-      section: '物質の分解',
-      subsection: '加熱による変化',
-      text: '物質は化学変化によって別の物質に変わる。実験では、加熱前後の質量や発生した気体を調べることで反応の特徴を確かめられる。',
-      word: '化学変化',
-      explanation: '物質が別の物質に変わる変化。',
-    },
-    {
-      chapter: '生物',
-      section: '植物のつくり',
-      subsection: '光合成',
-      text: '植物は光エネルギーを使って二酸化炭素と水から養分をつくる。葉の気孔は気体の出入りに関わり、蒸散にも関係している。',
-      word: '光合成',
-      explanation: '植物が光を利用して養分をつくるはたらき。',
-    },
-    {
-      chapter: '地学',
-      section: '天気の変化',
-      subsection: '前線と気団',
-      text: '前線は性質の異なる気団の境目であり、雲や降水が起こりやすい。天気図を読むと、低気圧の移動と天気の変化を予測できる。',
-      word: '前線',
-      explanation: '性質の異なる気団の境目。',
-    },
+    [
+      { type: 'chapter', text: '化学変化' },
+      { type: 'section', text: '物質の分解' },
+      { type: 'subsection', text: '加熱による変化' },
+      { type: 'text', text: '物質は化学変化によって別の物質に変わる。実験では、加熱前後の質量や発生した気体を調べることで反応の特徴を確かめられる。' },
+      { type: 'word', word: '化学変化', explanation: '物質が別の物質に変わる変化。' },
+    ],
+    [
+      { type: 'chapter', text: '生物' },
+      { type: 'section', text: '植物のつくり' },
+      { type: 'subsection', text: '光合成' },
+      { type: 'text', text: '植物は光エネルギーを使って二酸化炭素と水から養分をつくる。葉の気孔は気体の出入りに関わり、蒸散にも関係している。' },
+      { type: 'word', word: '光合成', explanation: '植物が光を利用して養分をつくるはたらき。' },
+    ],
+    [
+      { type: 'chapter', text: '地学' },
+      { type: 'section', text: '天気の変化' },
+      { type: 'subsection', text: '前線と気団' },
+      { type: 'text', text: '前線は性質の異なる気団の境目であり、雲や降水が起こりやすい。天気図を読むと、低気圧の移動と天気の変化を予測できる。' },
+      { type: 'word', word: '前線', explanation: '性質の異なる気団の境目。' },
+    ],
   ],
   社会: [
-    {
-      chapter: '地理',
-      section: '日本の地形',
-      subsection: '平野と盆地',
-      text: '日本は山地が多く、平野は海沿いに広がることが多い。地形は産業や交通に影響し、都市の発展のしかたにも関係する。',
-      word: '沖積平野',
-      explanation: '川が運んだ土砂でできた平らな土地。',
-    },
-    {
-      chapter: '歴史',
-      section: '近代国家への歩み',
-      subsection: '明治維新',
-      text: '明治維新では政治や社会の仕組みが大きく変わった。近代化を進めるため、教育制度や産業の整備が進められた。',
-      word: '廃藩置県',
-      explanation: '藩を廃止して県を置き、中央集権を進めた政策。',
-    },
-    {
-      chapter: '公民',
-      section: '日本国憲法',
-      subsection: '三つの基本原理',
-      text: '日本国憲法は国民主権・基本的人権の尊重・平和主義を基本原理とする。生活の中で権利と責任のバランスを考えることが大切である。',
-      word: '国民主権',
-      explanation: '国の政治の最終的な決定権が国民にあるという考え。',
-    },
+    [
+      { type: 'chapter', text: '地理' },
+      { type: 'section', text: '日本の地形' },
+      { type: 'subsection', text: '平野と盆地' },
+      { type: 'text', text: '日本は山地が多く、平野は海沿いに広がることが多い。地形は産業や交通に影響し、都市の発展のしかたにも関係する。' },
+      { type: 'word', word: '沖積平野', explanation: '川が運んだ土砂でできた平らな土地。' },
+    ],
+    [
+      { type: 'chapter', text: '歴史' },
+      { type: 'section', text: '近代国家への歩み' },
+      { type: 'subsection', text: '明治維新' },
+      { type: 'text', text: '明治維新では政治や社会の仕組みが大きく変わった。近代化を進めるため、教育制度や産業の整備が進められた。' },
+      { type: 'word', word: '廃藩置県', explanation: '藩を廃止して県を置き、中央集権を進めた政策。' },
+    ],
+    [
+      { type: 'chapter', text: '公民' },
+      { type: 'section', text: '日本国憲法' },
+      { type: 'subsection', text: '三つの基本原理' },
+      { type: 'text', text: '日本国憲法は国民主権・基本的人権の尊重・平和主義を基本原理とする。生活の中で権利と責任のバランスを考えることが大切である。' },
+      { type: 'word', word: '国民主権', explanation: '国の政治の最終的な決定権が国民にあるという考え。' },
+    ],
   ],
   英語: [
-    {
-      chapter: '基本文法',
-      section: 'be動詞と一般動詞',
-      subsection: '肯定文・否定文・疑問文',
-      text: '英語の文は動詞が中心になる。be動詞と一般動詞では疑問文や否定文の作り方が異なるため、主語と動詞の組み合わせを意識する。',
-      word: 'subject',
-      explanation: '文の主語。だれが・なにがを表す。',
-    },
-    {
-      chapter: '時制',
-      section: '現在形と過去形',
-      subsection: '動詞の変化',
-      text: '現在形は習慣や事実を表し、過去形は過去の出来事を表す。規則動詞は語尾に-edをつけ、不規則動詞は形を覚える必要がある。',
-      word: 'tense',
-      explanation: '時制。動作や状態の時間的な位置を示す文法事項。',
-    },
-    {
-      chapter: '表現',
-      section: '依頼と提案',
-      subsection: '丁寧な言い方',
-      text: '依頼には Could you ... ?、提案には Why don\'t we ... ? などを使う。場面に応じて丁寧さを調整すると自然な会話になる。',
-      word: 'polite',
-      explanation: '丁寧な、礼儀正しい。',
-    },
+    [
+      { type: 'chapter', text: '基本文法' },
+      { type: 'section', text: 'be動詞と一般動詞' },
+      { type: 'subsection', text: '肯定文・否定文・疑問文' },
+      { type: 'text', text: '英語の文は動詞が中心になる。be動詞と一般動詞では疑問文や否定文の作り方が異なるため、主語と動詞の組み合わせを意識する。' },
+      { type: 'word', word: 'subject', explanation: '文の主語。だれが・なにがを表す。' },
+    ],
+    [
+      { type: 'chapter', text: '時制' },
+      { type: 'section', text: '現在形と過去形' },
+      { type: 'subsection', text: '動詞の変化' },
+      { type: 'text', text: '現在形は習慣や事実を表し、過去形は過去の出来事を表す。規則動詞は語尾に-edをつけ、不規則動詞は形を覚える必要がある。' },
+      { type: 'word', word: 'tense', explanation: '時制。動作や状態の時間的な位置を示す文法事項。' },
+    ],
+    [
+      { type: 'chapter', text: '表現' },
+      { type: 'section', text: '依頼と提案' },
+      { type: 'subsection', text: '丁寧な言い方' },
+      { type: 'text', text: '依頼には Could you ... ?、提案には Why don\'t we ... ? などを使う。場面に応じて丁寧さを調整すると自然な会話になる。' },
+      { type: 'word', word: 'polite', explanation: '丁寧な、礼儀正しい。' },
+    ],
   ],
 };
 
 const PRODUCTION_BOOK_PAGES: Record<string, SeedPage[]> = {
-  サンプルノート: [
-    {
-      chapter: 'サンプル',
-      section: '理科のまとめ',
-      subsection: '光合成の要点',
-      text: '植物は光エネルギーを使って、二酸化炭素と水から養分をつくる。このはたらきを光合成という。葉の気孔は気体の出入りに関わる。',
-      word: '光合成',
-      explanation: '植物が光を利用して養分をつくるはたらき。',
-    },
+  使い方: [
+    [
+      { type: 'chapter', text: '美ノートの使い方' },
+      { type: 'section', text: '概要' },
+      { type: 'text', text: '美ノートは、スマホのメモ帳のように気軽に書きながら、本物のノートのようにめくって見返せるアプリです。' },
+      { type: 'section', text: '単語/意味の追加' },
+      { type: 'text', text: '以下のように「単語/意味」を作成すると、「単語リスト」と「一問一答」にも反映されます。' },
+      { type: 'word', word: '単語登録', explanation: '単語リストと一問一答に自動で追加される(このノートの単語は対象外)。' },
+    ],
+    [
+      { type: 'chapter', text: '英単語' },
+      { type: 'section', text: '日常で使う単語' },
+      { type: 'text', text: '英語で予定を伝えるときは appointment や schedule がよく使われる。\n例）「I have an appointment at 3 pm.」' },
+      { type: 'subsection', text: '単語リスト' },
+      { type: 'word', word: 'appointment', explanation: '人と会う約束、予約のこと。' },
+      { type: 'word', word: 'schedule', explanation: '予定、スケジュール。' },
+      { type: 'word', word: 'postpone', explanation: '(予定を)延期する。' },
+      { type: 'word', word: 'reminder', explanation: '思い出させるためのメモや通知。' },
+      { type: 'word', word: 'deadline', explanation: '提出期限、締め切り。' },
+    ],
+    [
+      { type: 'chapter', text: '数学' },
+      { type: 'section', text: '図形の性質' },
+      { type: 'subsection', text: '三平方の定理' },
+      { type: 'text', text: '直角三角形では、直角をはさむ2辺の長さをそれぞれ2乗して足すと、斜辺の長さの2乗と等しくなる。この関係を三平方の定理(ピタゴラスの定理)という。' },
+      { type: 'word', word: '三平方の定理', explanation: '直角三角形で、直角をはさむ2辺の長さをそれぞれ2乗して足すと斜辺の長さの2乗に等しくなるという定理(ピタゴラスの定理)。' },
+    ],
   ],
 };
 
@@ -265,7 +262,7 @@ const seedInitialPages = async (database: SQLite.SQLiteDatabase) => {
     if (!pages || pages.length === 0) continue;
 
     for (let page = 0; page < pages.length; page++) {
-      const seed = pages[page];
+      const elements = pages[page];
       const contentId = makeSeedId('content', bookId, page);
 
       await database.runAsync(
@@ -273,26 +270,30 @@ const seedInitialPages = async (database: SQLite.SQLiteDatabase) => {
         [contentId, 'text', bookId, page, 0]
       );
 
-      await database.runAsync(
-        'INSERT OR IGNORE INTO outlines (outline_id, outline, type, content_id) VALUES (?, ?, ?, ?)',
-        [`0000_${makeSeedId('chapter', bookId, page)}`, seed.chapter, 'chapter', contentId]
-      );
-      await database.runAsync(
-        'INSERT OR IGNORE INTO outlines (outline_id, outline, type, content_id) VALUES (?, ?, ?, ?)',
-        [`0001_${makeSeedId('section', bookId, page)}`, seed.section, 'section', contentId]
-      );
-      await database.runAsync(
-        'INSERT OR IGNORE INTO outlines (outline_id, outline, type, content_id) VALUES (?, ?, ?, ?)',
-        [`0002_${makeSeedId('subsection', bookId, page)}`, seed.subsection, 'subsection', contentId]
-      );
-      await database.runAsync(
-        'INSERT OR IGNORE INTO texts (text_id, text, content_id) VALUES (?, ?, ?)',
-        [`0003_${makeSeedId('text', bookId, page)}`, seed.text, contentId]
-      );
-      await database.runAsync(
-        'INSERT OR IGNORE INTO words (word_id, word, explanation, word_order, content_id, review_flag) VALUES (?, ?, ?, ?, ?, ?)',
-        [`0004_${makeSeedId('word', bookId, page)}`, seed.word, seed.explanation, 4, contentId, 0]
-      );
+      let wordOrder = 0;
+      for (let index = 0; index < elements.length; index++) {
+        const el = elements[index];
+        const orderPrefix = String(index).padStart(4, '0');
+
+        if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
+          await database.runAsync(
+            'INSERT OR IGNORE INTO outlines (outline_id, outline, type, content_id) VALUES (?, ?, ?, ?)',
+            [`${orderPrefix}_${makeSeedId(el.type, bookId, page)}_${index}`, el.text, el.type, contentId]
+          );
+        } else if (el.type === 'text') {
+          await database.runAsync(
+            'INSERT OR IGNORE INTO texts (text_id, text, content_id) VALUES (?, ?, ?)',
+            [`${orderPrefix}_${makeSeedId('text', bookId, page)}_${index}`, el.text, contentId]
+          );
+        } else if (el.type === 'word') {
+          await database.runAsync(
+            'INSERT OR IGNORE INTO words (word_id, word, explanation, word_order, content_id, review_flag) VALUES (?, ?, ?, ?, ?, ?)',
+            [`${orderPrefix}_${makeSeedId('word', bookId, page)}_${index}`, el.word, el.explanation, wordOrder, contentId, 0]
+          );
+          wordOrder += 1;
+        }
+      }
+
       await database.runAsync(
         'INSERT OR IGNORE INTO page_images (page_image_id, image_path, page_order, book_id) VALUES (?, ?, ?, ?)',
         [makeSeedId('pageimg', bookId, page), defaultThumbPath, page, bookId]

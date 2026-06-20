@@ -769,7 +769,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   // 広告視聴の確認ダイアログを挟む。
   const insertPageAfterCurrent = async () => {
     if (book?.is_sample) {
-      Alert.alert('ページ追加できません', 'サンプルノートはページ追加できません。');
+      Alert.alert('ページ追加できません', `「${book.title}」はページ追加できません。`);
       return;
     }
     if (isAddingPageRef.current || isLoadingRewardedAd) return;

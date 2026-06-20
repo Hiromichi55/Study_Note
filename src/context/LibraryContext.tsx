@@ -42,7 +42,7 @@ const SHOWCASE_BOOKS: Book[] = [
 ];
 
 const PRODUCTION_BOOKS: Book[] = [
-  { book_id: '2', title: 'サンプルノート', color: 'blue', order_index: 0, is_sample: true },
+  { book_id: '2', title: '使い方', color: 'blue', order_index: 0, is_sample: true },
 ];
 
 const initialBooks: Book[] = ENV.IS_PRODUCTION ? PRODUCTION_BOOKS : SHOWCASE_BOOKS;
@@ -350,7 +350,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const target = state.books.find((b) => b.book_id === bookId);
       if (target?.is_sample) {
-        console.warn('サンプルノートは削除できません');
+        console.warn(`「${target.title}」は削除できません`);
         return;
       }
       // books 以外は外部キーCASCADEを使っていないため、手動で関連データを削除する
