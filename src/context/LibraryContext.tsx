@@ -42,7 +42,7 @@ const SHOWCASE_BOOKS: Book[] = [
 ];
 
 const PRODUCTION_BOOKS: Book[] = [
-  { book_id: '2', title: '使い方', color: 'blue', order_index: 0, is_sample: true },
+  { book_id: '2', title: '美ノートの使い方', color: 'blue', order_index: 0, is_sample: true },
 ];
 
 const initialBooks: Book[] = ENV.IS_PRODUCTION ? PRODUCTION_BOOKS : SHOWCASE_BOOKS;
