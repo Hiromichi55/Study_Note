@@ -158,7 +158,7 @@ const SHOWCASE_BOOK_PAGES: Record<string, SeedPage[]> = {
 };
 
 const PRODUCTION_BOOK_PAGES: Record<string, SeedPage[]> = {
-  使い方: [
+  '美ノートの使い方': [
     [
       { type: 'chapter', text: '美ノートの使い方' },
       { type: 'section', text: '概要' },
