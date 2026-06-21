@@ -30,7 +30,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { ENV } from '@config';
-import { NoteElement } from './NoteContent';
+import { NoteElement, ImageCropRect, TextMark } from './NoteContent';
 import { captureRef } from 'react-native-view-shot';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { Dimensions, PixelRatio } from 'react-native';
@@ -134,7 +134,7 @@ const isEffectivelyBlankPage = (page: NoteElement[] | undefined): boolean => {
   });
 };
 
-const parseStoredImagePayload = (raw: unknown): { uri: string; rows?: number; aspectRatio?: number } => {
+const parseStoredImagePayload = (raw: unknown): { uri: string; rows?: number; aspectRatio?: number; originalUri?: string; cropRect?: ImageCropRect } => {
   const asText = typeof raw === 'string' ? raw : '';
   if (!asText) return { uri: '' };
 
@@ -146,8 +146,16 @@ const parseStoredImagePayload = (raw: unknown): { uri: string; rows?: number; as
       const ratioRaw = (parsed as any).aspectRatio;
       const rows = Number.isFinite(rowsRaw) ? Number(rowsRaw) : undefined;
       const aspectRatio = Number.isFinite(ratioRaw) && Number(ratioRaw) > 0 ? Number(ratioRaw) : undefined;
+      const originalUri = typeof (parsed as any).originalUri === 'string' && (parsed as any).originalUri
+        ? (parsed as any).originalUri
+        : undefined;
+      const rectRaw = (parsed as any).cropRect;
+      const cropRect = rectRaw && Number.isFinite(rectRaw.originX) && Number.isFinite(rectRaw.originY)
+        && Number.isFinite(rectRaw.width) && Number.isFinite(rectRaw.height)
+        ? { originX: Number(rectRaw.originX), originY: Number(rectRaw.originY), width: Number(rectRaw.width), height: Number(rectRaw.height) }
+        : undefined;
       if (uri) {
-        return { uri, rows, aspectRatio };
+        return { uri, rows, aspectRatio, originalUri, cropRect };
       }
     }
   } catch {
@@ -162,7 +170,29 @@ const serializeImagePayload = (el: Extract<NoteElement, { type: 'image' }>): str
     uri: el.uri || '',
     rows: el.rows,
     aspectRatio: el.aspectRatio,
+    originalUri: el.originalUri,
+    cropRect: el.cropRect,
   });
+};
+
+const parseStoredMarks = (raw: unknown): TextMark[] | undefined => {
+  const asText = typeof raw === 'string' ? raw : '';
+  if (!asText) return undefined;
+  try {
+    const parsed = JSON.parse(asText);
+    if (!Array.isArray(parsed)) return undefined;
+    const marks = parsed
+      .filter((m: any) => m && Number.isFinite(m.start) && Number.isFinite(m.end) && typeof m.color === 'string')
+      .map((m: any) => ({ start: Number(m.start), end: Number(m.end), color: m.color as string }));
+    return marks.length > 0 ? marks : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const serializeMarks = (marks: TextMark[] | undefined): string | undefined => {
+  if (!marks || marks.length === 0) return undefined;
+  return JSON.stringify(marks);
 };
 
 const stripOutlinePrefix = (text: string): string => text.replace(OUTLINE_PREFIX_RE, '').trimStart();
@@ -646,9 +676,13 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   const [pageImageUris, setPageImageUris] = useState<Record<number, string>>({});
 
   const [pageListItems, setPageListItems] = useState<PageListItem[]>([]);
+  const pageListScrollRef = useRef<ScrollView>(null);
+  // ページ一覧の各アイテムのスクロール位置(y)。開いた時に現在ページまでスクロールするために使う
+  const pageListItemYRef = useRef<Record<number, number>>({});
 
   useEffect(() => {
     if (!pageListVisible) return;
+    pageListItemYRef.current = {};
     setPageListItems(
       pagesElements.map((elements, index) => ({
         key: `page-${index}`,
@@ -658,6 +692,18 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       }))
     );
   }, [pageListVisible]);
+
+  // ページ一覧を開いたら、レイアウト確定後に現在開いているページまでスクロールする
+  useEffect(() => {
+    if (!pageListVisible || pageListItems.length === 0) return;
+    const timer = setTimeout(() => {
+      const y = pageListItemYRef.current[currentPageNumber];
+      if (y !== undefined) {
+        pageListScrollRef.current?.scrollTo({ y: Math.max(0, y), animated: false });
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [pageListVisible, pageListItems]);
 
 
   const runPageSwitchAnimation = (targetPage: number, direction: 1 | -1) => {
@@ -1068,8 +1114,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           const elemId = elemIds[i];
           if (el.type === 'chapter' || el.type === 'section' || el.type === 'subsection') {
             await db.runAsync(
-              'INSERT INTO outlines (outline_id, type, outline, content_id) VALUES (?, ?, ?, ?)',
-              [elemId, el.type, (el as any).text, contentId]
+              'INSERT INTO outlines (outline_id, type, outline, content_id, marks) VALUES (?, ?, ?, ?, ?)',
+              [elemId, el.type, (el as any).text, contentId, serializeMarks(el.marks) ?? null]
             );
           } else if (el.type === 'word') {
             await db.runAsync(
@@ -1083,8 +1129,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             );
           } else if (el.type === 'text') {
             await db.runAsync(
-              'INSERT INTO texts (text_id, text, content_id) VALUES (?, ?, ?)',
-              [elemId, el.text, contentId]
+              'INSERT INTO texts (text_id, text, content_id, marks) VALUES (?, ?, ?, ?)',
+              [elemId, el.text, contentId, serializeMarks(el.marks) ?? null]
             );
           }
         }
@@ -1203,7 +1249,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
   };
 
   // ===== 保存処理（DB保存 + 再読み込み + 編集終了） =====
-  const handleSave = async (): Promise<boolean> => {
+  const performHandleSave = async (): Promise<boolean> => {
     if (isSavingPage) return false;
     setIsSavingPage(true);
     // 超過時はサムネイル撮影が終わるまで isSavingPage を維持するため finally でのリセットをスキップするフラグ
@@ -1215,10 +1261,11 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       const currentElements = pagesElementsRef.current[currentPage] ?? [];
       const [, currentOverflow] = splitPageByCapacity(currentElements, maxRows, screenWidth);
       const hasOverflow = currentOverflow.length > 0;
+      const originalPageCount = pagesElementsRef.current.length;
 
       let normalized: NoteElement[][];
       if (hasOverflow) {
-        // 超過分を次ページに移動する
+        // 超過分を次ページに移動する（超過量によっては複数ページに分割されることもある）
         normalized = insertOverflowAsNextPages(pagesElementsRef.current, currentPage, maxRows, screenWidth);
       } else {
         normalized = clonePages(pagesElementsRef.current);
@@ -1233,11 +1280,14 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
       setPendingFocusIndex(undefined);
 
       if (hasOverflow) {
-        // 超過あり：現在ページ → 次ページの順にスクショを撮り、最終的に次ページに留まる
+        // 超過あり：現在ページ→追加された全ページの順にスクショを撮り、ページ一覧に反映する
         keepSavingPageForThumbnail = true;
-        const nextPage = Math.min(currentPage + 1, numbered.length - 1);
+        const insertedCount = Math.max(0, numbered.length - originalPageCount);
+        const lastAffectedPage = Math.min(currentPage + insertedCount, numbered.length - 1);
+        const affectedPages: number[] = [];
+        for (let p = currentPage; p <= lastAffectedPage; p++) affectedPages.push(p);
         scheduleThumbnailSyncForPages(
-          [currentPage, nextPage],
+          affectedPages,
           () => setIsSavingPage(false),
         );
       } else {
@@ -1255,6 +1305,46 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
         setIsSavingPage(false);
       }
     }
+  };
+
+  const handleWatchRewardedAdForOverflowSave = async (): Promise<boolean> => {
+    setIsLoadingRewardedAd(true);
+    try {
+      const earned = await showRewardedAd('ADD_PAGE');
+      if (earned) {
+        return await performHandleSave();
+      }
+      Alert.alert('広告を視聴できませんでした', 'もう一度お試しください。');
+      return false;
+    } finally {
+      setIsLoadingRewardedAd(false);
+    }
+  };
+
+  // 保存のエントリーポイント。超過分の保存で新規ページが自動追加される場合も、
+  // +ボタンと同じくページ数が FREE_PAGE_LIMIT の倍数のときは広告視聴の確認ダイアログを挟む。
+  const handleSave = async (): Promise<boolean> => {
+    if (isSavingPage || isLoadingRewardedAd) return false;
+
+    const maxRows = computeMaxRows(headerHeight);
+    const currentElements = pagesElementsRef.current[currentPageNumberRef.current] ?? [];
+    const [, currentOverflow] = splitPageByCapacity(currentElements, maxRows, screenWidth);
+    const hasOverflow = currentOverflow.length > 0;
+
+    if (hasOverflow && pagesElementsRef.current.length > 0 && pagesElementsRef.current.length % FREE_PAGE_LIMIT === 0) {
+      return new Promise<boolean>((resolve) => {
+        Alert.alert(
+          '広告を見てページを追加',
+          `ページは${FREE_PAGE_LIMIT}ページごとに広告を見ると追加できます。`,
+          [
+            { text: 'キャンセル', style: 'cancel', onPress: () => resolve(false) },
+            { text: '広告を見て追加', onPress: () => { handleWatchRewardedAdForOverflowSave().then(resolve); } },
+          ]
+        );
+      });
+    }
+
+    return performHandleSave();
   };
 
   // ===== ページ削除 =====
@@ -1411,10 +1501,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             type: o.type as 'chapter' | 'section' | 'subsection',
             text: slimText,
             autoNumberingDisabled: !hasPrefix && !outlineNumberingEnabled,
+            marks: parseStoredMarks((o as any).marks),
           };
         }
         if (item.kind === 'text') {
-          return { type: 'text' as const, text: (item.data as typeof texts[0]).text };
+          const t = item.data as typeof texts[0];
+          return { type: 'text' as const, text: t.text, marks: parseStoredMarks((t as any).marks) };
         }
         if (item.kind === 'word') {
           const w = item.data as typeof words[0];
@@ -1428,6 +1520,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           uri: restored.uri,
           rows: restored.rows,
           aspectRatio: restored.aspectRatio,
+          originalUri: restored.originalUri,
+          cropRect: restored.cropRect,
         };
       });
 
@@ -1520,10 +1614,12 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
             type: o.type as 'chapter' | 'section' | 'subsection',
             text: slimText,
             autoNumberingDisabled: !hasPrefix && !effectiveOutlineNumberingEnabled,
+            marks: parseStoredMarks((o as any).marks),
           };
         }
         if (item.kind === 'text') {
-          return { type: 'text' as const, text: (item.data as typeof texts[0]).text };
+          const t = item.data as typeof texts[0];
+          return { type: 'text' as const, text: t.text, marks: parseStoredMarks((t as any).marks) };
         }
         if (item.kind === 'word') {
           const w = item.data as typeof words[0];
@@ -1536,6 +1632,8 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
           uri: restored.uri,
           rows: restored.rows,
           aspectRatio: restored.aspectRatio,
+          originalUri: restored.originalUri,
+          cropRect: restored.cropRect,
         };
       });
       newPagesElements[p] = isEffectivelyBlankPage(pageElements)
@@ -2256,6 +2354,7 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 <Text style={notebookStyles.modalTitle}>ページ一覧</Text>
             <View style={notebookStyles.pageListGridWrap}>
               <ScrollView
+                ref={pageListScrollRef}
                 style={notebookStyles.pageListGridScroll}
                 contentContainerStyle={notebookStyles.pageListGridScrollContent}
                 showsVerticalScrollIndicator
@@ -2263,11 +2362,15 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                 <View style={[notebookStyles.pageListGrid, { flexDirection: 'row', flexWrap: 'wrap' }]}>
                   {pageListItems.map((item, order) => {
                     const thumbUri = item.thumbUri;
+                    // ensurePageImagesForCurrentBook が未撮影ページに割り当てる汎用プレースホルダー画像。
+                    // 実際にサムネイルを撮影したページと区別するため「未保存」扱いにする。
+                    const hasRealThumbnail = Boolean(thumbUri) && !thumbUri?.includes('default_note.png');
                     const isCurrentPage = order === currentPageNumber;
                     return (
                       <TouchableOpacity
                         key={item.key}
                         style={{ width: '50%' }}
+                        onLayout={(e) => { pageListItemYRef.current[order] = e.nativeEvent.layout.y; }}
                         onPress={() => {
                           setcurrentPageNumber(order);
                           setPageListVisible(false);
@@ -2275,18 +2378,17 @@ const NotebookScreen: React.FC<Props> = ({ route }) => {
                       >
                         <View style={[notebookStyles.pageListItem, isCurrentPage && notebookStyles.pageListItemActive]}>
                           <View style={{ width: '100%', aspectRatio: noteAspectRatio, backgroundColor: '#F3ECE2', overflow: 'hidden' }}>
-                            {thumbUri ? (
+                            {hasRealThumbnail ? (
                               <Image
                                 source={{ uri: thumbUri }}
                                 style={{ width: '100%', height: '100%' }}
                                 resizeMode="cover"
                               />
                             ) : (
-                              <Image
-                                source={require('../../assets/images/note.png')}
-                                style={{ width: '100%', height: '100%' }}
-                                resizeMode="cover"
-                              />
+                              <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                                <Ionicons name="document-outline" size={28} color="#B8A892" />
+                                <Text style={{ marginTop: 6, fontSize: 12, color: '#9C8B76', fontWeight: '600' }}>未保存</Text>
+                              </View>
                             )}
                           </View>
                           <View style={[notebookStyles.pageListLabel, isCurrentPage && notebookStyles.pageListLabelActive]}>

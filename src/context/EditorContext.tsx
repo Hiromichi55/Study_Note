@@ -8,8 +8,10 @@ import { Asset } from 'expo-asset';
 const isDelete = ENV.INIT_DB; // trueのとき: コンテンツ系テーブルを全削除して再作成
 const isPurgeOnly = ENV.PURGE_DB_ONLY; // trueのとき: 削除のみ実行し初期データは投入しない
 
+type SeedTextMark = { start: number; end: number; color: string };
+
 type SeedElement =
-  | { type: 'chapter' | 'section' | 'subsection' | 'text'; text: string }
+  | { type: 'chapter' | 'section' | 'subsection' | 'text'; text: string; marks?: SeedTextMark[] }
   | { type: 'word'; word: string; explanation: string };
 
 type SeedPage = SeedElement[];
@@ -160,13 +162,21 @@ const PRODUCTION_BOOK_PAGES: Record<string, SeedPage[]> = {
     [
       { type: 'chapter', text: '美ノートの使い方' },
       { type: 'section', text: '概要' },
-      { type: 'text', text: '美ノートは、スマホのメモ帳のように気軽に書きながら、本物のノートのようにめくって見返せるアプリです。' },
+      { type: 'text', text: '美ノートは、スマホのメモ帳のように書きながら、ノートのようにめくって見返せるアプリです。' },
+      { type: 'section', text: 'ツールバー' },
+      { type: 'text', text: '編集中はキーボードの上にツールバーが表示され、次の要素を追加できます。' },
+      { type: 'text', text: '・文章...通常の文章を入力する', marks: [{ start: 1, end: 3, color: 'rgba(239, 83, 80, 0.40)' }] },
+      { type: 'text', text: '・見出し...大、中、小の3種類の見出しを付ける', marks: [{ start: 1, end: 4, color: 'rgba(102, 187, 106, 0.45)' }] },
+      { type: 'text', text: '・単語/意味...単語とその意味を追加する', marks: [{ start: 1, end: 6, color: 'rgba(66, 165, 245, 0.40)' }] },
+      { type: 'text', text: '・画像...写真をトリミングして挿入する', marks: [{ start: 1, end: 3, color: 'rgba(171, 71, 188, 0.40)' }] },
+      { type: 'text', text: '・マーカー...文字を選択すると表示され、ハイライトを付けられる', marks: [{ start: 1, end: 5, color: 'rgba(255, 235, 59, 0.55)' }] },
       { type: 'section', text: '単語/意味の追加' },
-      { type: 'text', text: '以下のように「単語/意味」を作成すると、「単語リスト」と「一問一答」にも反映されます。' },
-      { type: 'word', word: '単語登録', explanation: '単語リストと一問一答に自動で追加される(このノートの単語は対象外)。' },
+      { type: 'text', text: '「単語/意味」を登録すると、「単語リスト」と「一問一答」の画面にも自動で反映されます。' },
+      { type: 'word', word: '単語リスト', explanation: 'ノートに追加した単語を一覧で確認できます' },
+      { type: 'word', word: '一問一答', explanation: 'ノートに追加した単語をクイズ形式で復習できます' },
     ],
     [
-      { type: 'chapter', text: '英単語' },
+      { type: 'chapter', text: '例）英単語' },
       { type: 'section', text: '日常で使う単語' },
       { type: 'text', text: '英語で予定を伝えるときは appointment や schedule がよく使われる。\n例）「I have an appointment at 3 pm.」' },
       { type: 'subsection', text: '単語リスト' },
@@ -177,10 +187,10 @@ const PRODUCTION_BOOK_PAGES: Record<string, SeedPage[]> = {
       { type: 'word', word: 'deadline', explanation: '提出期限、締め切り。' },
     ],
     [
-      { type: 'chapter', text: '数学' },
+      { type: 'chapter', text: '例）数学' },
       { type: 'section', text: '図形の性質' },
       { type: 'subsection', text: '三平方の定理' },
-      { type: 'text', text: '直角三角形では、直角をはさむ2辺の長さをそれぞれ2乗して足すと、斜辺の長さの2乗と等しくなる。この関係を三平方の定理(ピタゴラスの定理)という。' },
+      { type: 'text', text: '直角三角形では、直角をはさむ2辺の長さをそれぞれ2乗して足すと、斜辺の長さの2乗と等しくなる。この関係を三平方の定理(ピタゴラスの定理)という。\n' },
       { type: 'word', word: '三平方の定理', explanation: '直角三角形で、直角をはさむ2辺の長さをそれぞれ2乗して足すと斜辺の長さの2乗に等しくなるという定理(ピタゴラスの定理)。' },
     ],
   ],
@@ -282,8 +292,8 @@ const seedInitialPages = async (database: SQLite.SQLiteDatabase) => {
           );
         } else if (el.type === 'text') {
           await database.runAsync(
-            'INSERT OR IGNORE INTO texts (text_id, text, content_id) VALUES (?, ?, ?)',
-            [`${orderPrefix}_${makeSeedId('text', bookId, page)}_${index}`, el.text, contentId]
+            'INSERT OR IGNORE INTO texts (text_id, text, content_id, marks) VALUES (?, ?, ?, ?)',
+            [`${orderPrefix}_${makeSeedId('text', bookId, page)}_${index}`, el.text, contentId, el.marks ? JSON.stringify(el.marks) : null]
           );
         } else if (el.type === 'word') {
           await database.runAsync(
@@ -322,12 +332,14 @@ export type Outline = {
   outline: string;
   type: 'chapter' | 'section' | 'subsection' | 'title';
   content_id: string;
+  marks?: string;
 };
 
 export type Text = {
   text_id: string;
   text: string;
   content_id: string;
+  marks?: string;
 };
 
 export type Word = {
@@ -522,17 +534,43 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           outline_id TEXT PRIMARY KEY NOT NULL,
           outline TEXT,
           type TEXT,
-          content_id TEXT
+          content_id TEXT,
+          marks TEXT
         );
       `);
+
+      // === Migration: add marks column for older installs
+      try {
+        const outlineCols = await database.getAllAsync(`PRAGMA table_info(outlines);`);
+        const hasMarks = outlineCols.some((c: any) => c.name === 'marks');
+        if (!hasMarks) {
+          await database.runAsync(`ALTER TABLE outlines ADD COLUMN marks TEXT;`);
+          console.log('Migration: added outlines.marks column');
+        }
+      } catch (merr) {
+        console.warn('outlines migration warning:', merr);
+      }
 
       await database.runAsync(`
         CREATE TABLE IF NOT EXISTS texts (
           text_id TEXT PRIMARY KEY NOT NULL,
           text TEXT,
-          content_id TEXT
+          content_id TEXT,
+          marks TEXT
         );
       `);
+
+      // === Migration: add marks column for older installs
+      try {
+        const textCols = await database.getAllAsync(`PRAGMA table_info(texts);`);
+        const hasTextMarks = textCols.some((c: any) => c.name === 'marks');
+        if (!hasTextMarks) {
+          await database.runAsync(`ALTER TABLE texts ADD COLUMN marks TEXT;`);
+          console.log('Migration: added texts.marks column');
+        }
+      } catch (merr) {
+        console.warn('texts migration warning:', merr);
+      }
 
       await database.runAsync(`
         CREATE TABLE IF NOT EXISTS words (

@@ -10,6 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { ENV } from '@config';
+import ImageCropModal from '../components/ImageCropModal';
 
 const IS_DEV = ENV.SCREEN_DEV;
 
@@ -28,6 +29,13 @@ const TOOLBAR_BG = '#FCFAF6';
 const TOOLBAR_BORDER = '#DED2C3';
 const WORD_ACCENT_COLOR = '#D13A3A';
 const RESERVED_TOP_LINES = 1;
+const MARKER_COLORS: { label: string; color: string }[] = [
+  { label: '黄', color: 'rgba(255, 235, 59, 0.55)' },
+  { label: '緑', color: 'rgba(102, 187, 106, 0.45)' },
+  { label: '青', color: 'rgba(66, 165, 245, 0.40)' },
+  { label: '赤', color: 'rgba(239, 83, 80, 0.40)' },
+  { label: '紫', color: 'rgba(171, 71, 188, 0.40)' },
+];
 const snapToLineGrid = (height: number, lineHeight: number): number => {
   const safeHeight = Math.max(lineHeight, height);
   return Math.ceil(safeHeight / lineHeight) * lineHeight;
@@ -41,13 +49,18 @@ const measureLinesFromHeight = (height: number, lineHeight: number): number => {
 const OUTLINE_PREFIX_RE = /^\s*\d+(?:\.\d+)*\.\s*/;
 const stripOutlinePrefix = (text: string) => text.replace(OUTLINE_PREFIX_RE, '').trimStart();
 
+export type ImageCropRect = { originX: number; originY: number; width: number; height: number };
+
+/** テキスト内のマーカー(ハイライト)範囲。start/end は文字インデックス(end は含まない) */
+export type TextMark = { start: number; end: number; color: string };
+
 export type NoteElement =
-  | { type: 'chapter'; text: string; autoNumberingDisabled?: boolean }
-  | { type: 'section'; text: string; autoNumberingDisabled?: boolean }
-  | { type: 'subsection'; text: string; autoNumberingDisabled?: boolean }
-  | { type: 'text'; text: string }
+  | { type: 'chapter'; text: string; autoNumberingDisabled?: boolean; marks?: TextMark[] }
+  | { type: 'section'; text: string; autoNumberingDisabled?: boolean; marks?: TextMark[] }
+  | { type: 'subsection'; text: string; autoNumberingDisabled?: boolean; marks?: TextMark[] }
+  | { type: 'text'; text: string; marks?: TextMark[] }
   | { type: 'word'; word: string; meaning: string }
-  | { type: 'image'; uri: string; rows?: number; aspectRatio?: number };
+  | { type: 'image'; uri: string; rows?: number; aspectRatio?: number; originalUri?: string; cropRect?: ImageCropRect };
 
 const isValidElement = (el: NoteElement | undefined | null): el is NoteElement => {
   return Boolean(el && (el as any).type);
@@ -113,6 +126,214 @@ type Props = {
   onOverflowStateChange?: (hasOverflow: boolean) => void;
 };
 
+/** 画像要素がアクティブな間、右端に表示する点滅カーソル(画像はテキストキャレットを持たないため) */
+const ImageActiveCursor: React.FC = () => {
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0, duration: 500, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        right: 6,
+        top: '50%',
+        marginTop: -11,
+        width: 2,
+        height: 22,
+        backgroundColor: ACTIVE_BORDER,
+        opacity,
+      }}
+    />
+  );
+};
+
+type MarkerHighlightLayerProps = {
+  text: string;
+  marks: TextMark[] | undefined;
+  fontSize: number;
+  lineHeight: number;
+  fontFamily: string;
+};
+
+type MarkerLineRange = { start: number; end: number };
+type MarkerSegment = { lineIndex: number; markIdx: number; lineStart: number; segStart: number; segEnd: number; color: string };
+
+/**
+ * マーカー(ハイライト)を、本物の TextInput の文字とは別レイヤーの色付き矩形として
+ * TextInput の背後に描画するコンポーネント。<Text> を文字表示に使わないことで、
+ * TextInput と Text の描画位置の微妙なズレ(RNの既知の挙動)を回避する。
+ * 矩形の座標は、行分割と各セグメント幅を非表示の計測用 Text (opacity:0) で測って求める。
+ */
+const MarkerHighlightLayer: React.FC<MarkerHighlightLayerProps> = ({ text, marks, fontSize, lineHeight, fontFamily }) => {
+  const [committed, setCommitted] = useState<{ text: string; lineRanges: MarkerLineRange[]; widths: Record<string, number> } | null>(null);
+  const [pendingLineRanges, setPendingLineRanges] = useState<MarkerLineRange[] | null>(null);
+  const [pendingWidths, setPendingWidths] = useState<Record<string, number>>({});
+  // 初回マウント時、親のレイアウトが確定する前に幅0で計測してしまうと行分割がずれて
+  // ハイライトが出ないことがあるため、確定した幅(>0)が分かってから計測を始める。
+  const [containerWidth, setContainerWidth] = useState(0);
+  const measuringKeyRef = useRef<string | null>(null);
+
+  const hasMarks = Boolean(marks && marks.length > 0);
+
+  useEffect(() => {
+    if (!hasMarks || containerWidth <= 0) return;
+    const key = `${text}@${containerWidth}`;
+    if (measuringKeyRef.current === key) return;
+    // 新しいテキスト/幅の計測を開始する(完了するまで前回の committed をそのまま表示し続け、ちらつきを防ぐ)
+    measuringKeyRef.current = key;
+    setPendingLineRanges(null);
+    setPendingWidths({});
+  }, [text, hasMarks, containerWidth]);
+
+  if (!hasMarks || !text) return null;
+
+  const segments: MarkerSegment[] = [];
+  if (pendingLineRanges) {
+    pendingLineRanges.forEach((line, lineIndex) => {
+      (marks ?? []).forEach((m, markIdx) => {
+        const segStart = Math.max(m.start, line.start);
+        const segEnd = Math.min(m.end, line.end);
+        if (segEnd > segStart) {
+          segments.push({ lineIndex, markIdx, lineStart: line.start, segStart, segEnd, color: m.color });
+        }
+      });
+    });
+  }
+
+  const widthKey = (seg: MarkerSegment, kind: 'p' | 'm') => `${kind}:${seg.lineIndex}:${seg.markIdx}`;
+  const needsPrefixMeasure = (seg: MarkerSegment) => seg.segStart > seg.lineStart && pendingWidths[widthKey(seg, 'p')] === undefined;
+  const needsMarkMeasure = (seg: MarkerSegment) => pendingWidths[widthKey(seg, 'm')] === undefined;
+
+  const allMeasured = pendingLineRanges !== null && segments.every((seg) => !needsPrefixMeasure(seg) && !needsMarkMeasure(seg));
+
+  useEffect(() => {
+    if (allMeasured && measuringKeyRef.current === `${text}@${containerWidth}`) {
+      setCommitted({ text, lineRanges: pendingLineRanges as MarkerLineRange[], widths: pendingWidths });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allMeasured, text, containerWidth]);
+
+  const display = committed && committed.text === text ? committed : null;
+
+  return (
+    <View
+      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+      pointerEvents="none"
+      onLayout={(e) => {
+        const w = Math.round(e.nativeEvent.layout.width);
+        if (w > 0 && w !== containerWidth) setContainerWidth(w);
+      }}
+    >
+      {/* 表示用: 直前に確定した(古くても良い)計測結果でハイライト矩形を描く */}
+      {display && (marks ?? []).map((m, markIdx) => {
+        const rects: React.ReactNode[] = [];
+        display.lineRanges.forEach((line, lineIndex) => {
+          const segStart = Math.max(m.start, line.start);
+          const segEnd = Math.min(m.end, line.end);
+          if (segEnd <= segStart) return;
+          const pKey = `p:${lineIndex}:${markIdx}`;
+          const mKey = `m:${lineIndex}:${markIdx}`;
+          const x = segStart > line.start ? (display.widths[pKey] ?? 0) : 0;
+          const w = display.widths[mKey] ?? 0;
+          // 行間(lineHeight)いっぱいではなく、文字の上下(ascender/descender)を含む高さにして
+          // 行内で下寄せにする(テキストは textAlignVertical:'top' だが、文字の実際の描画は
+          // 行下側に寄っているため、下寄せの方が文字とハイライトの縦位置が揃う)
+          const highlightHeight = fontSize * 1.2;
+          rects.push(
+            <View
+              key={`${pKey}-${mKey}`}
+              style={{
+                position: 'absolute',
+                left: x,
+                top: lineIndex * lineHeight + (lineHeight - highlightHeight),
+                width: w,
+                height: highlightHeight,
+              }}
+            >
+              <View style={{ flex: 1, backgroundColor: m.color }} />
+            </View>
+          );
+        });
+        return rects;
+      })}
+
+      {/* 計測用: 行分割を得るための非表示テキスト(親の幅が確定してから計測する) */}
+      {pendingLineRanges === null && containerWidth > 0 && (
+        <Text
+          allowFontScaling={false}
+          maxFontSizeMultiplier={1}
+          style={{ position: 'absolute', opacity: 0, fontSize, lineHeight, fontFamily, width: containerWidth }}
+          onTextLayout={(e) => {
+            const lines = e.nativeEvent.lines;
+            let searchFrom = 0;
+            const ranges: MarkerLineRange[] = lines.map((line) => {
+              let idx = text.indexOf(line.text, searchFrom);
+              if (idx === -1) idx = searchFrom;
+              const start = idx;
+              const end = idx + line.text.length;
+              searchFrom = end;
+              return { start, end };
+            });
+            setPendingLineRanges(ranges);
+          }}
+        >
+          {text}
+        </Text>
+      )}
+
+      {/* 計測用: 各セグメントの前置き幅・マーク幅を測る非表示テキスト */}
+      {pendingLineRanges && segments.map((seg) => {
+        const needPrefix = needsPrefixMeasure(seg);
+        const needMark = needsMarkMeasure(seg);
+        if (!needPrefix && !needMark) return null;
+        return (
+          <React.Fragment key={`measure:${seg.lineIndex}:${seg.markIdx}`}>
+            {needPrefix && (
+              <Text
+                allowFontScaling={false}
+                maxFontSizeMultiplier={1}
+                numberOfLines={1}
+                style={{ position: 'absolute', opacity: 0, fontSize, fontFamily }}
+                onLayout={(e) => {
+                  const w = e.nativeEvent.layout.width;
+                  const key = widthKey(seg, 'p');
+                  setPendingWidths((prev) => (prev[key] !== undefined ? prev : { ...prev, [key]: w }));
+                }}
+              >
+                {text.slice(seg.lineStart, seg.segStart)}
+              </Text>
+            )}
+            {needMark && (
+              <Text
+                allowFontScaling={false}
+                maxFontSizeMultiplier={1}
+                numberOfLines={1}
+                style={{ position: 'absolute', opacity: 0, fontSize, fontFamily }}
+                onLayout={(e) => {
+                  const w = e.nativeEvent.layout.width;
+                  const key = widthKey(seg, 'm');
+                  setPendingWidths((prev) => (prev[key] !== undefined ? prev : { ...prev, [key]: w }));
+                }}
+              >
+                {text.slice(seg.segStart, seg.segEnd)}
+              </Text>
+            )}
+          </React.Fragment>
+        );
+      })}
+    </View>
+  );
+};
+
 const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackground = true, elements, onNoteLayout, onSwipePage, onBackgroundGenerated, isEditing, onElementChange, onDeleteElement, onTapEmpty, onSplitToNextTextBlock, onMergeWithPrevious, onEditStart, initialFocusIndex, onOverflowStateChange }) => {
   const bgColor = COLOR_MAP[backgroundColor ?? 'red'];
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -128,6 +349,26 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     dropdownOpen: false,
   });
 
+  // 画像選択後、ネイティブの正方形固定トリミングではなく自作の自由トリミングUIで処理するための状態。
+  // existingOriginalUri が設定されている場合は「再トリミング」(元画像は保存済みなので再コピー不要)。
+  const [cropPickerState, setCropPickerState] = useState<{
+    idx: number;
+    uri: string;
+    width: number;
+    height: number;
+    initialCropRect?: ImageCropRect;
+    existingOriginalUri?: string;
+  } | null>(null);
+
+  // 文章系入力の現在の選択範囲(start===endなら選択なし)。ツールバーの「画像」⇔「マーカー」切替に使う
+  const [activeMainSelection, setActiveMainSelection] = useState<{ start: number; end: number } | null>(null);
+  const [markerColorPickerVisible, setMarkerColorPickerVisible] = useState(false);
+  // 「見出し」ボタンをタップすると大/中/小の選択ポップアップを表示する(ツールバーが横にはみ出ないようにするため)
+  const [headingPickerVisible, setHeadingPickerVisible] = useState(false);
+  // ツールバーのボタンをタップするとTextInputがblurして選択範囲が消えてしまうため、
+  // 直近の「空でない」選択範囲をここに保持しておき、マーカー適用時はこちらを使う。
+  const lastNonEmptySelectionRef = useRef<{ idx: number; start: number; end: number } | null>(null);
+
   const measuredWordLinesRef = useRef<Record<number, number>>({});
   const measuredWordTermLinesRef = useRef<Record<number, number>>({});
   const measuredTextLinesRef = useRef<Record<number, number>>({});
@@ -140,6 +381,9 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   // 改行分割後にフォーカスを移す新行インデックス。useLayoutEffect で
   // 描画前に同期フォーカスし、カーソルが一瞬消える（チカっとする）のを防ぐ。
   const pendingSplitFocusRef = useRef<number | null>(null);
+  // 要素削除後にフォーカスを移す先のインデックス。useLayoutEffect で
+  // elements が縮んだ直後・描画前に同期フォーカスし、削除中のチラつきとフォーカス位置のズレを防ぐ。
+  const pendingDeleteFocusRef = useRef<number | null>(null);
   const noteBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const scrollOffsetRef = useRef(0);
   const swipeStateRef = useRef<{ startX: number; startY: number; swiped: boolean }>({ startX: 0, startY: 0, swiped: false });
@@ -166,6 +410,13 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   activeIndexRef.current = effectiveActiveIndex;
   elementsRef.current = elements;
 
+  // アクティブ行が切り替わったら選択範囲の表示状態をリセットする(別の行に古い選択が残らないように)
+  useEffect(() => {
+    setActiveMainSelection(null);
+    setMarkerColorPickerVisible(false);
+    setHeadingPickerVisible(false);
+    lastNonEmptySelectionRef.current = null;
+  }, [effectiveActiveIndex]);
 
   useEffect(() => {
     if (isEditing) {
@@ -252,7 +503,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       const meaning = ((el as any).meaning || '') as string;
       const word = (el.word || '') as string;
       // 実際のレイアウト: flex: 0.5（単語）と flex: 0.6（意味）
-      const termWidth = Math.max(1, usable * 0.5 / 1.1 - 24); // 点とスペース分を引く
+      // 単語列には先頭の「.」と末尾の「...」の両方が同じ行に並ぶため、その分を引く
+      const termWidth = Math.max(1, usable * 0.5 / 1.1 - 44);
       const meaningWidth = Math.max(1, usable * 0.6 / 1.1 - 4); // paddingLeft: 4
       const termFontSize = font.size + 2;
       const termCharsPerLine = Math.max(4, Math.floor(termWidth / Math.max(1, termFontSize)));
@@ -559,6 +811,16 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     }
   }, [elements?.length]);
 
+  // 要素削除後のフォーカス移動も「描画前」に同期実行する。setTimeout だと
+  // 親の state 更新タイミングによっては inputRefs が未更新のままで前の要素に
+  // フォールバックしてしまうため、elements が縮んだ直後・描画前に確実に処理する。
+  useLayoutEffect(() => {
+    const pending = pendingDeleteFocusRef.current;
+    if (pending === null) return;
+    pendingDeleteFocusRef.current = null;
+    focusElementOrPrev(pending);
+  }, [elements?.length]);
+
   const getInputKey = (index: number, field: 'main' | 'word' | 'meaning' = 'main') => `${index}:${field}`;
 
   const handleRowResponderGrant = (e: any) => {
@@ -614,7 +876,14 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
 
     const key = target.type === 'word' ? getInputKey(index, wordField) : getInputKey(index, 'main');
     const ref = inputRefs.current[key];
-    if (!ref) return;
+    if (!ref) {
+      // マーカー付き行は非アクティブ時 Text 表示のため main の ref が無く、
+      // アクティブ化の再描画でTextInputが生成された直後はrefがまだ無い場合がある→少し待って再試行
+      setTimeout(() => {
+        try { inputRefs.current[key]?.focus(); } catch (_) {}
+      }, 30);
+      return;
+    }
 
     requestAnimationFrame(() => {
       try {
@@ -637,13 +906,50 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     }
   };
 
+  // 要素削除後、削除した行の位置に詰めて入ってくる要素へフォーカスする。
+  // 削除した行が最後の行だった場合(詰めてくる要素がない場合)は、前の要素に戻るのではなく
+  // その位置に空の文章行を残してそこにフォーカスし、カーソル位置が後退しないようにする。
+  const focusElementOrPrev = (index: number) => {
+    const mainRef = inputRefs.current[getInputKey(index, 'main')];
+    if (mainRef) {
+      setActiveIndex(index);
+      try { mainRef.focus(); } catch (_) {}
+      return;
+    }
+    const wordRef = inputRefs.current[getInputKey(index, 'word')];
+    if (wordRef) {
+      setActiveIndex(index);
+      try { wordRef.focus(); } catch (_) {}
+      return;
+    }
+    if (elements && getConsumedRows(elements) < maxRows) {
+      setActiveIndex(index);
+      onTapEmpty?.(index);
+      return;
+    }
+    focusPrevElement(index);
+  };
+
   const focusNextElement = (index: number) => {
     if (!elements) return;
     for (let i = index + 1; i < elements.length; i++) {
       const nextEl = elements[i];
       if (!isValidElement(nextEl)) continue;
+      // キーボード追従のスクロール調整をアニメ無しにする。
+      // アニメ付きだと、行が変わった瞬間にノート全体がスーッと上にずれるのが
+      // 「内容がブレる」ように見えてしまう。
+      shouldDisableNextScrollAnimationRef.current = true;
       setActiveIndex(i);
-      setTimeout(() => focusElementInput(i), 30);
+      // 既存の要素は ref がすでにマウント済みなので即座にフォーカスする。
+      // setTimeout/requestAnimationFrame を挟むと、ハイライト(枠線)だけ先に移動して
+      // 実際のフォーカスが遅れて追従するため、一瞬内容がズレて見える(ブレる)。
+      const field = nextEl.type === 'word' ? 'word' : 'main';
+      const ref = inputRefs.current[getInputKey(i, field)];
+      if (ref) {
+        try { ref.focus(); } catch (_) {}
+      } else {
+        setTimeout(() => focusElementInput(i), 30);
+      }
       return;
     }
     // 末尾でも、実際の消費行数が maxRows 未満なら新しい行を追加
@@ -682,7 +988,27 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
     return { type, text: el.text || '' } as NoteElement;
   };
 
+  // 変換後の要素タイプに応じた入力欄へフォーカスする。
+  // focusElementInput は elements(変換前のスナップショットがクロージャに残る)から
+  // 要素タイプを再判定するため、変換直後はまだ古いタイプで判定してしまい、
+  // 単語要素の 'word' フィールドではなく存在しない 'main' キーを探してフォーカスが
+  // 当たらないことがある。ここでは変換後に確定している type を直接使ってフォーカスする。
+  const focusConvertedField = (index: number, type: NoteElement['type']) => {
+    if (type === 'image') return;
+    const field = type === 'word' ? 'word' : 'main';
+    const key = getInputKey(index, field);
+    const ref = inputRefs.current[key];
+    if (ref) {
+      try { ref.focus(); } catch (_) {}
+    } else {
+      setTimeout(() => {
+        try { inputRefs.current[key]?.focus(); } catch (_) {}
+      }, 30);
+    }
+  };
+
   const handleTypeChange = (type: NoteElement['type']) => {
+    setHeadingPickerVisible(false);
     if (activeIndex === null || !elements?.[activeIndex]) return;
     const current = elements[activeIndex];
     const hasAnyTextInput = current.type === 'word'
@@ -693,32 +1019,96 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
 
     // 画像以外の要素で1文字以上入力済みなら、画像への変換は不可
     if (type === 'image' && current.type !== 'image' && hasAnyTextInput) return;
-    if (current.type === type) return;
 
     // タイプ変換で現在の Input がアンマウントされる前に keeper へフォーカスしてキーボードを維持する
-    if (type !== 'image') {
-      try { toolbarKeyboardKeeperRef.current?.focus(); } catch (_) {}
+    // (画像への変換時も、変換先のhidden InputがautoFocusで取得するまでのキーボードのチラつきを防ぐため必須)
+    try { toolbarKeyboardKeeperRef.current?.focus(); } catch (_) {}
+
+    if (current.type === type) {
+      // 同じボタンをもう一度押すと、その属性を取り消して文章に戻す(文章自体は取り消し対象なし)
+      if (type === 'text') return;
+      const reverted = convertElementType(current, 'text');
+      onElementChange?.(activeIndex, reverted);
+      setTimeout(() => focusConvertedField(activeIndex, 'text'), 50);
+      return;
     }
 
     const converted = convertElementType(current, type);
     onElementChange?.(activeIndex, converted);
-    setTimeout(() => {
-      if (type !== 'image') {
-        // word 型は 'word' フィールドへフォーカス
-        const field = type === 'word' ? 'word' : 'main';
-        focusElementInput(activeIndex, field as any);
-      }
-    }, 50);
+    setTimeout(() => focusConvertedField(activeIndex, type), 50);
   };
 
-  const processPickedImage = async (
-    asset: { uri: string; width?: number; height?: number },
+  // テキスト編集(挿入/削除)に合わせてマーカー範囲の文字位置を補正する。
+  // 編集範囲より前のマーカーはそのまま、後ろのマーカーは差分だけシフトし、
+  // 編集範囲の内側にかかる境界は編集後の範囲の端にスナップする。
+  const rebaseMarks = (marks: TextMark[] | undefined, oldText: string, newText: string): TextMark[] | undefined => {
+    if (!marks || marks.length === 0) return marks;
+    if (oldText === newText) return marks;
+    const minLen = Math.min(oldText.length, newText.length);
+    let prefix = 0;
+    while (prefix < minLen && oldText[prefix] === newText[prefix]) prefix++;
+    let suffix = 0;
+    while (suffix < minLen - prefix && oldText[oldText.length - 1 - suffix] === newText[newText.length - 1 - suffix]) suffix++;
+    const oldEditEnd = oldText.length - suffix;
+    const newEditEnd = newText.length - suffix;
+    const editStart = prefix;
+    const delta = newEditEnd - oldEditEnd;
+
+    const mapPos = (p: number, isEnd: boolean): number => {
+      if (p <= editStart) return p;
+      if (p >= oldEditEnd) return p + delta;
+      return isEnd ? newEditEnd : editStart;
+    };
+
+    const rebased = marks
+      .map((m) => {
+        const start = mapPos(m.start, false);
+        const end = mapPos(m.end, true);
+        return { start: Math.min(start, end), end: Math.max(start, end), color: m.color };
+      })
+      .filter((m) => m.end > m.start);
+    return rebased.length > 0 ? rebased : undefined;
+  };
+
+  // 範囲[eraseStart, eraseEnd)を既存マーカーから取り除く(部分的に被る場合は分割する)
+  const subtractMarkRange = (marks: TextMark[], eraseStart: number, eraseEnd: number): TextMark[] => {
+    const result: TextMark[] = [];
+    for (const m of marks) {
+      if (m.end <= eraseStart || m.start >= eraseEnd) {
+        result.push(m);
+        continue;
+      }
+      if (m.start < eraseStart) result.push({ start: m.start, end: eraseStart, color: m.color });
+      if (m.end > eraseEnd) result.push({ start: eraseEnd, end: m.end, color: m.color });
+    }
+    return result;
+  };
+
+  // 選択中の文字範囲にマーカー(ハイライト)を付ける/消す。選択は表示モードに戻った時に反映される。
+  // color が null の場合は「消す(無色)」として選択範囲のマーカーを取り除く。
+  // ツールバーのボタンタップでTextInputがblurし選択が消えることがあるため、
+  // 直近の「空でない」選択を保持した lastNonEmptySelectionRef を使う(selectionRef の最新値だと消えている場合がある)。
+  const applyMarkerToSelection = (color: string | null) => {
+    setMarkerColorPickerVisible(false);
+    const frozen = lastNonEmptySelectionRef.current;
+    if (!frozen || !elements?.[frozen.idx]) return;
+    const current = elements[frozen.idx];
+    if (current.type === 'word' || current.type === 'image') return;
+    const start = Math.min(frozen.start, frozen.end);
+    const end = Math.max(frozen.start, frozen.end);
+    if (start === end) return;
+    const cleared = subtractMarkRange(current.marks ?? [], start, end);
+    const nextMarks = color === null ? cleared : [...cleared, { start, end, color }];
+    onElementChange?.(frozen.idx, { ...current, marks: nextMarks.length > 0 ? nextMarks : undefined } as NoteElement);
+    lastNonEmptySelectionRef.current = null;
+  };
+
+  const applyCroppedImage = (
+    payload: { uri: string; width?: number; height?: number; originalUri: string; cropRect: ImageCropRect },
     idx: number
   ) => {
-    const dest = `${FileSystem.documentDirectory}note_img_${Date.now()}.jpg`;
-    await FileSystem.copyAsync({ from: asset.uri, to: dest });
-    const pickedAspect = asset.width && asset.height && asset.height > 0
-      ? asset.width / asset.height
+    const pickedAspect = payload.width && payload.height && payload.height > 0
+      ? payload.width / payload.height
       : undefined;
     const current = elements?.[idx];
     if (current?.type === 'image') {
@@ -727,15 +1117,17 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
         ? (current.rows ?? IMAGE_DEFAULT_ROWS)
         : getDisplayedImageRows({
             type: 'image',
-            uri: dest,
+            uri: payload.uri,
             rows: current.rows ?? IMAGE_DEFAULT_ROWS,
             aspectRatio: nextAspectRatio,
           });
       onElementChange?.(idx, {
         type: 'image',
-        uri: dest,
+        uri: payload.uri,
         rows: nextRows,
         aspectRatio: nextAspectRatio,
+        originalUri: payload.originalUri,
+        cropRect: payload.cropRect,
       });
     }
   };
@@ -771,11 +1163,62 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   };
 
   const launchImagePicker = async (useCamera: boolean, idx: number) => {
+    // allowsEditing(ネイティブの編集UI)はiOSだと正方形固定になるため使わず、
+    // 元画像をそのまま受け取って自作の自由トリミングUI(ImageCropModal)に渡す
     const result = useCamera
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: true })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: true });
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
     if (result.canceled || !result.assets?.[0]?.uri) return;
-    await processPickedImage(result.assets[0], idx);
+    const asset = result.assets[0];
+    setCropPickerState({ idx, uri: asset.uri, width: asset.width ?? 0, height: asset.height ?? 0 });
+  };
+
+  const handleCropCancel = () => setCropPickerState(null);
+
+  const handleCropConfirm = async (cropped: { uri: string; width: number; height: number; cropRect: ImageCropRect }) => {
+    const state = cropPickerState;
+    setCropPickerState(null);
+    if (!state) return;
+
+    const destCropped = `${FileSystem.documentDirectory}note_img_${Date.now()}.jpg`;
+    await FileSystem.copyAsync({ from: cropped.uri, to: destCropped });
+
+    // 新規追加時は元画像も保存しておき、後から「トリミングを修正」できるようにする。
+    // 再トリミング時は既に保存済みの元画像をそのまま使う。
+    let originalUri = state.existingOriginalUri;
+    if (!originalUri) {
+      const destOriginal = `${FileSystem.documentDirectory}note_img_orig_${Date.now()}.jpg`;
+      await FileSystem.copyAsync({ from: state.uri, to: destOriginal });
+      originalUri = destOriginal;
+    }
+
+    applyCroppedImage(
+      { uri: destCropped, width: cropped.width, height: cropped.height, originalUri, cropRect: cropped.cropRect },
+      state.idx
+    );
+  };
+
+  // 既にトリミング済みの画像要素について、元画像を読み込んで再トリミングUIを開く
+  const reopenCropEditor = async (idx: number) => {
+    const current = elements?.[idx];
+    if (current?.type !== 'image' || !current.uri) return;
+    const originalUri = current.originalUri || current.uri;
+    try {
+      const { width, height } = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        Image.getSize(originalUri, (w, h) => resolve({ width: w, height: h }), reject);
+      });
+      setCropPickerState({
+        idx,
+        uri: originalUri,
+        width,
+        height,
+        initialCropRect: current.cropRect,
+        existingOriginalUri: originalUri,
+      });
+    } catch (e) {
+      console.error('元画像の取得に失敗:', e);
+      Alert.alert('エラー', '元画像を読み込めませんでした。');
+    }
   };
 
   const pickImageForElement = async (idx: number) => {
@@ -799,15 +1242,21 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
   const showImageEditMenu = (idx: number, hasImage: boolean) => {
     if (Platform.OS === 'ios') {
       const options = hasImage
-        ? ['キャンセル', '写真ライブラリ', 'カメラで撮影', '行数を変更', '画像を削除']
+        ? ['キャンセル', '写真ライブラリ', 'カメラで撮影', '行数を変更', 'トリミングを修正', '画像を削除']
         : ['キャンセル', '写真ライブラリ', 'カメラで撮影', '要素を削除'];
       ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: 0, destructiveButtonIndex: hasImage ? 4 : 3 },
+        { options, cancelButtonIndex: 0, destructiveButtonIndex: hasImage ? 5 : 3 },
         async (buttonIndex) => {
           if (buttonIndex === 1) await launchImagePicker(false, idx);
           if (buttonIndex === 2) await launchImagePicker(true, idx);
           if (hasImage && buttonIndex === 3) openImageRowsEditor(idx);
-          if (buttonIndex === (hasImage ? 4 : 3)) onDeleteElement?.(idx);
+          if (hasImage && buttonIndex === 4) await reopenCropEditor(idx);
+          if (buttonIndex === (hasImage ? 5 : 3)) {
+            // 要素削除でInputがアンマウントされる前にkeeperへフォーカスしてキーボードを維持
+            try { toolbarKeyboardKeeperRef.current?.focus(); } catch (_) {}
+            pendingDeleteFocusRef.current = idx;
+            onDeleteElement?.(idx);
+          }
         }
       );
     } else {
@@ -818,8 +1267,17 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       ];
       if (hasImage) {
         menuButtons.push({ text: '行数を変更', onPress: () => openImageRowsEditor(idx) });
+        menuButtons.push({ text: 'トリミングを修正', onPress: () => reopenCropEditor(idx) });
       }
-      menuButtons.push({ text: hasImage ? '画像を削除' : '要素を削除', style: 'destructive', onPress: () => onDeleteElement?.(idx) });
+      menuButtons.push({
+        text: hasImage ? '画像を削除' : '要素を削除',
+        style: 'destructive',
+        onPress: () => {
+          try { toolbarKeyboardKeeperRef.current?.focus(); } catch (_) {}
+          pendingDeleteFocusRef.current = idx;
+          onDeleteElement?.(idx);
+        },
+      });
       Alert.alert(hasImage ? '画像の操作' : '画像を追加', '', menuButtons);
     }
   };
@@ -995,6 +1453,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
               ...debugStyle,
             }}
           >
+            {isEditing && effectiveActiveIndex === idx && <ImageActiveCursor />}
             {el.uri ? (
               <>
                 <Image source={{ uri: el.uri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
@@ -1040,9 +1499,13 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 onFocus={() => setActiveIndex(idx)}
                 onKeyPress={({ nativeEvent }) => {
                   if (nativeEvent.key === 'Backspace') {
+                    // 要素削除でInputがアンマウントされる前にkeeperへフォーカスしてキーボードを維持
+                    try { toolbarKeyboardKeeperRef.current?.focus(); } catch (_) {}
+                    pendingDeleteFocusRef.current = idx;
                     onDeleteElement?.(idx);
                   }
                 }}
+                onSubmitEditing={() => focusNextElement(idx)}
                 style={{
                   position: 'absolute',
                   top: 0,
@@ -1133,6 +1596,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                         if (isWordEmpty && isMeaningEmpty) {
                           // 両方空のとき → 文章ツールに変換（行は残す）
                           console.log(`[単語/意味 両方空削除] idx=${idx} を文章ツールに変換`);
+                          // 型変換でInputがアンマウントされる前にkeeperへフォーカスしてキーボードを維持
+                          try { toolbarKeyboardKeeperRef.current?.focus(); } catch (_) {}
                           onElementChange?.(idx, { type: 'text', text: '' });
                           // フォーカスを維持
                           setTimeout(() => {
@@ -1299,6 +1764,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                       if (isMeaningEmpty && isWordEmpty) {
                         // 両方空のとき → 文章ツールに変換（行は残す）
                         console.log(`[単語/意味 両方空削除（意味側）] idx=${idx} を文章ツールに変換`);
+                        // 型変換でInputがアンマウントされる前にkeeperへフォーカスしてキーボードを維持
+                        try { toolbarKeyboardKeeperRef.current?.focus(); } catch (_) {}
                         onElementChange?.(idx, { type: 'text', text: '' });
                         // フォーカスを維持
                         setTimeout(() => {
@@ -1375,6 +1842,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       const textRowHeightStyle = { minHeight: estHeight };
       const headingUnderlineStyle = isOutlineType ? { textDecorationLine: 'underline' as const } : null;
       const mainText = 'text' in el ? el.text : (el as any).text || '';
+      const elementMarks: TextMark[] | undefined = (el as any).marks;
+      const hasMarks = Boolean(elementMarks && elementMarks.length > 0);
       rendered.push(
         <View
           key={idx}
@@ -1418,6 +1887,16 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
         >
           <View style={{ flex: 1, paddingHorizontal: 6, paddingTop: 0, paddingBottom: 0, justifyContent: 'flex-start' }}>
             {isEditing ? (
+            <View style={{ position: 'relative' }}>
+              {hasMarks && (
+                <MarkerHighlightLayer
+                  text={mainText}
+                  marks={elementMarks}
+                  fontSize={font.size}
+                  lineHeight={font.lineHeight}
+                  fontFamily={font.family}
+                />
+              )}
               <TextInput
                 allowFontScaling={false}
                 maxFontSizeMultiplier={1}
@@ -1457,7 +1936,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     return;
                   }
 
-                  onElementChange?.(idx, { ...el, text: t } as any);
+                  onElementChange?.(idx, { ...el, text: t, marks: rebaseMarks(elementMarks, mainText, t) } as any);
                 }}
                 onKeyPress={({ nativeEvent }) => {
                   if (nativeEvent.key === 'Enter' || nativeEvent.key === 'Return' || nativeEvent.key === '\n') {
@@ -1607,6 +2086,12 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 }}
                 onSelectionChange={({ nativeEvent }) => {
                   selectionRef.current[getInputKey(idx, 'main')] = nativeEvent.selection;
+                  if (effectiveActiveIndex === idx) {
+                    setActiveMainSelection(nativeEvent.selection);
+                    if (nativeEvent.selection.start !== nativeEvent.selection.end) {
+                      lastNonEmptySelectionRef.current = { idx, start: nativeEvent.selection.start, end: nativeEvent.selection.end };
+                    }
+                  }
                 }}
                 onContentSizeChange={(e) => {
                   const h = Math.round(e.nativeEvent.contentSize.height);
@@ -1634,6 +2119,7 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                 ref={(ref) => { inputRefs.current[getInputKey(idx, 'main')] = ref; }}
                 autoFocus={effectiveActiveIndex === idx}
                 onFocus={() => setActiveIndex(idx)}
+                textContainerInset={{ top: 0, left: 0, bottom: 0, right: 0 }}
                 style={{
                   fontSize: font.size,
                   lineHeight: font.lineHeight,
@@ -1669,34 +2155,48 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   splitByEnter(idx, current);
                 }}
               />
+            </View>
             ) : (
-              <TextInput
-                allowFontScaling={false}
-                maxFontSizeMultiplier={1}
-                editable={false}
-                pointerEvents="none"
-                value={mainText}
-                multiline
-                scrollEnabled={false}
-                onContentSizeChange={(e) => {
-                  const h = Math.round(e.nativeEvent.contentSize.height);
-                  const lines = Math.max(1, Math.ceil(h / font.lineHeight));
-                  updateMeasuredTextLines(idx, lines);
-                }}
-                style={{
-                  fontSize: font.size,
-                  lineHeight: font.lineHeight,
-                  fontFamily: font.family,
-                  flexWrap: 'wrap',
-                  width: '100%',
-                  color: '#2D251D',
-                  minHeight: font.lineHeight,
-                  padding: 0,
-                  textAlignVertical: 'top',
-                  includeFontPadding: false,
-                  ...(headingUnderlineStyle ?? {}),
-                }}
-              />
+              <View style={{ position: 'relative' }}>
+                {hasMarks && (
+                  <MarkerHighlightLayer
+                    text={mainText}
+                    marks={elementMarks}
+                    fontSize={font.size}
+                    lineHeight={font.lineHeight}
+                    fontFamily={font.family}
+                  />
+                )}
+                <TextInput
+                  allowFontScaling={false}
+                  maxFontSizeMultiplier={1}
+                  editable={false}
+                  pointerEvents="none"
+                  value={mainText}
+                  multiline
+                  scrollEnabled={false}
+                  textContainerInset={{ top: 0, left: 0, bottom: 0, right: 0 }}
+                  onContentSizeChange={(e) => {
+                    const h = Math.round(e.nativeEvent.contentSize.height);
+                    const lines = Math.max(1, Math.ceil(h / font.lineHeight));
+                    updateMeasuredTextLines(idx, lines);
+                  }}
+                  style={{
+                    fontSize: font.size,
+                    lineHeight: font.lineHeight,
+                    fontFamily: font.family,
+                    backgroundColor: 'transparent',
+                    flexWrap: 'wrap',
+                    width: '100%',
+                    color: '#2D251D',
+                    minHeight: font.lineHeight,
+                    padding: 0,
+                    textAlignVertical: 'top',
+                    includeFontPadding: false,
+                    ...(headingUnderlineStyle ?? {}),
+                  }}
+                />
+              </View>
             )}
           </View>
         </View>
@@ -1801,9 +2301,52 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
       {/* 属性ツールバー：キーボード直上に固定。見出しラベル + 横一列ボタン */}
       {isEditing && keyboardVisible && (
         <View style={[style.keyboardToolbar, { position: 'absolute', bottom: keyboardHeight, left: 0, right: 0 }]}>
+          {markerColorPickerVisible && (
+            <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 10 }}>
+              {MARKER_COLORS.map(({ label, color }) => (
+                <TouchableOpacity
+                  key={color}
+                  onPress={() => applyMarkerToSelection(color)}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    backgroundColor: color,
+                    marginHorizontal: 6,
+                    borderWidth: 1,
+                    borderColor: 'rgba(0,0,0,0.15)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  accessibilityLabel={`${label}のマーカー`}
+                />
+              ))}
+              <TouchableOpacity
+                key="marker-erase"
+                onPress={() => applyMarkerToSelection(null)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: '#fff',
+                  marginHorizontal: 6,
+                  borderWidth: 1,
+                  borderColor: 'rgba(0,0,0,0.25)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                accessibilityLabel="マーカーを消す"
+              >
+                <Ionicons name="close" size={16} color="rgba(0,0,0,0.45)" />
+              </TouchableOpacity>
+            </View>
+          )}
           {(() => {
             const current = effectiveActiveIndex !== null && effectiveActiveIndex !== undefined ? elements?.[effectiveActiveIndex] : undefined;
             const currentType: NoteElement['type'] = isValidElement(current) ? current.type : 'text';
+            const isTextBearingType = currentType === 'text' || currentType === 'chapter' || currentType === 'section' || currentType === 'subsection';
+            const showMarkerButton = isTextBearingType
+              && Boolean(activeMainSelection && activeMainSelection.start !== activeMainSelection.end);
 
             const renderButton = ({ label, type, iconName }: { label: string; type: NoteElement['type']; iconName?: keyof typeof Ionicons.glyphMap }) => {
               const isOutlineType = type === 'chapter' || type === 'section' || type === 'subsection';
@@ -1815,7 +2358,8 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                   ? Boolean((current.word || '').trim().length > 0 || (current.meaning || '').trim().length > 0)
                   : Boolean((current.text || '').trim().length > 0)
                 : false;
-              const isImageButtonDisabled = isImageType && currentType !== 'image' && hasAnyTextInput;
+              // マーカーの色選択中は、誤操作で他の要素タイプに変更されないよう全ボタンを非活性にする
+              const isButtonDisabled = (isImageType && currentType !== 'image' && hasAnyTextInput) || markerColorPickerVisible || headingPickerVisible;
 
               const baseButtonStyle = isOutlineType
                 ? style.toolbarButtonOutline
@@ -1866,10 +2410,10 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
                     style.toolbarButton,
                     baseButtonStyle,
                     isActive && activeButtonStyle,
-                    isImageButtonDisabled && style.toolbarButtonDisabled,
+                    isButtonDisabled && style.toolbarButtonDisabled,
                   ]}
                   onPress={() => handleTypeChange(type)}
-                  disabled={isImageButtonDisabled}
+                  disabled={isButtonDisabled}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     {iconName ? <Ionicons name={iconName} size={iconSize} color={iconColor} style={{ marginRight: 6 }} /> : null}
@@ -1897,23 +2441,114 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
             const subsectionBtn = TOOLBAR_TYPES.find(({ type }) => type === 'subsection');
             const wordBtn = TOOLBAR_TYPES.find(({ type }) => type === 'word');
             const imageBtn = TOOLBAR_TYPES.find(({ type }) => type === 'image');
+            const isHeadingActive = currentType === 'chapter' || currentType === 'section' || currentType === 'subsection';
 
             return (
-              <View style={style.toolbarButtonList}>
-                {textBtn ? <View style={style.toolbarStandaloneButton}>{renderButton(textBtn)}</View> : null}
-
-                <View style={style.toolbarOutlineInlineGroup}>
-                  <Text style={style.toolbarSectionLabel}>見出し</Text>
-                  <View style={style.toolbarOutlineButtons}>
-                    {chapterBtn ? renderButton(chapterBtn) : null}
-                    {sectionBtn ? renderButton(sectionBtn) : null}
-                    {subsectionBtn ? renderButton(subsectionBtn) : null}
+              <>
+                {headingPickerVisible && (
+                  <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 10 }}>
+                    {[chapterBtn, sectionBtn, subsectionBtn].map((btn) => {
+                      if (!btn) return null;
+                      const isActive = currentType === btn.type;
+                      return (
+                        <TouchableOpacity
+                          key={btn.type}
+                          onPress={() => handleTypeChange(btn.type)}
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 16,
+                            marginHorizontal: 6,
+                            borderWidth: 1,
+                            borderColor: isActive ? '#3A5F47' : '#9FC4A8',
+                            backgroundColor: isActive ? '#4D7A5B' : '#EEF7F0',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text
+                            allowFontScaling={false}
+                            maxFontSizeMultiplier={1}
+                            style={{ fontSize: 13, fontWeight: '700', color: isActive ? '#fff' : '#2F4D3A' }}
+                          >
+                            {btn.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
-                </View>
+                )}
+                <View style={style.toolbarButtonList}>
+                  {textBtn ? <View style={style.toolbarStandaloneButton}>{renderButton(textBtn)}</View> : null}
 
-                {wordBtn ? <View style={style.toolbarStandaloneButton}>{renderButton(wordBtn)}</View> : null}
-                {imageBtn ? <View style={style.toolbarStandaloneButton}>{renderButton(imageBtn)}</View> : null}
-              </View>
+                  <View style={style.toolbarStandaloneButton}>
+                    <TouchableOpacity
+                      style={[
+                        style.toolbarButton,
+                        style.toolbarButtonOutline,
+                        (isHeadingActive || headingPickerVisible) && style.toolbarButtonOutlineActive,
+                        (markerColorPickerVisible || currentType === 'word') && style.toolbarButtonDisabled,
+                      ]}
+                      onPress={() => setHeadingPickerVisible((v) => !v)}
+                      disabled={markerColorPickerVisible || currentType === 'word'}
+                    >
+                      <Text
+                        allowFontScaling={false}
+                        maxFontSizeMultiplier={1}
+                        numberOfLines={1}
+                        ellipsizeMode="clip"
+                        style={[
+                          style.toolbarButtonLabel,
+                          style.toolbarButtonOutlineText,
+                          (isHeadingActive || headingPickerVisible) && style.toolbarButtonTextActive,
+                        ]}
+                      >
+                        見出し
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {wordBtn ? <View style={style.toolbarStandaloneButton}>{renderButton(wordBtn)}</View> : null}
+                {showMarkerButton ? (
+                  <View style={style.toolbarStandaloneButton}>
+                    <TouchableOpacity
+                      style={[
+                        style.toolbarButton,
+                        style.toolbarButtonMarker,
+                        markerColorPickerVisible && style.toolbarButtonMarkerActive,
+                        headingPickerVisible && style.toolbarButtonDisabled,
+                      ]}
+                      onPress={() => setMarkerColorPickerVisible((v) => !v)}
+                      disabled={headingPickerVisible}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons
+                          name="color-fill-outline"
+                          size={16}
+                          color={markerColorPickerVisible ? '#fff' : '#6B5400'}
+                          style={{ marginRight: 6 }}
+                        />
+                        <Text
+                          allowFontScaling={false}
+                          maxFontSizeMultiplier={1}
+                          numberOfLines={1}
+                          ellipsizeMode="clip"
+                          style={[
+                            style.toolbarButtonLabel,
+                            style.toolbarButtonMarkerText,
+                            markerColorPickerVisible && style.toolbarButtonTextActive,
+                          ]}
+                        >
+                          マーカー
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  imageBtn ? <View style={style.toolbarStandaloneButton}>{renderButton(imageBtn)}</View> : null
+                )}
+                </View>
+              </>
             );
           })()}
         </View>
@@ -1962,6 +2597,15 @@ const NoteContent: React.FC<Props> = ({ children, backgroundColor, fillBackgroun
           </View>
         </View>
       </Modal>
+      <ImageCropModal
+        visible={cropPickerState !== null}
+        imageUri={cropPickerState?.uri ?? null}
+        imageWidth={cropPickerState?.width ?? 0}
+        imageHeight={cropPickerState?.height ?? 0}
+        initialCropRect={cropPickerState?.initialCropRect}
+        onCancel={handleCropCancel}
+        onConfirm={handleCropConfirm}
+      />
       {isEditing && (
         <TextInput
           allowFontScaling={false}
@@ -2000,30 +2644,12 @@ const style = StyleSheet.create({
     flexShrink: 0,
     alignItems: 'center',
   },
-  toolbarSectionLabel: {
-    fontSize: 11,
-    lineHeight: 13,
-    fontWeight: '600',
-    color: '#7A6B5D',
-    marginBottom: 1,
-    alignSelf: 'flex-start',
-  },
   toolbarButtonList: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'center',
     gap: 6,
     flexWrap: 'nowrap',
-  },
-  toolbarOutlineInlineGroup: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    justifyContent: 'flex-end',
-  },
-  toolbarOutlineButtons: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 6,
   },
   toolbarStandaloneButton: {
     alignSelf: 'flex-end',
@@ -2054,6 +2680,17 @@ const style = StyleSheet.create({
   toolbarButtonImage: {
     backgroundColor: '#F2EEFF',
     borderColor: '#C5B7E8',
+  },
+  toolbarButtonMarker: {
+    backgroundColor: '#FFF3C0',
+    borderColor: '#E8C94A',
+  },
+  toolbarButtonMarkerActive: {
+    backgroundColor: '#E8B400',
+    borderColor: '#B98E00',
+  },
+  toolbarButtonMarkerText: {
+    color: '#6B5400',
   },
   toolbarButtonOutlineActive: {
     backgroundColor: '#4D7A5B',

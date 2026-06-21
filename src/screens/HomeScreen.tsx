@@ -399,7 +399,8 @@ const calcImportItemRows = (item: ImportedItem, availableWidth: number): number 
     // 超過分が次ページに送られなくなる。
     const word = item.word || '';
     const meaning = item.explanation || '';
-    const termWidth = Math.max(1, (availableWidth * 0.5) / 1.1 - 24);
+    // 単語列には先頭の「.」と末尾の「...」の両方が同じ行に並ぶため、その分を引く
+    const termWidth = Math.max(1, (availableWidth * 0.5) / 1.1 - 44);
     const meaningWidth = Math.max(1, (availableWidth * 0.6) / 1.1 - 4);
     const termCharsPerLine = Math.max(4, Math.floor(termWidth / 17));
     const meaningCharsPerLine = Math.max(6, Math.floor(meaningWidth / 15));
@@ -1441,7 +1442,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       const textOutput = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
       const exportDir = `${FileSystem.documentDirectory}exports/`;
       await FileSystem.makeDirectoryAsync(exportDir, { intermediates: true });
-      const filename = `${sanitizeFileName(book.title || 'note')}_${Date.now()}.${format}`;
+      const filename = `${sanitizeFileName(book.title || 'note')}.${format}`;
       const destination = `${exportDir}${filename}`;
 
       await FileSystem.writeAsStringAsync(destination, textOutput, { encoding: FileSystem.EncodingType.UTF8 });
