@@ -171,7 +171,7 @@ const PRODUCTION_BOOK_PAGES: Record<string, SeedPage[]> = {
       { type: 'text', text: '・画像...写真をトリミングして挿入する', marks: [{ start: 1, end: 3, color: 'rgba(171, 71, 188, 0.40)' }] },
       { type: 'text', text: '・マーカー...文字を選択すると表示され、ハイライトを付けられる', marks: [{ start: 1, end: 5, color: 'rgba(255, 235, 59, 0.55)' }] },
       { type: 'section', text: '単語/意味の追加' },
-      { type: 'text', text: '「単語/意味」を登録すると、「単語リスト」と「一問一答」の画面にも自動で反映されます。' },
+      { type: 'text', text: '「単語/意味」を追加すると、「単語リスト」と「一問一答」の画面にも自動で反映されます。' },
       { type: 'word', word: '単語リスト', explanation: 'ノートに追加した単語を一覧で確認できます' },
       { type: 'word', word: '一問一答', explanation: 'ノートに追加した単語をクイズ形式で復習できます' },
     ],
